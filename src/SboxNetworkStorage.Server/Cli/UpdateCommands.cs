@@ -24,6 +24,11 @@ public static class UpdateCommands
             return await AutoUpdateCommand.RunAsync(context);
         }
 
+        if (context.Args.Flag("allow-downgrade") && context.Args.Option("version") is null)
+        {
+            throw new CliException("--allow-downgrade needs --version X.Y.Z", CliApp.Usage);
+        }
+
         var config = context.LoadValidConfig();
         using var http = ReleaseFeed.CreateHttpClient();
         var feed = new ReleaseFeed(http, config);
@@ -46,11 +51,6 @@ public static class UpdateCommands
 
         var downgrade = SemanticVersion.TryParse(release.Version, out var target) && SemanticVersion.TryParse(BuildInfo.Version, out var installed)
             && target.CompareTo(installed) < 0;
-        if (context.Args.Flag("allow-downgrade") && requested is null)
-        {
-            throw new CliException("--allow-downgrade needs --version X.Y.Z", CliApp.Usage);
-        }
-
         if (downgrade && !context.Args.Flag("allow-downgrade"))
         {
             throw new CliException($"{release.Version} is older than the installed {BuildInfo.Version}. Downgrades need --allow-downgrade, and only go ahead when the older release can run on the current database without a restore (see docs/self-hosting.md).");
