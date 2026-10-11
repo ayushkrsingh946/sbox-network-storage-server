@@ -92,12 +92,12 @@
     <div class="alert-strip" role="region" aria-label="Server notices">
     @if (demo) { <p class="alert-item alert-demo" data-alert="demo"><strong>Read-only demo.</strong><span>Generated sample data. Changes cannot be saved.</span><button type="button" data-alert-close aria-label="Dismiss demo notice">×</button></p> }
     @if (OwnerTransport.IsInsecureRemote(Context)) { <p class="alert-item alert-security" data-alert="http"><strong>Served over plain HTTP.</strong><span>Passwords and the session cookie travel unencrypted.</span><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">Enable HTTPS</a><button type="button" data-alert-close aria-label="Dismiss plain HTTP warning">×</button></p> }
-    @if (authenticated && stripUpdate is not null) { <p class="alert-item" data-alert="update" data-version="@stripUpdate.Latest.Version"><strong>@(stripUpdate.Latest.Security ? "Security update available" : "Update available"): @stripUpdate.Latest.Version.</strong><span>Running @stripUpdate.CurrentVersion.</span>@if (Uri.TryCreate(stripUpdate.Latest.ChangelogUrl, UriKind.Absolute, out var stripLog) && stripLog.Scheme == "https") { <a href="@stripLog.AbsoluteUri" rel="noreferrer">Changelog</a> }<button type="button" data-alert-close aria-label="Dismiss update notice">×</button></p> }
+    @if (authenticated && stripUpdate is not null) { <p class="alert-item" data-alert="update" data-version="@stripUpdate.Latest.Version"><strong>@(stripUpdate.Latest.Security ? "Security update available" : "Update available"): @stripUpdate.Latest.Version.</strong><span>Running @stripUpdate.CurrentVersion.</span><span>Run <code>sbox-ns update</code> for a manual update.</span>@if (Uri.TryCreate(stripUpdate.Latest.ChangelogUrl, UriKind.Absolute, out var stripLog) && stripLog.Scheme == "https") { <a href="@stripLog.AbsoluteUri" rel="noreferrer">Changelog</a> }<button type="button" data-alert-close aria-label="Dismiss update notice">×</button></p> }
     </div>
 }
 <header class="topbar">
     <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg></button><a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">ns</span><span>Network Storage</span></a></div>
-    <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="mint">Mint</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
+    <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="mint">Mint and orchid</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
     @if (authenticated && !demo) { <form method="post" action="/logout">@Html.AntiForgeryToken()<button class="secondary" type="submit">Log out</button></form> }</div>
 </header>
 <div class="shell @(authenticated ? "" : "auth-shell")">
@@ -145,11 +145,6 @@
     @if (OwnerTransport.IsInsecureRemote(Context))
     {
         <aside class="notice security" role="alert"><strong>This panel is served over plain HTTP</strong><p>Passwords, login links and the session cookie travel unencrypted. Enable ACME TLS, a TLS reverse proxy, or connect through an SSH tunnel.</p><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">How to enable HTTPS</a></aside>
-    }
-    @if (authenticated && Updates.Current is { UpdateAvailable: true } update)
-    {
-        <aside class="@(update.Latest.Security ? "notice security" : "notice")" role="status"><strong>@(update.Latest.Security ? "Security update available" : "Update available"): @update.Latest.Version</strong><p>Running @update.CurrentVersion. Automatic installation is optional and requires enabled release gates. Run <code>sbox-ns update</code> for a manual update.</p>
-        @if (Uri.TryCreate(update.Latest.ChangelogUrl, UriKind.Absolute, out var changelog) && changelog.Scheme == "https") { <a href="@changelog.AbsoluteUri" rel="noreferrer">Read changelog</a> }</aside>
     }
     @if (crumbs.Count > 0)
     {

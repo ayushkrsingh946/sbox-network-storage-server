@@ -12,7 +12,7 @@
     var agentPrompt = $"My sbox-ns project ID is {project.Id}. Use the sbox-ns MCP tools to read its definitions, recent requests and errors before you change anything, and dry-run endpoints with endpoint_test before I play.";
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
-<div class="page-heading"><div><h1>@project.Name</h1>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code>@project.Id</code></div><a class="button" href="@url/data">Browse data</a></div>
+<div class="page-heading"><div class="project-title">@OwnerProjectIcon.For(project, 56)<div><h1>@project.Name</h1>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code>@project.Id</code></div></div><a class="button" href="@url/data">Browse data</a></div>
 <section class="grid overview-grid">
     <article class="card metric"><span>Collections</span><strong>@(Model.Resources?.Collections.Count ?? 0)</strong><a href="@url/resources/collection">Manage schemas →</a></article>
     <article class="card metric"><span>Endpoints</span><strong>@(Model.Resources?.Endpoints.Count ?? 0)</strong><a href="@url/resources/endpoint">Author endpoints →</a></article>
@@ -163,6 +163,9 @@
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="project" />
             <label>Name <input name="name" value="@project.Name" required maxlength="64" /></label>
             <label>Description <textarea name="description" maxlength="256">@project.Description</textarea></label>
+            <label>Project colour <input type="color" name="color" value="@(project.Color ?? OwnerProjectIcon.DefaultColor(project.Id))" /></label>
+            <p class="muted">Sets the project tile on the dashboard. Tick Automatic colour to use the generated colour.</p>
+            <label class="check"><input type="checkbox" name="color" value="auto" checked="@(project.Color is null)" /> Automatic colour</label>
             <label class="check"><input type="checkbox" name="enabled" value="true" checked="@project.Enabled" /> Enabled</label>
             <label>How the game is hosted <select name="hostingProfile"><option value="player-hosted" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "player-hosted")">A player hosts (listen server, public key only)</option><option value="dedicated" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "dedicated")">Dedicated server (secret key)</option><option value="hybrid" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "hybrid")">Both player-hosted and dedicated</option><option value="unset" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "unset")">Not set</option></select></label>
             <button type="submit">Save project settings</button>

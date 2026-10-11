@@ -140,6 +140,12 @@
   });
   orderPinned();
 
+  // Picking a project colour turns Automatic colour off, so the pick is what gets saved.
+  document.querySelectorAll("input[type='color'][name='color']").forEach(function (picker) {
+    var auto = picker.form && picker.form.querySelector("input[type='checkbox'][name='color'][value='auto']");
+    if (auto) picker.addEventListener("input", function () { auto.checked = false; });
+  });
+
   // Inline style attributes are blocked by the panel CSP; color swatches are set through CSSOM.
   document.querySelectorAll(".manage-swatch[data-color]").forEach(function (swatch) {
     var color = swatch.getAttribute("data-color") || "";

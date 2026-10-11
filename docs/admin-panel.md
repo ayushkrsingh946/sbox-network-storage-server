@@ -173,6 +173,7 @@ project overview has a copyable first prompt that names the project ID.
 
 The overview keeps name, description, **Enabled** and **Require s&box
 authentication** open. The other settings are folded and closed by default.
+Project settings also has an optional colour. It tints the project tile on All projects and defaults to Automatic, which keeps the generated colour. Every project gets a generated tile with its initials, using the chosen colour or a generated one when Automatic is set.
 
 ### Hosting profile
 
@@ -333,47 +334,77 @@ collection type and expected version.
 
 ## Authoring and runtime diagnostics
 
-The project overview links to collection/schema, endpoint, workflow and query
+The project overview links to collection, endpoint, workflow and query
 definitions and game values. Author definitions in YAML; the dashboard stores
 your source text and compiles it with the same compiler as editor sync.
 Raw JSON is still accepted for older edits but is deprecated. Saving preserves
 source metadata and updates only the selected resource, not other definitions.
 
 Saved definitions are available to the runtime immediately. Editor sync can
-overwrite dashboard edits, so reconcile changes with your checked-in YAML/JSON
+overwrite dashboard edits, so reconcile changes with your checked-in YAML
 source. Endpoint expressions use double braces, such as `{{steamId}}` and
 `{{player.level}}`.
 
-The definition editor keeps **Check definition** and **Save live definition**
-alongside the source. Collections, endpoints and game values open in **Guided
-editor**; queries and workflows open in **Code**. **Raw source** always exposes
-the same authoritative text without highlighting. Tabs do not serialize or
-discard your source. Builders stay hidden for legacy JSON definitions.
+The definition editor has three tabs: **Guided editor**, **Raw source** and
+**Examples**. Collections, endpoints, workflows, queries and game values all
+open in **Guided editor**. **Check definition** and **Save live definition**
+stay beside the editor. Changes stay local until you save.
 
-YAML, JSON and C# examples have local syntax highlighting. Click a source line
-number to select that line, or use **Go to line**. The line-number gutter also
+Guided editor shows the definition as collapsed blocks. Open a block to edit
+its options. Fields use typed controls: dropdowns for fixed choices, on/off
+switches for booleans, and text fields for the rest. Maps and lists nest
+inside blocks. **Expand all** opens every block; **Collapse all** closes them.
+
+Add buttons open a dialog. Pipeline steps come from a searchable palette
+grouped by purpose: Data, Logic, Values, Random, Flow and Integrations (22
+step types). New steps get a unique id based on the step type. Blocks offer
+**Duplicate** and **Remove**, and fields can be renamed. Reorder with the
+handle: drag it, use the up and down buttons, or press Alt+Up and Alt+Down
+on the handle.
+
+Guided edits write small targeted changes into the source text. Comments,
+unknown fields, quoting and formatting survive, and large integers keep
+their exact digits. Switching tabs never rewrites the source. **Raw source**
+is the same authoritative text with highlighting. Without JavaScript the raw
+textarea still edits and saves the full source.
+
+Saving parses the YAML on the server. A value that reads as a number or
+`true`/`false` is stored as that type even when it is quoted, so a string value
+such as `"200"` comes back as the number `200`. Game values are stored without
+their source text: after a save the editor shows the server's rendering of the
+stored values, without comments or the original formatting.
+
+Some sources need Raw. Invalid YAML, several documents, a top-level list or
+scalar, and definitions that carry authoritative `sourceText` show a notice
+in Guided and leave the source untouched. YAML aliases and anchors also
+route to Raw: alias blocks show an **Edit in Raw** button, and structural
+edits through a shared reference are rejected with a message. Failed edits
+never half-apply.
+
+The resource list has a **New** button. It asks for an id (letters, numbers,
+underscore or hyphen, 1-128 characters) and opens a pristine `?draft=<id>`
+template with that id. Nothing is published until you save. Leaving with
+unsaved changes still triggers the navigation warning.
+
+YAML, JSON and C# have local syntax highlighting. Click a source line number
+to select that line, or use **Go to line**. The line-number gutter also
 supports arrow keys, Home and End. **Copy source** copies the full textarea,
 not the highlighted markup. Tab inserts two spaces; Shift+Tab leaves the
-textarea. Ctrl+S / Command+S saves the definition. Unsaved source and value-row
-edits trigger a navigation warning.
+textarea. Ctrl+S / Command+S saves the definition. Unsaved source and
+unapplied block inputs trigger a navigation warning. Review inserted fields
+and expressions before saving.
 
-The collection builder adds typed fields under `schema.properties`, refusing
-duplicate field names. The endpoint and workflow step palette appends steps
-under `steps` and gives repeated step IDs a unique suffix. Review inserted
-fields and expressions before saving. Game-value rows apply automatically on
-save, or use **Apply rows to editor** to review their source first. If source
-changed after the rows were loaded, reload before applying. Advanced YAML that
-the row editor cannot round-trip remains source-only.
-
-Open the **Examples** tab to browse complete definitions; **Use example**
-replaces the editor text and asks for confirmation when it is not empty.
-Review the replacement before saving.
+Open the **Examples** tab to browse complete definitions grouped by
+category. Each card shows a **Preview source** view and a **Use example**
+button. Replacement asks for confirmation in the shared confirm dialog when
+the editor is not empty. Saving stays a separate action. Review the
+replacement before saving.
 
 A new collection starts as `accessMode: endpoint`: game clients reach it only
 through endpoints and queries, and direct document calls answer
-`403 ENDPOINT_ONLY`. The collection builder sets **Game client access**
-(`accessMode: endpoint` or `public`) and **Deletes from game clients**
-(`allowRecordDelete`) together with the storage kind. See
+`403 ENDPOINT_ONLY`. **Game client access** (`accessMode: endpoint` or
+`public`) and **Deletes from game clients** (`allowRecordDelete`) sit with
+the storage kind. See
 [collection access from game clients](client-setup.md#collection-access-from-game-clients).
 
 A save that fails validation keeps your text and lists each diagnostic as
@@ -397,11 +428,13 @@ rules, webhooks and pages.
 
 When a collection, endpoint, workflow, query or game values is open in the
 editor, an integration card shows how to use it, with a **Copy** button on
-every block. The card has tabs for copyable C# and a prepared agent prompt
-(workflows add an endpoint-step tab). New drafts get the same card: it uses
-the skeleton values and says to save first, and the prompt refreshes from the
-editor text. Every block names the live project and resource. No block ever
-contains a secret key.
+every block. The card has tabs for copyable C# and a prepared agent prompt.
+Workflows add an endpoint-step tab with the YAML step that runs them.
+Internal endpoints show an endpoint-step tab and an agent prompt instead of
+game code. New drafts get the same card with skeleton values: it says to
+save first and shows no **Test this endpoint** link. The prompt includes the
+current editor source, with unsaved changes. Every block names the live
+project and resource. No block ever contains a secret key.
 
 - Setup: the exact `NetworkStorage.Configure( "<projectId>", "<public key>", "<base URL>" );`
   line, with the oldest enabled public key and the dashboard base URL

@@ -46,3 +46,24 @@ details.card.settings-advanced > summary { font-size: 1.1rem; }
 .rows .row-sub { display: block; font-weight: 400; color: var(--muted); font-size: .8rem; }
 .rows .row-sub code { font-size: .85em; }
 .manage-profile h3 code { overflow-wrap: anywhere; }
+/* Project hub: one column below md, three columns at md and up. The id
+   outranks the auto-fill .project-grid rule in owner-management.css. */
+#project-grid.project-grid { grid-template-columns: 1fr; }
+@media (min-width: 768px) {
+  #project-grid.project-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Denser cards: title row on top, compact facts pinned to the bottom so cards
+   in a row stay even with no reserved description space. The min-height
+   override below replaces the .project-card > p reservation in
+   owner-management.css, which left a gap when the description was missing. */
+#project-grid .project-card { display: flex; flex-direction: column; }
+#project-grid .project-card h2 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+#project-grid .project-id { margin-top: .15rem; }
+#project-grid .project-card > p { min-height: 0; margin: .5rem 0 0; }
+#project-grid .project-facts { margin-top: auto; padding-top: .6rem; font-size: .8rem; }
+/* Generated tile: fixed pixel size from its width/height attributes. */
+.project-tile { flex: none; vertical-align: middle; }
+/* Project page heading: tile beside the title. */
+.project-title { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+/* Settings colour control: native picker at control height. */
+#project-settings input[type="color"] { width: 3rem; height: 2rem; padding: .15rem; }
