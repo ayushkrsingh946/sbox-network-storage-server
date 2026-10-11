@@ -22,6 +22,10 @@
   var labels = { collectionType: "Storage", accessMode: "Game client access", allowRecordDelete: "Allow client deletes", sourceVersion: "Source version", ttlSeconds: "Cache lifetime (seconds)", requiresSecretKey: "Require secret key", errorCode: "Error code", collectionId: "Collection", maxRecords: "Maximum records", keyField: "Key field", weightField: "Weight field", asMap: "Return as a map", onFail: "On failure", minLength: "Minimum length", maxLength: "Maximum length" };
   function el(tag, text, cls) { var n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; }
   function button(text, action, cls) { var n = el("button", text, cls || "secondary"); n.type = "button"; n.addEventListener("click", function (event) { if (host.contains(n) && !flush()) return; action(event); }); return n; }
+  function confirmDestructive(options) {
+    if (window.OwnerDialog && typeof window.OwnerDialog.confirm === "function") return window.OwnerDialog.confirm(options);
+    return Promise.resolve(false);
+  }
   function label(key) { return labels[key] || String(key).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ").replace(/^./, function (c) { return c.toUpperCase(); }); }
   function key(path) { return JSON.stringify(path); }
   function exists(path) { return model && model.has(path); }
@@ -111,17 +115,17 @@
     if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(copied).then(function () { message("Block source copied."); }, fallback); else fallback();
   }
   function block(parent, path, heading, opts) {
-    opts = opts || {}; var row = el("div", undefined, "logic-block"), header = el("div", undefined, "block-header"), body = el("div", undefined, "block-body");
+    opts = opts || {}; var row = el("div", undefined, "logic-block"), header = el("div", undefined, "block-header"), main = el("div", undefined, "block-header-main"), body = el("div", undefined, "block-body");
     row.dataset.blockPath = key(path); if (opts.dynamic) row.dataset.blockDynamicTitle = heading;
     var toggle = button("", function () { if (expanded.has(key(path))) expanded.delete(key(path)); else expanded.add(key(path)); render(); focusBlock(path); }, "block-toggle");
     toggle.setAttribute("aria-expanded", String(expanded.has(key(path)))); body.id = "block-body-" + (++fieldId); toggle.setAttribute("aria-controls", body.id);
     toggle.append(el("span", expanded.has(key(path)) ? "⌄" : "›", "block-chevron"), el("strong", opts.dynamic ? title(path, heading) : heading, "block-title"));
     var type = value(path.concat("type")); if (type && descriptions[type]) toggle.append(el("span", label(type), "block-type"));
-    toggle.append(el("span", summary(path), "block-summary")); header.append(toggle);
+    toggle.append(el("span", summary(path), "block-summary")); main.append(toggle); header.append(main);
     if (opts.reorder) {
       var index = opts.index, siblings = entries(opts.parent), handle = button("⠿", function () {}, "secondary block-handle");
       handle.draggable = true; handle.title = "Drag to reorder. Alt + arrow up or down also moves this block."; handle.setAttribute("aria-label", "Reorder " + heading);
-      header.prepend(el("span", String(index + 1), "block-index"), handle);
+      main.prepend(el("span", String(index + 1), "block-index"), handle);
       handle.addEventListener("keydown", function (event) { if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) { event.preventDefault(); move(opts.parent, index, index + (event.key === "ArrowUp" ? -1 : 1)); } });
       handle.addEventListener("dragstart", function (event) { drag = { parent: opts.parent, index: index }; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", key(drag)); row.classList.add("block-dragging"); });
       handle.addEventListener("dragend", clearDrag);
@@ -143,9 +147,12 @@
         actions.append(button("Duplicate", function () {
           var newName = unique(String(value(path.concat("id")) || path[path.length - 1]) + "_copy", model.kind(opts.parent) === "seq" ? ids(opts.parent) : entries(opts.parent).map(function (e) { return String(e.key); }));
           if (mutate(function () { model.duplicate(opts.parent, index, newName); }, false)) { if (model.kind(opts.parent) === "seq") remap(opts.parent, function (i) { return i > index ? i + 1 : i; }); render(); }
-        }), button("Remove", function () {
-          if (!window.confirm("Remove " + heading + "? This stays local until you save.")) return;
-          if (mutate(function () { model.remove(path); }, false)) { if (model.kind(opts.parent) === "seq") remap(opts.parent, function (i) { return i === index ? null : i > index ? i - 1 : i; }); render(); }
+        }), button("Remove", function (event) {
+          var opener = event && event.currentTarget ? event.currentTarget : null;
+          confirmDestructive({ title: "Remove " + heading + "?", message: "This stays local until you save.", confirmLabel: "Remove", danger: true, opener: opener }).then(function (confirmed) {
+            if (!confirmed) return;
+            if (mutate(function () { model.remove(path); }, false)) { if (model.kind(opts.parent) === "seq") remap(opts.parent, function (i) { return i === index ? null : i > index ? i - 1 : i; }); render(); }
+          });
         }, "secondary danger"));
       }
       header.append(actions);
@@ -242,9 +249,15 @@
       }
     }
     if (["entries", "fields", "values", "returns"].includes(String(path[path.length - 2]))) controls.append(button("Rename", function () { rename(path); }));
-    if (allowRemove) controls.append(button("Remove", function () { if (window.confirm("Remove " + heading + "?")) mutate(function () { model.remove(path); }); }, "secondary block-field-remove"));
+    if (allowRemove) controls.append(button("Remove", function (event) {
+      var opener = event && event.currentTarget ? event.currentTarget : null;
+      confirmDestructive({ title: "Remove " + heading + "?", message: "This stays local until you save.", confirmLabel: "Remove", danger: true, opener: opener }).then(function (confirmed) {
+        if (confirmed) mutate(function () { model.remove(path); });
+      });
+    }, "secondary block-field-remove"));
     row.append(controls); parent.append(row);
     if (name === "accessMode") parent.append(el("p", "Endpoints only blocks direct game reads and writes. Direct access also requires a public key; deletes additionally require Allow client deletes.", "muted block-field-help"));
+    if (name === "requiresSecretKey") parent.append(el("p", "Dedicated servers only: when on, the endpoint answers 401 SECRET_KEY_REQUIRED without a secret key. Player-hosted games cannot call such endpoints.", "muted block-field-help"));
   }
   function knownOptions(path) {
     var result = {}, last = path[path.length - 1], type = value(path.concat("type"));
@@ -286,7 +299,12 @@
       if (childKind === "scalar" || childKind === "null") field(fields, p, heading, !["id", "kind", "sourceVersion", "type"].includes(String(entry.key)));
       else block(fields, p, heading, { content: function (body) {
         renderNode(body, p);
-        body.append(button("Remove option", function () { if (window.confirm("Remove " + heading + " and its contents?")) mutate(function () { model.remove(p); }); }, "secondary danger"));
+        body.append(button("Remove option", function (event) {
+          var opener = event && event.currentTarget ? event.currentTarget : null;
+          confirmDestructive({ title: "Remove " + heading + "?", message: "This removes the option and its contents. It stays local until you save.", confirmLabel: "Remove", danger: true, opener: opener }).then(function (confirmed) {
+            if (confirmed) mutate(function () { model.remove(p); });
+          });
+        }, "secondary danger"));
       } });
     });
     if (!fields.children.length) fields.append(el("p", "No options yet. Add one below.", "muted"));
@@ -407,7 +425,10 @@
           if (t === "object") added = {}; else if (t === "array") added = []; else if (t === "null") added = null;
           else if (t === "string") added = initialInput.value;
           else if (t === "boolean") { if (!/^(true|false)$/i.test(initialInput.value)) throw new Error("Boolean values must be true or false."); added = initialInput.value.toLowerCase() === "true"; }
-          else { var temporary = window.OwnerDefinitionModel.parse("value: 0\n"); temporary.setScalar(["value"], "number", initialInput.value); added = temporary.scalar(["value"]); }
+          else {
+            if (initialInput.value.trim() === "") { d.fail("Enter a number, or choose Null for an empty value."); initialInput.focus(); return; }
+            var temporary = window.OwnerDefinitionModel.parse("value: 0\n"); temporary.setScalar(["value"], "number", initialInput.value); added = temporary.scalar(["value"]);
+          }
         }
         var index = entries(path).length;
         if (!mutate(function () { if (nodeKind === "map") model.add(path, nameValue, added); else model.insert(path, index, added); }, false)) { d.fail(status.textContent); return; }
@@ -431,7 +452,14 @@
   });
   window.OwnerBlockEditor = {
     enterGuided: function () { load(); },
-    leaveGuided: function () { if (flush()) return true; if (!window.confirm("An invalid option has not been applied to source. Discard that input and switch tabs?")) return false; render(); return true; },
+    leaveGuided: function (opener) {
+      if (flush()) return Promise.resolve(true);
+      return confirmDestructive({ title: "Discard unapplied input?", message: "An invalid option has not been applied to source. Discard that input and switch tabs?", confirmLabel: "Discard input", danger: true, opener: opener || null }).then(function (confirmed) {
+        if (!confirmed) return false;
+        render();
+        return true;
+      });
+    },
     validate: flush,
     hasPending: function () { return Array.from(host.querySelectorAll("input,textarea,select")).some(function (control) { return control._blockPending; }); }
   };

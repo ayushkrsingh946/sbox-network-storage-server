@@ -160,16 +160,32 @@
     var currentMode;
     function activate(button) {
       var mode = button.dataset.editorMode;
-      if (currentMode === "edit" && mode !== "edit" && window.OwnerBlockEditor && !window.OwnerBlockEditor.leaveGuided()) return;
       if (mode === "edit" && !window.OwnerBlockEditor) mode = "raw";
-      currentMode = mode;
-      buttons.forEach(function (item) {
-        var active = item.dataset.editorMode === mode, panel = document.getElementById(item.getAttribute("aria-controls"));
-        item.setAttribute("aria-selected", String(active)); item.tabIndex = active ? 0 : -1;
-        if (panel) panel.hidden = !active;
-      });
-      if (mode === "edit") window.OwnerBlockEditor.enterGuided();
-      if (textarea._redrawSource) textarea._redrawSource();
+      function show() {
+        currentMode = mode;
+        buttons.forEach(function (item) {
+          var active = item.dataset.editorMode === mode, panel = document.getElementById(item.getAttribute("aria-controls"));
+          item.setAttribute("aria-selected", String(active)); item.tabIndex = active ? 0 : -1;
+          if (panel) panel.hidden = !active;
+        });
+        if (mode === "edit") window.OwnerBlockEditor.enterGuided();
+        if (textarea._redrawSource) textarea._redrawSource();
+      }
+      if (currentMode === "edit" && mode !== "edit" && window.OwnerBlockEditor) {
+        var verdict = window.OwnerBlockEditor.leaveGuided(button);
+        if (verdict && typeof verdict.then === "function") {
+          verdict.then(function (ok) {
+            if (ok) show();
+            else {
+              var guided = buttons.filter(function (item) { return item.dataset.editorMode === "edit"; })[0];
+              if (guided) guided.focus();
+            }
+          });
+          return;
+        }
+        if (!verdict) return;
+      }
+      show();
     }
     buttons.forEach(function (button) { button.addEventListener("click", function () { activate(button); }); });
     keyboardTabs(buttons, activate);

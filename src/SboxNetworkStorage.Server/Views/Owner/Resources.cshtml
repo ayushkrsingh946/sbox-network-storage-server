@@ -32,24 +32,6 @@
 </div>
 <p class="muted" id="definition-help">Build with editable blocks. Open a block to change its options; drag the handle or use the move buttons to reorder. Raw source is always available. Changes stay local until you save.</p>
 <div id="check-results" aria-live="polite"></div>
-@if (Model.Kind == "endpoint")
-{
-<details class="resource-tools"><summary>Endpoint builder</summary>
-<p class="muted">Set the routing fields or insert a step at the cursor, then review the YAML before saving.</p>
-<div class="form-grid"><label>Method <select id="builder-method"><option>GET</option><option>POST</option></select></label><label>Enabled <select id="builder-enabled"><option value="true">On</option><option value="false">Off</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-apply-endpoint">Apply method and enabled</button></div></div>
-<div class="form-grid"><label>Step type <select id="builder-step"><option value="read">read: load one record</option><option value="write">write: save player data</option><option value="condition">condition: guard with onFail</option><option value="transform">transform: compute a value</option><option value="filter">filter: match many records</option><option value="webhook">webhook: Discord notice</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-step">Insert step</button></div></div><p class="muted">Dedicated servers only: set <code>requiresSecretKey: true</code> at the top level so the endpoint answers <code>401 SECRET_KEY_REQUIRED</code> without a secret key. Player-hosted games cannot call such endpoints.</p></details>
-}
-@if (Model.Kind == "collection")
-{
-<details class="resource-tools"><summary>Collection builder</summary>
-<p class="muted">Set storage and client access, or insert a field at the cursor. Place new fields under <code>schema:</code> <code>properties:</code> before saving.</p>
-<div class="form-grid"><label>Storage kind <select id="builder-collection-type"><option value="per-steamid">Per player</option><option value="global">Global</option></select></label>
-<label>Game client access <select id="builder-access-mode"><option value="endpoint">Endpoints only</option><option value="public">Game clients may read and write directly</option></select></label>
-<label>Deletes from game clients <select id="builder-allow-delete"><option value="false">Not allowed</option><option value="true">Allowed</option></select></label>
-<div class="actions"><button type="button" class="secondary" id="builder-apply-collection">Apply storage and access</button></div></div>
-<p class="muted">With Endpoints only, direct reads and writes from the game answer <code>403 ENDPOINT_ONLY</code>; call an endpoint instead. Deletes also need <code>accessMode: public</code>.</p>
-<div class="form-grid"><label>Field name <input id="builder-field-name" maxlength="64" placeholder="coins" /></label><label>Field type <select id="builder-field-type"><option value="number">number</option><option value="string">string</option><option value="boolean">boolean</option><option value="array">array</option><option value="object">object</option></select></label><div class="actions"><button type="button" class="secondary" id="builder-add-field">Insert field</button></div></div></details>
-}
 <div class="workbench-tabs" role="tablist" aria-label="Definition editor">
     <button type="button" role="tab" id="edit-tab" aria-controls="definition-guided" aria-selected="true" data-editor-mode="edit">Guided editor</button>
     <button type="button" role="tab" id="raw-tab" aria-controls="definition-raw" aria-selected="false" tabindex="-1" data-editor-mode="raw">Raw source</button>

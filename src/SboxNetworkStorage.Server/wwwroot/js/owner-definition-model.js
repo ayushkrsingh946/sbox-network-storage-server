@@ -561,6 +561,46 @@
       return { hit: hit, node: node };
     }
 
+    // Indent for a new key appended to a block map. A map that is a
+    // sequence item (`- key: value`) aligns siblings with its first key
+    // (the item content column), never with the `- ` line's own indent:
+    // the dash line yields "" for indentless sequences and the sequence
+    // indent otherwise, and a key spliced there lands outside the map.
+    // Ordinary maps keep the last entry line's indent.
+    function mapKeyIndent(src, hit, node) {
+      var parent = hit && hit.parent;
+      if (parent && Y.isSeq(parent) && !parent.flow && node.items.length > 0) {
+        var first = node.items[0];
+        if (first && first.key && first.key.range) {
+          // Spaces alone: the slice before a dash-line key holds `- ` too.
+          return " ".repeat(first.key.range[0] - lineStart(src, first.key.range[0]));
+        }
+      }
+      var last = node.items[node.items.length - 1];
+      var span = childSpan(src, node, last, node.items.length - 1);
+      return leadingSpace(src.slice(span.start, span.end));
+    }
+
+    // Fill a bare `-` sequence item (an empty value) with the first map
+    // entry: `- key: value` on the item line, nested lines at the item
+    // content column. A trailing `# comment` on the dash line is kept.
+    function fillEmptySeqItem(src, hit, entry) {
+      var item = hit.parent.items[hit.index];
+      var r = (item && item.range) || (hit.node && hit.node.range);
+      if (!r) throw fail("Value has no source position. Edit in Raw source.");
+      var ls = lineStart(src, r[0]);
+      var line = src.slice(ls, lineEnd(src, ls));
+      var dash = /^([ \t]*-)[ \t]*(#[^\n]*)?$/.exec(line);
+      if (!dash) throw fail("Cannot add a key to this list item. Edit in Raw source.");
+      var pad = leadingSpace(line) + "  ";
+      var parts = entry.split("\n");
+      var out = [dash[1] + " " + parts[0] + (dash[2] ? " " + dash[2] : "")];
+      for (var i = 1; i < parts.length; i++) {
+        out.push(pad + (parts[i].slice(0, 2) === "  " ? parts[i].slice(2) : parts[i]));
+      }
+      return splice(src, ls, lineEnd(src, ls), out.join("\n"));
+    }
+
     function blockEntry(key, value) {
       var emittedKey = emitKey(key);
       if (isPlainObject(value) || Array.isArray(value)) {
@@ -587,6 +627,11 @@
         if (!node || node.items.length === 0) {
           // Empty value or empty block map: hang the entry under the key line.
           if (!target.hit.pair) {
+            if (!node && target.hit.parent && Y.isSeq(target.hit.parent) && !target.hit.parent.flow) {
+              // Bare `-` sequence item: fill the item line itself.
+              return fillEmptySeqItem(src, target.hit, entry);
+            }
+            if (!node) throw fail("Cannot add a key here. Edit in Raw source.");
             // Only the root "{}" mapping has no key line of its own.
             return splice(src, node.range[0], node.range[1], entry);
           }
@@ -598,7 +643,7 @@
         }
         var last = node.items[node.items.length - 1];
         var span = childSpan(src, node, last, node.items.length - 1);
-        var indent = leadingSpace(src.slice(span.start, span.end));
+        var indent = mapKeyIndent(src, target.hit, node);
         var body = entry.split("\n").map(function (line) { return indent + line; }).join("\n");
         return splice(src, span.end, span.end, "\n" + body);
       });
@@ -921,7 +966,7 @@
               return splice(src, anchor[1], anchor[1], ", " + emittedKey + ": " + slice);
             }
             var span = childSpan(src, node, pair, index);
-            var indent = leadingSpace(src.slice(span.start, span.end));
+            var indent = mapKeyIndent(src, hit, node);
             if (pair.value.range && sameLine(src, pair.key.range[0], pair.value.range[0])) {
               var entry = emittedKey + ": " + src.slice(pair.value.range[0], pair.value.range[1]);
               return splice(src, span.end, span.end, "\n" + indent + entry);
