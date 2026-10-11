@@ -18,7 +18,15 @@ public static class SqliteMigrations
         new(1, "Network Storage tables, usage counters, workspace objects", SchemaChange.Breaking, V1),
         new(2, "Existing projects keep the built-in player projections", SchemaChange.Additive, V2),
         new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", SchemaChange.Additive, V3),
+        new(4, "Request log records the caller's library version, client type and engine build", SchemaChange.Additive, V4),
     ];
+
+    // Additive: three nullable columns. Existing rows keep NULL, which the Logs tab shows as unknown; no table rebuild.
+    private static string V4(string p) => $"""
+        ALTER TABLE {p}storage_request_log ADD COLUMN library_version TEXT;
+        ALTER TABLE {p}storage_request_log ADD COLUMN client_type TEXT;
+        ALTER TABLE {p}storage_request_log ADD COLUMN engine_version TEXT;
+        """;
 
     // The log tables are rebuilt as rowid tables: event_id is the surrogate key, so events that share a
     // project and millisecond are all kept. Existing rows are copied in their previous (project, time) order.

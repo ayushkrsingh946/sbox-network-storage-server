@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Middleware;
 
 namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
@@ -69,6 +70,8 @@ public sealed class RevisionInitHandler(
             }
         }
 
+        ClientIdentityContext.ApplyBodyLibraryVersion(context, body, "networkStorageVersion");
+
         // Client revision: body field first (client library sends revisionId),
         // then the x-ns-revision-id header. Absent revision is not an error;
         // the handshake still acknowledges with the server's latest.
@@ -80,8 +83,7 @@ public sealed class RevisionInitHandler(
         {
             clientRevision = bodyRevision;
         }
-        else if (context.Request.Headers.TryGetValue("x-ns-revision-id", out var revisionHeader)
-            && long.TryParse(revisionHeader.FirstOrDefault(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var headerRevision))
+        else if (ClientIdentityContext.Get(context).RevisionId is { } headerRevision)
         {
             clientRevision = headerRevision;
         }

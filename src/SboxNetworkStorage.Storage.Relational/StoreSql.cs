@@ -135,7 +135,7 @@ internal sealed class StoreSql
         ListStorageErrors = Select("storage_errors", C.StorageError, "project_id = @project_id", "created_at_unix_ms DESC, event_id DESC", limit: true);
         PurgeStorageErrors = $"DELETE FROM {T("storage_errors")} WHERE project_id = @project_id AND created_at_unix_ms < @before_unix_ms";
 
-        InsertStorageRequestLog = Insert("storage_request_log", ["project_id", "created_at_unix_ms", "method", "path", "status_code", "duration_ms", "api_key_identifier"]);
+        InsertStorageRequestLog = Insert("storage_request_log", ["project_id", "created_at_unix_ms", "method", "path", "status_code", "duration_ms", "api_key_identifier", "library_version", "client_type", "engine_version"]);
         ListStorageRequestLog = Select("storage_request_log", C.StorageRequestLog, "project_id = @project_id", "created_at_unix_ms DESC, event_id DESC", limit: true);
         PurgeStorageRequestLog = $"DELETE FROM {T("storage_request_log")} WHERE project_id = @project_id AND created_at_unix_ms < @before_unix_ms";
 

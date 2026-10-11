@@ -19,7 +19,15 @@ public static class PostgresMigrations
         new(1, "Network Storage tables, usage counters, workspace objects", SchemaChange.Breaking, V1),
         new(2, "Existing projects keep the built-in player projections", SchemaChange.Additive, V2),
         new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", SchemaChange.Additive, V3),
+        new(4, "Request log records the caller's library version, client type and engine build", SchemaChange.Additive, V4),
     ];
+
+    // Additive: three nullable columns. Existing rows keep NULL, which the Logs tab shows as unknown.
+    private static string V4(string p) => $"""
+        ALTER TABLE {p}storage_request_log ADD COLUMN library_version text;
+        ALTER TABLE {p}storage_request_log ADD COLUMN client_type text;
+        ALTER TABLE {p}storage_request_log ADD COLUMN engine_version text;
+        """;
 
     // Identity values are generated for existing rows too. Project/time indexes retain chronological reads.
     private static string V3(string p) => $"""

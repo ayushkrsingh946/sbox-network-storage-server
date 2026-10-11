@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Server.Activity;
+using SboxNetworkStorage.Server.Compat;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
@@ -87,7 +88,8 @@ public sealed class NetworkStorageUsageMiddleware(
             var logProjectId = annotation?.ProjectId
                 ?? (status >= StatusCodes.Status400BadRequest ? context.GetRouteValue("projectId") as string : null);
             if (logProjectId is not null)
-                activity.RecordRequest(logProjectId, context.Request.Method, context.Request.Path.Value ?? "/", status, durationMs);
+                activity.RecordRequest(logProjectId, context.Request.Method, context.Request.Path.Value ?? "/", status, durationMs,
+                    ClientIdentityContext.Get(context));
 
             if (annotation is null || status == StatusCodes.Status401Unauthorized) return;
 

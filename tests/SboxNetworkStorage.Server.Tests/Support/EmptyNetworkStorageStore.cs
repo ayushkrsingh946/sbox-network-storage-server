@@ -117,7 +117,7 @@ public class EmptyNetworkStorageStore : INetworkStorageStore
     public virtual Task<IReadOnlyList<JsonElement>> ListStorageErrorsAsync(string projectId, int limit, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task PurgeStorageErrorsAsync(string projectId, long beforeUnixMs, CancellationToken ct) => throw new NotImplementedException();
 
-    public virtual Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct, RequestClientInfo? client = null) => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListStorageRequestLogAsync(string projectId, int limit, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task PurgeStorageRequestLogAsync(string projectId, long beforeUnixMs, CancellationToken ct) => throw new NotImplementedException();
 

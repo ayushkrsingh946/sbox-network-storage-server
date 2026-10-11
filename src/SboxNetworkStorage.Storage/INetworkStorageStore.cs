@@ -181,7 +181,8 @@ public interface INetworkStorageStore
     Task PurgeStorageErrorsAsync(string projectId, long beforeUnixMs, CancellationToken ct);
 
     // ── storage_request_log ───────────────────────────────────────────
-    Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct);
+    /// <summary>Appends a request log row. <paramref name="client"/> is the caller's library version, client type and engine build as the request reported them.</summary>
+    Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct, RequestClientInfo? client = null);
     Task<IReadOnlyList<JsonElement>> ListStorageRequestLogAsync(string projectId, int limit, CancellationToken ct);
     Task PurgeStorageRequestLogAsync(string projectId, long beforeUnixMs, CancellationToken ct);
 
@@ -238,6 +239,9 @@ public interface IStoreTransaction : IAsyncDisposable
 }
 
 /// <summary>Trusted observed record state for comparisons against writers that reuse versions.</summary>
+/// <summary>Who made a logged request, as the request reported it. Any part may be unknown (null).</summary>
+public sealed record RequestClientInfo(string? LibraryVersion, string? ClientType, string? EngineVersion);
+
 public sealed record RecordMutationSnapshot(string PayloadJson, long? ChangedAtUnixMs);
 
 /// <summary>A direct child of a workspace object directory listing.</summary>

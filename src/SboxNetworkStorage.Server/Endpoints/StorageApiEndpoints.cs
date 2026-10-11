@@ -12,6 +12,7 @@ using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.Observability;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Middleware;
 using System.Text.RegularExpressions;
 using System.Linq;
@@ -631,6 +632,7 @@ public static partial class StorageApiEndpoints
             return;
         }
 
+        ClientIdentityContext.ApplyBodyLibraryVersion(context, body, "libraryVersion", "library_version");
         var raw = body.GetRawText();
         if (raw.Length > 32_768)
         {
