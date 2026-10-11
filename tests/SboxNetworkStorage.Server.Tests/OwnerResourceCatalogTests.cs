@@ -66,7 +66,7 @@ public sealed class OwnerResourceCatalogTests : IDisposable
         using var client = await LoggedInClientAsync(factory);
         var root = $"/dashboard/projects/{project.ProjectId}/resources";
 
-        var page = await client.GetStringAsync(root + "/endpoint");
+        var page = await client.GetStringAsync(root + "/endpoint/new?draft=check-draft");
         using (var invalid = await client.PostAsync(root + "/endpoint/check",
             Form(("definition", "id: bad\nmethod: PUT\nsteps:\n  - id: x\n    type: nope\n"), ("__RequestVerificationToken", Csrf(page)))))
         {

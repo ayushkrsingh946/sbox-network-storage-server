@@ -81,9 +81,9 @@ public sealed class AuthorityCheckTests
 
         const string wallet = "id: wallet\nname: wallet\ncollectionType: per-steamid\naccessMode: public\nschema:\n  type: object\n  properties:\n    coins: { type: number, default: 5 }\n";
         const string mine = "id: mine\nslug: mine\nmethod: POST\nenabled: true\nsteps:\n  - id: add\n    type: write\n    collection: wallet\n    key: \"{{steamId}}\"\n    ops:\n      - { op: inc, path: coins, value: 1 }\nresponse:\n  status: 200\n  body: { ok: true }\n";
-        foreach (var (kind, source) in new[] { ("collection", wallet), ("endpoint", mine) })
+        foreach (var (kind, draft, source) in new[] { ("collection", "wallet", wallet), ("endpoint", "mine", mine) })
         {
-            var page = await owner.GetStringAsync($"{url}/resources/{kind}");
+            var page = await owner.GetStringAsync($"{url}/resources/{kind}/new?draft={draft}");
             using var saved = await owner.PostAsync($"{url}/resources/{kind}", Form(("definition", source), ("__RequestVerificationToken", Csrf(page))));
             Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
         }

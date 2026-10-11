@@ -1,0 +1,60 @@
+@model SboxNetworkStorage.Server.Owner.OwnerResourcePreviewModel
+@using System.Text.Json
+@{
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var detailUrl = url + "/resources/" + Model.Kind + "/" + Uri.EscapeDataString(Model.Id);
+    var editUrl = detailUrl + "?tab=edit";
+    string? csharp = null;
+    if (Model.Integration is not null)
+    {
+        foreach (var panel in Model.Integration.Panels)
+        {
+            if (csharp is null && panel.Language == "csharp") csharp = panel.Code;
+        }
+    }
+    string ErrorRate() => Model.Row.Calls == 0 ? "Never" : ((double)Model.Row.Errors / Model.Row.Calls).ToString("P1", System.Globalization.CultureInfo.InvariantCulture);
+    string AvgMs() => Model.Row.Calls == 0 ? "Never" : ((double)Model.Row.DurationMsSum / Model.Row.Calls).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " ms";
+}
+<h2 id="quick-preview-title">@Model.Name</h2>
+<p class="muted"><code>@Model.Id</code>@if (Model.Kind == "endpoint") { <span class="badge">@Model.Row.Method</span> <span class="badge @((Model.Row.Enabled ?? true) ? "positive" : "")">@((Model.Row.Enabled ?? true) ? "Enabled" : "Disabled")</span> <span class="badge">@Model.Row.Access</span> }</p>
+<div class="preview-stats">
+@if (Model.Kind == "endpoint")
+{
+    <p><span>Calls (this month)</span> <strong>@Model.Row.Calls</strong></p>
+    <p><span>Errors</span> <strong>@Model.Row.Errors</strong></p>
+    <p><span>Error rate</span> <strong>@ErrorRate()</strong></p>
+    <p><span>Avg ms</span> <strong>@AvgMs()</strong></p>
+    <p><span>Steps</span> <strong>@Model.Row.Steps</strong></p>
+}
+else if (Model.Kind == "collection")
+{
+    <p><span>Records</span> <strong>@(Model.Row.Records?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Never")</strong></p>
+    <p><span>Fields</span> <strong>@Model.Row.Fields</strong></p>
+    <p><span>Storage</span> <strong>@Model.Row.Storage</strong></p>
+    <p><span>Client access</span> <strong>@Model.Row.ClientAccess</strong></p>
+}
+else if (Model.Kind == "workflow")
+{
+    <p><span>Steps</span> <strong>@Model.Row.WorkflowSteps</strong></p>
+    <p><span>Parameters</span> <strong>@Model.Row.Parameters</strong></p>
+}
+else if (Model.Kind == "query")
+{
+    <p><span>Last run</span> <strong>@(Model.Row.LastRun ?? "Never")</strong></p>
+    <p><span>Duration</span> <strong>@(Model.Row.DurationMs is null ? "Never" : Model.Row.DurationMs.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + " ms")</strong></p>
+    <p><span>Records</span> <strong>@(Model.Row.RecordsReturned?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Never")</strong></p>
+    <p><span>Type</span> <strong>@Model.Row.QueryType</strong></p>
+    <p><span>Sources</span> <strong>@Model.Row.Sources</strong></p>
+}
+</div>
+@if (csharp is not null)
+{
+    <h3>Call from the game</h3>
+    <div class="copy-row"><pre data-language="csharp">@csharp</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+}
+<details><summary>Full source</summary><pre data-language="yaml">@Model.Definition</pre></details>
+<div class="owner-dialog-actions">
+    <a class="button secondary" href="@detailUrl">Open</a>
+    <a class="button" href="@editUrl">Edit</a>
+    <form method="dialog"><button type="submit" class="secondary" value="cancel">Close</button></form>
+</div>

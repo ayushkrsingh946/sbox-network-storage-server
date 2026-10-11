@@ -195,7 +195,7 @@ public sealed class OwnerManagementPagesTests
     }
 
     [Fact]
-    public async Task ResourceEditorShowsHowTheGameCallsTheOpenResource()
+    public async Task ResourceDetailCodeTabShowsHowTheGameCallsTheOpenResource()
     {
         var (factory, owner, project, url) = await SetupAsync();
         using var _ = factory;
@@ -203,34 +203,118 @@ public sealed class OwnerManagementPagesTests
         const string miners = "id: miners\nname: miners\ncollectionType: per-steamid\naccessMode: endpoint\nschema:\n  type: object\n  properties:\n    ore: { type: number, default: 0 }\n";
         const string wallet = "id: wallet\nname: wallet\ncollectionType: per-steamid\naccessMode: public\nschema:\n  type: object\n  properties:\n    coins: { type: number, default: 5 }\n    title: { type: string }\n";
         const string mine = "id: mine\nslug: mine\nmethod: POST\ninput:\n  properties:\n    amount: { type: number, default: 1 }\nsteps:\n  - id: add\n    type: write\n    collection: miners\n    key: \"{{steamId}}\"\n    ops:\n      - { op: inc, path: ore, value: \"{{input.amount}}\" }\nresponse:\n  status: 200\n  body: { ok: true }\n";
-        foreach (var (kind, source) in new[] { ("collection", miners), ("collection", wallet), ("endpoint", mine) })
-            using (var saved = await PostFormAsync(owner, $"{url}/resources/{kind}", $"{url}/resources/{kind}", ("definition", source)))
+        foreach (var (kind, resourceId, source) in new[] { ("collection", "miners", miners), ("collection", "wallet", wallet), ("endpoint", "mine", mine) })
+            using (var saved = await PostFormAsync(owner, $"{url}/resources/{kind}/new?draft={resourceId}", $"{url}/resources/{kind}", ("definition", source)))
+            {
                 Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+                Assert.EndsWith($"/resources/{kind}/{resourceId}?tab=edit", saved.Headers.Location!.ToString());
+            }
 
-        var endpoint = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint?id=mine"));
+        var endpoint = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint/mine?tab=code"));
         Assert.Contains("var result = await NetworkStorage.CallEndpoint( \"mine\", new { amount = 1 } );", endpoint);
         Assert.Contains("NetworkStorage.TryGetLastEndpointError( \"mine\", out var code, out var message );", endpoint);
         Assert.Contains($"href=\"{url}/tests?endpoint=mine#try-it\"", endpoint);
         Assert.Contains($"href=\"{url}/versions?kind=endpoint&id=mine\"", endpoint);
 
-        var endpointOnly = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/collection?id=miners"));
+        var endpointOnly = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/collection/miners?tab=code"));
         Assert.Contains("403 ENDPOINT_ONLY", endpointOnly);
         Assert.DoesNotContain("NetworkStorage.GetDocument", endpointOnly);
         Assert.Contains($"href=\"{url}/data/miners\"", endpointOnly);
 
-        var direct = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/collection?id=wallet"));
+        var direct = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/collection/wallet?tab=code"));
         Assert.Contains("var doc = Game.SteamId.ToString();", direct);
         Assert.Contains("var data = await NetworkStorage.GetDocument( \"wallet\", doc );", direct);
         Assert.Contains("await NetworkStorage.SaveDocument( \"wallet\", doc, new { coins = 5, title = \"\" } );", direct);
 
         // A new definition has nothing to call yet: the guide marks it as an unsaved draft and links no Try it run.
-        var draft = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint"));
+        var draft = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint/new?draft=unsaved&tab=code"));
         Assert.Contains("This draft is not saved yet", draft);
         Assert.DoesNotContain("/tests?endpoint=", draft);
 
         // Links from the data browser open Try it as that player; anything that is not a Steam ID is ignored.
         Assert.Contains("name=\"steamId\" value=\"76561198000000777\"", await owner.GetStringAsync($"{url}/tests?steamId=76561198000000777"));
         Assert.DoesNotContain("value=\"not-an-id\"", await owner.GetStringAsync($"{url}/tests?steamId=not-an-id"));
+    }
+
+    [Fact]
+    public async Task LegacyResourceUrlsRedirectToDetailPages()
+    {
+        var (factory, owner, project, url) = await SetupAsync();
+        using var _ = factory;
+        using var __ = owner;
+        const string mine = "id: mine\nslug: mine\nmethod: POST\nsteps:\n  - id: ok\n    type: object\n    fields:\n      ok: true\nresponse:\n  status: 200\n  body: \"{{ok}}\"\n";
+        using (var saved = await PostFormAsync(owner, $"{url}/resources/endpoint/new?draft=mine", $"{url}/resources/endpoint", ("definition", mine)))
+            Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+
+        using var byId = await owner.GetAsync($"{url}/resources/endpoint?id=mine");
+        Assert.Equal(HttpStatusCode.Redirect, byId.StatusCode);
+        Assert.EndsWith("/resources/endpoint/mine", byId.Headers.Location!.ToString());
+
+        using var byDraft = await owner.GetAsync($"{url}/resources/endpoint?draft=fresh");
+        Assert.Equal(HttpStatusCode.Redirect, byDraft.StatusCode);
+        Assert.EndsWith("/resources/endpoint/new?draft=fresh", byDraft.Headers.Location!.ToString());
+
+        var detail = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint/mine"));
+        Assert.Contains("mine", detail);
+        var draftPage = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint/new?draft=fresh"));
+        Assert.Contains("Create definition", draftPage);
+    }
+
+    [Fact]
+    public async Task ResourceListShowsStatsForEndpointsWithRecordedUsage()
+    {
+        var (factory, owner, project, url) = await SetupAsync();
+        using var _ = factory;
+        using var __ = owner;
+        const string mine = "id: mine\nslug: mine\nmethod: POST\nsteps:\n  - id: ok\n    type: object\n    fields:\n      ok: true\nresponse:\n  status: 200\n  body: \"{{ok}}\"\n";
+        const string idle = "id: idle\nslug: idle\nmethod: GET\nsteps:\n  - id: ok\n    type: object\n    fields:\n      ok: true\nresponse:\n  status: 200\n  body: \"{{ok}}\"\n";
+        foreach (var (draft, source) in new[] { ("mine", mine), ("idle", idle) })
+            using (var saved = await PostFormAsync(owner, $"{url}/resources/endpoint/new?draft={draft}", $"{url}/resources/endpoint", ("definition", source)))
+                Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+
+        var month = DateTime.UtcNow.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
+        var day = DateTime.UtcNow.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
+            await store.IncrementProjectUsageAsync(project.ProjectId, month, day, "mine",
+                new UsageDelta(0, 0, 0, 4, 0, 0, 1, 200, 4, 0, 0), CancellationToken.None);
+        }
+
+        var list = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint"));
+        Assert.Contains(month, list);
+        Assert.Contains("mine", list);
+        Assert.Contains("idle", list);
+        Assert.Contains("Quick preview", list);
+        Assert.Contains($"{url}/resources/endpoint/mine/preview", list);
+        // The endpoint with usage shows its call count; the idle one shows the zero state.
+        Assert.Contains(">4<", list);
+        Assert.Contains("Never", list);
+    }
+
+    [Fact]
+    public async Task ResourcePreviewPartialHasNoLayoutAnd404sForUnknownIds()
+    {
+        var (factory, owner, project, url) = await SetupAsync();
+        using var _ = factory;
+        using var __ = owner;
+        const string mine = "id: mine\nslug: mine\nmethod: POST\nsteps:\n  - id: ok\n    type: object\n    fields:\n      ok: true\nresponse:\n  status: 200\n  body: \"{{ok}}\"\n";
+        using (var saved = await PostFormAsync(owner, $"{url}/resources/endpoint/new?draft=mine", $"{url}/resources/endpoint", ("definition", mine)))
+            Assert.Equal(HttpStatusCode.Redirect, saved.StatusCode);
+
+        using var preview = await owner.GetAsync($"{url}/resources/endpoint/mine/preview");
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        var html = WebUtility.HtmlDecode(await preview.Content.ReadAsStringAsync());
+        Assert.Contains("mine", html);
+        Assert.Contains("Call from the game", html);
+        Assert.Contains($"href=\"{url}/resources/endpoint/mine\"", html);
+        Assert.Contains("?tab=edit", html);
+        Assert.DoesNotContain("id=\"main-content\"", html);
+        Assert.DoesNotContain("<html", html);
+
+        using var missing = await owner.GetAsync($"{url}/resources/endpoint/nope/preview");
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"{url}/resources/endpoint/nope")).StatusCode);
     }
 
     [Fact]

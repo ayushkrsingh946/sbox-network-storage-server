@@ -335,17 +335,27 @@ collection type and expected version.
 ## Authoring and runtime diagnostics
 
 The project overview links to collection, endpoint, workflow and query
-definitions and game values. Author definitions in YAML; the dashboard stores
+lists and game values. Each list is a sortable table with one row per
+resource: the name opens a detail page, and **Quick preview** opens the same
+summary in a dialog (or the detail page without JavaScript). The detail page
+has **Overview**, **Edit** and **Code** tabs as server links (`?tab=`), so
+each tab works without JavaScript. **Overview** shows stored stats and a
+read-only outline with the full source. **Edit** keeps the definition editor
+full width. **Code** keeps the `Use from the game` guide full width. Game
+values render the detail layout directly, with no list. Old
+`.../resources/<kind>?id=<id>` links redirect to the detail page, and
+`?draft=<id>` redirects to `.../resources/<kind>/new?draft=<id>`.
+Author definitions in YAML; the dashboard stores
 your source text and compiles it with the same compiler as editor sync.
 Raw JSON is still accepted for older edits but is deprecated. Saving preserves
 source metadata and updates only the selected resource, not other definitions.
-
+Saving redirects to the detail page **Edit** tab of the saved id.
 Saved definitions are available to the runtime immediately. Editor sync can
 overwrite dashboard edits, so reconcile changes with your checked-in YAML
 source. Endpoint expressions use double braces, such as `{{steamId}}` and
 `{{player.level}}`.
 
-The definition editor has three tabs: **Guided editor**, **Raw source** and
+The **Edit** tab keeps the definition editor with **Guided editor**, **Raw source** and
 **Examples**. Collections, endpoints, workflows, queries and game values all
 open in **Guided editor**. **Check definition** and **Save live definition**
 stay beside the editor. Changes stay local until you save.
@@ -381,9 +391,9 @@ route to Raw: alias blocks show an **Edit in Raw** button, and structural
 edits through a shared reference are rejected with a message. Failed edits
 never half-apply.
 
-The resource list has a **New** button. It asks for an id (letters, numbers,
-underscore or hyphen, 1-128 characters) and opens a pristine `?draft=<id>`
-template with that id. Nothing is published until you save. Leaving with
+The list and detail pages have a **New** button. It asks for an id (letters, numbers,
+underscore or hyphen, 1-128 characters) and opens a pristine
+`.../resources/<kind>/new?draft=<id>` template with that id. Nothing is published until you save. Leaving with
 unsaved changes still triggers the navigation warning.
 
 YAML, JSON and C# have local syntax highlighting. Click a source line number
@@ -426,9 +436,8 @@ rules, webhooks and pages.
 
 ### Use from the game
 
-When a collection, endpoint, workflow, query or game values is open in the
-editor, an integration card shows how to use it, with a **Copy** button on
-every block. The card has tabs for copyable C# and a prepared agent prompt.
+The detail page **Code** tab shows how to use the open collection, endpoint, workflow, query or game values,
+with a **Copy** button on every block. The card has tabs for copyable C# and a prepared agent prompt.
 Workflows add an endpoint-step tab with the YAML step that runs them.
 Internal endpoints show an endpoint-step tab and an agent prompt instead of
 game code. New drafts get the same card with skeleton values: it says to

@@ -112,7 +112,7 @@
         <p class="nav-label">Build</p>
         @foreach (var kind in new[] { "collection", "endpoint", "workflow", "query", "game-values" })
         {
-            <a href="@projectUrl/resources/@kind" aria-current="@(path.EndsWith("/resources/" + kind, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(kind))@(kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(kind[0]) + kind[1..] + "s" })</a>
+            <a href="@projectUrl/resources/@kind" aria-current="@(path.Contains("/resources/" + kind, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(kind))@(kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(kind[0]) + kind[1..] + "s" })</a>
         }
         <p class="nav-label">Manage</p>
         @foreach (var (pg, label) in new[] { ("tests", "Endpoint tests"), ("versions", "Version history"), ("rate-limits", "Rate limit rules"), ("webhooks", "Webhooks"), ("pages", "Pages") })

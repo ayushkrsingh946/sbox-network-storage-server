@@ -1,69 +1,106 @@
-@model SboxNetworkStorage.Server.Owner.OwnerResourcesModel
+@model SboxNetworkStorage.Server.Owner.OwnerResourceListModel
 @{
     Layout = "~/Views/Owner/_Layout.cshtml";
     var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
-    var title = Model.Kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(Model.Kind[0]) + Model.Kind[1..] + "s" };
+    var baseUrl = url + "/resources/" + Model.Kind;
+    var title = Model.Kind switch { "query" => "Queries", _ => char.ToUpperInvariant(Model.Kind[0]) + Model.Kind[1..] + "s" };
+    var singular = Model.Kind switch { "query" => "query", _ => Model.Kind };
+    var description = Model.Kind switch
+    {
+        "collection" => "Collections shape the records the game stores.",
+        "endpoint" => "Endpoints run steps and answer calls from the game.",
+        "workflow" => "Workflows run inside endpoint steps, never from game code.",
+        "query" => "Queries read across collections with a shared cached result.",
+        _ => "Definitions for " + Model.ProjectName + "."
+    };
+    var draftId = "new-" + Model.Kind;
+    var draftUrl = baseUrl + "/new?draft=" + Uri.EscapeDataString(draftId);
+    string DetailUrl(string id) => baseUrl + "/" + Uri.EscapeDataString(id);
+    string PreviewUrl(string id) => baseUrl + "/" + Uri.EscapeDataString(id) + "/preview";
+    string ErrorRate(long calls, long errors) => calls == 0 ? "Never" : ((double)errors / calls).ToString("P1", System.Globalization.CultureInfo.InvariantCulture);
+    string AvgMs(long calls, long sum) => calls == 0 ? "Never" : ((double)sum / calls).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " ms";
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
-<link rel="stylesheet" href="/owner-assets/blocks.css" />
-<div class="page-heading"><div><h1>@title</h1><p>Definitions for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
-@if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not save this definition</strong><pre>@Model.Error</pre><p>Correct the reported field or source syntax and save again. Your input has been preserved.</p></div> }
-@if (Model.Diagnostics is { Count: > 0 } diagnostics)
+<div class="page-heading"><div><h1>@title</h1><p>@description</p></div><div class="page-actions"><button type="button" data-dialog="new-resource">New @singular</button><a class="button secondary" href="@draftUrl">Examples</a></div></div>
+<noscript><p><a class="button secondary" href="@draftUrl">New @singular</a></p></noscript>
+@if (Model.Kind == "endpoint")
 {
-    <div class="notice error" role="alert"><strong>Could not save this definition</strong><p>Fix the errors below and save again. Your input has been preserved.</p>
-    <ul>@foreach (var item in diagnostics) { <li>@(item.IsError ? "Error" : "Warning") @item.Code at @item.Path: @item.Message</li> }</ul></div>
+    <p class="muted">Calls, errors and timing cover @Model.Month. Open a row for the full definition and game code.</p>
 }
-<div class="editor-grid resource-editor">
-@if (Model.Kind != "game-values")
+else if (Model.Kind == "query")
 {
-    <aside class="resource-list"><h2>Resources <span class="badge">@Model.Items.Count</span></h2><input type="search" data-resource-filter aria-label="Filter resources" placeholder="Find a resource..." /><button type="button" class="secondary" data-dialog="new-resource">New @Model.Kind</button><noscript><a class="button secondary" href="?draft=new-@Model.Kind">New @Model.Kind</a></noscript>
-    @if (Model.Items.Count == 0) { <p class="muted">No resources yet. Create a definition in the editor.</p> }
-    <ul>@foreach (var item in Model.Items) { <li><a href="@url/resources/@Model.Kind?id=@Uri.EscapeDataString(item.Id)" aria-current="@(item.Id == Model.Id ? "page" : null)"><strong>@item.Name</strong><code>@item.Id</code></a></li> }</ul></aside>
+    <p class="muted">Last run shows the latest stored execution. Open a row for the full definition and game code.</p>
 }
-@if (Model.Kind != "game-values")
+else if (Model.Kind == "collection")
 {
-<dialog class="owner-dialog" id="new-resource" aria-labelledby="new-resource-title"><div class="owner-dialog-body"><h2 id="new-resource-title">New @Model.Kind</h2><p>Choose an id using letters, numbers, underscore or hyphen. A fresh draft opens with this id; nothing is published until you save.</p><label>Id <input id="new-resource-id" maxlength="128" placeholder="my-@Model.Kind" data-autofocus /></label><p class="muted" id="new-resource-status" aria-live="polite"></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel">Cancel</button></form><button type="button" id="new-resource-confirm">Create draft</button></div></div></dialog>
+    <p class="muted">Records counts live data. Open a row for the full definition and game code.</p>
 }
-<div class="resource-workspace">
-<section class="card definition-panel">
-<div class="section-heading definition-heading">
-    <h2>@(Model.Id is null && Model.Kind != "game-values" ? "Create definition" : "Edit definition")</h2>
-    <div class="actions definition-actions"><span id="editor-state" class="muted" role="status">No unsaved changes</span><button type="button" class="secondary" id="builder-check">Check definition</button><button type="submit" form="resource-definition-form">Save live definition</button></div>
+<div class="card">
+    <label for="resource-filter">Filter @title.ToLowerInvariant()</label>
+    <input type="search" id="resource-filter" placeholder="Filter by name or id" autocomplete="off" />
+    @if (Model.Rows.Count == 0)
+    {
+        <section class="empty-state">
+            <h2>No @(title.ToLowerInvariant()) yet</h2>
+            <p>@description Create one with New @singular, or start from an example.</p>
+            <div class="actions"><button type="button" data-dialog="new-resource">New @singular</button><a class="button secondary" href="@draftUrl">Examples</a></div>
+        </section>
+    }
+    else
+    {
+        <div class="table-scroll"><table data-sortable id="resource-table">
+            <thead><tr>
+                <th scope="col">Name</th>
+                @if (Model.Kind == "endpoint") { <th scope="col">Method</th><th scope="col">Status</th><th scope="col">Steps</th><th scope="col">Access</th><th scope="col">Calls (this month)</th><th scope="col">Errors</th><th scope="col">Error rate</th><th scope="col">Avg ms</th> }
+                else if (Model.Kind == "collection") { <th scope="col">Storage</th><th scope="col">Client access</th><th scope="col">Fields</th><th scope="col">Records</th> }
+                else if (Model.Kind == "workflow") { <th scope="col">Parameters</th><th scope="col">Steps</th> }
+                else if (Model.Kind == "query") { <th scope="col">Type</th><th scope="col">Sources</th><th scope="col">Last run</th><th scope="col">Duration</th><th scope="col">Records</th> }
+                <th scope="col" data-no-sort>Actions</th>
+            </tr></thead>
+            <tbody>
+            @foreach (var item in Model.Rows)
+            {
+                <tr>
+                    <td><a href="@DetailUrl(item.Id)">@item.Name</a>@if (item.Id != item.Name) { <br /><code>@item.Id</code> }</td>
+                    @if (Model.Kind == "endpoint")
+                    {
+                        <td>@item.Method</td>
+                        <td><span class="badge @((item.Enabled ?? true) ? "positive" : "")">@((item.Enabled ?? true) ? "Enabled" : "Disabled")</span></td>
+                        <td data-sort-value="@item.Steps">@item.Steps</td>
+                        <td>@item.Access</td>
+                        <td data-sort-value="@item.Calls">@item.Calls</td>
+                        <td data-sort-value="@item.Errors">@item.Errors</td>
+                        <td data-sort-value="@(item.Calls == 0 ? "-1" : ((double)item.Errors / item.Calls).ToString(System.Globalization.CultureInfo.InvariantCulture))">@ErrorRate(item.Calls, item.Errors)</td>
+                        <td data-sort-value="@(item.Calls == 0 ? "-1" : ((double)item.DurationMsSum / item.Calls).ToString(System.Globalization.CultureInfo.InvariantCulture))">@AvgMs(item.Calls, item.DurationMsSum)</td>
+                    }
+                    else if (Model.Kind == "collection")
+                    {
+                        <td>@item.Storage</td>
+                        <td>@item.ClientAccess</td>
+                        <td data-sort-value="@item.Fields">@item.Fields</td>
+                        <td data-sort-value="@(item.Records?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "-1")">@(item.Records?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Never")</td>
+                    }
+                    else if (Model.Kind == "workflow")
+                    {
+                        <td>@item.Parameters</td>
+                        <td data-sort-value="@item.WorkflowSteps">@item.WorkflowSteps</td>
+                    }
+                    else if (Model.Kind == "query")
+                    {
+                        <td>@item.QueryType</td>
+                        <td>@item.Sources</td>
+                        <td>@(item.LastRun ?? "Never")</td>
+                        <td data-sort-value="@(item.DurationMs?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "-1")">@(item.DurationMs is null ? "Never" : item.DurationMs.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) + " ms")</td>
+                        <td data-sort-value="@(item.RecordsReturned?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "-1")">@(item.RecordsReturned?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "Never")</td>
+                    }
+                    <td class="actions"><a class="button secondary" href="@DetailUrl(item.Id)" data-preview-url="@PreviewUrl(item.Id)">Quick preview</a> <a href="@DetailUrl(item.Id)">Open</a></td>
+                </tr>
+            }
+            </tbody>
+        </table></div>
+        <p class="muted" id="resource-filter-empty" hidden>No matching resources.</p>
+    }
 </div>
-<p class="muted" id="definition-help">Build with editable blocks. Open a block to change its options; drag the handle or use the move buttons to reorder. Raw source is always available. Changes stay local until you save.</p>
-<div id="check-results" aria-live="polite"></div>
-<div class="workbench-tabs" role="tablist" aria-label="Definition editor">
-    <button type="button" role="tab" id="edit-tab" aria-controls="definition-guided" aria-selected="true" data-editor-mode="edit">Guided editor</button>
-    <button type="button" role="tab" id="raw-tab" aria-controls="definition-raw" aria-selected="false" tabindex="-1" data-editor-mode="raw">Raw source</button>
-    <button type="button" role="tab" id="examples-tab" aria-controls="definition-examples" aria-selected="false" tabindex="-1" data-editor-mode="examples">Examples</button>
-</div>
-<div id="definition-guided" role="tabpanel" aria-labelledby="edit-tab" hidden>
-    <div class="block-toolbar"><span class="muted">Click a block to edit its options.</span><div class="actions"><button type="button" class="secondary" id="blocks-expand">Expand all</button><button type="button" class="secondary" id="blocks-collapse">Collapse all</button></div></div>
-    <p id="block-editor-status" class="muted" role="status"></p>
-    <div id="block-editor" data-kind="@Model.Kind" data-context="@Model.BuilderContext"><p class="muted">Loading block editor...</p></div>
-</div>
-<div id="definition-raw" role="tabpanel" aria-labelledby="raw-tab">
-<noscript><p class="notice">JavaScript is required for the block editor. You can edit and save the complete source below.</p></noscript>
-<form id="resource-definition-form" method="post" action="@url/resources/@Model.Kind">
-@Html.AntiForgeryToken()
-@if (Model.Id is not null) { <input type="hidden" name="id" value="@Model.Id" /> }
-<div class="source-heading"><label for="definition">Definition source</label><span class="muted" id="source-position">YAML</span></div>
-<textarea class="code-editor" id="definition" name="definition" rows="24" required spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" data-language="yaml" aria-describedby="definition-help definition-sync">@Model.Definition</textarea>
-<p class="muted definition-sync" id="definition-sync">Editor pushes can overwrite dashboard edits. Coordinate changes with your checked-in source.</p>
-</form></div>
-<div id="definition-examples" role="tabpanel" aria-labelledby="examples-tab">
-<p class="muted">Start with a complete definition. Replacing the source requires confirmation; saving is a separate action.</p>
-<div id="example-gallery"><p class="muted">Loading examples...</p></div>
-</div></section>
-@if (Model.Integration is not null)
-{
-    @await Html.PartialAsync("~/Views/Owner/_ResourceIntegration.cshtml", Model.Integration)
-}
-</div></div>
-<script src="/owner-assets/json-editor.js" defer></script>
-<script src="/owner-assets/vendor/yaml.js" defer></script>
-<script src="/owner-assets/definition-model.js" defer></script>
-<script src="/owner-assets/blocks.js" defer></script>
-<script src="/owner-assets/builder-catalog.js" defer></script>
+<dialog class="owner-dialog" id="new-resource" aria-labelledby="new-resource-title"><div class="owner-dialog-body"><h2 id="new-resource-title">New @singular</h2><p>Choose an id using letters, numbers, underscore or hyphen. A fresh draft opens with this id; nothing is published until you save.</p><label>Id <input id="new-resource-id" maxlength="128" placeholder="my-@singular" data-autofocus /></label><p class="muted" id="new-resource-status" aria-live="polite"></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel">Cancel</button></form><button type="button" id="new-resource-confirm">Create draft</button></div></div></dialog>
+<dialog class="owner-dialog" id="quick-preview" aria-label="Quick preview"><div class="owner-dialog-body" id="quick-preview-body"><p class="muted">Loading preview.</p></div></dialog>
 <script src="/owner-assets/m/manage.js" defer></script>
-

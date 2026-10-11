@@ -111,7 +111,7 @@ public sealed class OwnerConnectAndActivityTests : IDisposable
         var (owner, _, url) = await SetupAsync();
         using var __ = owner;
         const string definition = "sourceVersion: 1\nkind: endpoint\nid: broken\nname: Broken\nmethod: PUT\nenabled: true\nsteps:\n  - id: ok\n    type: object\n    fields:\n      ok: true\nresponse:\n  status: 200\n  body: \"{{ok}}\"\n";
-        var page = await owner.GetStringAsync(url + "/resources/endpoint");
+        var page = await owner.GetStringAsync(url + "/resources/endpoint/new?draft=broken");
         using var saved = await owner.PostAsync(url + "/resources/endpoint", Form(("definition", definition), ("__RequestVerificationToken", Csrf(page))));
 
         Assert.Equal(HttpStatusCode.BadRequest, saved.StatusCode);

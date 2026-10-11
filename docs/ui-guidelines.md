@@ -208,9 +208,11 @@ in [Contrast](#contrast). No raw hex outside theme blocks.
 - `workbench.css` loads in `<head>`; `workbench.js` loads deferred at
   the end of `<body>` so page editors initialize before it wraps
   `textarea.code-editor`.
-- Resource pages use a 180px resource list and an editor/integration split.
-  The integration guide sits beside the editor on wide screens and below it
-  under 1250px. At 760px the resource list and workspace stack.
+- Resource pages follow a list/detail pattern. The list is a sortable table with
+  one row per resource and a Quick preview link that degrades to the detail
+  page without JavaScript. The detail page keeps Overview, Edit and Code tabs
+  as server links (`?tab=`), the editor full width on Edit, and the
+  integration guide full width on Code.
 - Code retains a native authoritative textarea. The syntax overlay and
   clickable line-number gutter never enter copied source or submitted forms.
   Tab modes are progressively enhanced; source and examples remain readable

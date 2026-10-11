@@ -38,6 +38,32 @@ public sealed record OwnerResourcesModel(string ProjectId, string ProjectName, s
     IReadOnlyList<OwnerResourceItem> Items, string? Id, string Definition, string BuilderContext,
     string? Error = null, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null,
     OwnerResourceIntegration? Integration = null);
+/// <summary>Per-endpoint usage counters for the current UTC month.</summary>
+public sealed record OwnerEndpointUsage(long Calls, long Errors, long DurationMsSum);
+
+/// <summary>One row of the resource list table with kind facts and stats precomputed.</summary>
+public sealed record OwnerResourceRow(string Id, string Name,
+    string? Method, bool? Enabled, int Steps, string? Access, string? Slug,
+    long Calls, long Errors, long DurationMsSum,
+    string? Storage, string? ClientAccess, int Fields, long? Records,
+    string? Parameters, int WorkflowSteps,
+    string? QueryType, string? Sources, string? LastRun, long? DurationMs, int? RecordsReturned);
+
+/// <summary>Resource list page: one row per saved resource plus the stats month.</summary>
+public sealed record OwnerResourceListModel(string ProjectId, string ProjectName, string Kind,
+    IReadOnlyList<OwnerResourceRow> Rows, string Month);
+
+/// <summary>Resource detail page: header, tab, editor state and overview facts.</summary>
+public sealed record OwnerResourceDetailModel(string ProjectId, string ProjectName, string Kind,
+    string? Id, string Name, string Definition, string BuilderContext,
+    string Tab, bool IsDraft,
+    OwnerResourceIntegration? Integration,
+    string? Error = null, IReadOnlyList<DefinitionDiagnostic>? Diagnostics = null,
+    OwnerResourceRow? Row = null, JsonElement? DefinitionJson = null);
+
+/// <summary>Quick preview modal body: header, stats, outline, snippet and links.</summary>
+public sealed record OwnerResourcePreviewModel(string ProjectId, string Kind, string Id, string Name,
+    OwnerResourceRow Row, OwnerResourceIntegration? Integration, string Definition, JsonElement? DefinitionJson = null);
 
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerResourcesController(INetworkStorageProjectService projects, INetworkStorageStore store,
@@ -50,12 +76,58 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     [HttpGet(Route)]
-    public async Task<IActionResult> Editor(string projectId, string kind, [FromQuery] string? id, CancellationToken ct, [FromQuery] string? draft = null)
+    public async Task<IActionResult> List(string projectId, string kind, [FromQuery] string? id, [FromQuery] string? draft, [FromQuery] string? tab, CancellationToken ct)
     {
-        if (draft is not null && (draft.Length is < 1 or > 128 || draft.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '_' and not '-')))
+        if (!OwnerResourceSource.IsKind(kind)) return NotFound();
+        if (kind == "game-values")
+        {
+            var gameDetail = await LoadDetailAsync(projectId, kind, null, tab, null, ct);
+            return gameDetail is null ? NotFound() : View("~/Views/Owner/Resource.cshtml", gameDetail);
+        }
+        if (!string.IsNullOrEmpty(id))
+            return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}/{Uri.EscapeDataString(id)}");
+        if (draft is not null)
+        {
+            if (draft.Length is < 1 or > 128 || draft.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '_' and not '-'))
+                return BadRequest("Draft ids need 1-128 letters, numbers, underscores or hyphens.");
+            return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}/new?draft={Uri.EscapeDataString(draft)}");
+        }
+        var model = await LoadListAsync(projectId, kind, ct);
+        return model is null ? NotFound() : View("~/Views/Owner/Resources.cshtml", model);
+    }
+
+    [HttpGet(Root + "/{kind}/new")]
+    public async Task<IActionResult> New(string projectId, string kind, [FromQuery] string? draft, [FromQuery] string? tab, CancellationToken ct)
+    {
+        if (!OwnerResourceSource.IsKind(kind) || kind == "game-values") return NotFound();
+        if (string.IsNullOrEmpty(draft))
+        {
+            var existing = await LoadDetailAsync(projectId, kind, "new", tab, null, ct);
+            if (existing is not null) return View("~/Views/Owner/Resource.cshtml", existing);
+            return BadRequest("Add ?draft=<id> with 1-128 letters, numbers, underscores or hyphens.");
+        }
+        if (draft.Length is < 1 or > 128 || draft.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '_' and not '-'))
             return BadRequest("Draft ids need 1-128 letters, numbers, underscores or hyphens.");
-        var loaded = await LoadAsync(projectId, kind, id, ct, draft);
-        return loaded is null ? NotFound() : View("~/Views/Owner/Resources.cshtml", loaded.Value.Model);
+        var detail = await LoadDetailAsync(projectId, kind, null, tab, draft, ct);
+        return detail is null ? NotFound() : View("~/Views/Owner/Resource.cshtml", detail);
+    }
+
+    [HttpGet(Root + "/{kind}/{resourceId}")]
+    public async Task<IActionResult> Detail(string projectId, string kind, string resourceId, [FromQuery] string? tab, CancellationToken ct)
+    {
+        if (!OwnerResourceSource.IsKind(kind)) return NotFound();
+        if (kind == "game-values") return NotFound();
+        var detail = await LoadDetailAsync(projectId, kind, resourceId, tab, null, ct);
+        return detail is null ? NotFound() : View("~/Views/Owner/Resource.cshtml", detail);
+    }
+
+    [HttpGet(Root + "/{kind}/{resourceId}/preview")]
+    public async Task<IActionResult> Preview(string projectId, string kind, string resourceId, CancellationToken ct)
+    {
+        if (!OwnerResourceSource.IsKind(kind) || kind == "game-values") return NotFound();
+        if (string.Equals(resourceId, "new", StringComparison.OrdinalIgnoreCase)) return NotFound();
+        var preview = await LoadPreviewAsync(projectId, kind, resourceId, ct);
+        return preview is null ? NotFound() : PartialView("~/Views/Owner/_ResourcePreview.cshtml", preview);
     }
 
     [HttpPost(Route)]
@@ -63,7 +135,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     {
         var loaded = await LoadAsync(projectId, kind, id, ct);
         if (loaded is null) return NotFound();
-        var (model, resources) = loaded.Value;
+        var (_, resources) = loaded.Value;
         try
         {
             var resource = OwnerResourceSource.Parse(kind, definition, id, store.MaxPayloadBytes, out var resourceId);
@@ -71,20 +143,28 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             if (diagnostics.Any(item => item.IsError))
             {
                 Response.StatusCode = StatusCodes.Status400BadRequest;
-                return View("~/Views/Owner/Resources.cshtml", model with { Definition = definition!, Diagnostics = diagnostics });
+                var failed = await LoadDetailAsync(projectId, kind, resourceId ?? id, "edit", null, ct, definition, null, diagnostics);
+                if (failed is not null) return View("~/Views/Owner/Resource.cshtml", failed);
+                return BadRequest("Could not save this definition.\n" + definition);
             }
             if (result!.StatusCode >= 400)
             {
                 Response.StatusCode = result.StatusCode;
-                return View("~/Views/Owner/Resources.cshtml", model with { Definition = definition!, Error = JsonSerializer.Serialize(result.Body, Pretty) });
+                var failed = await LoadDetailAsync(projectId, kind, resourceId ?? id, "edit", null, ct, definition, JsonSerializer.Serialize(result.Body, Pretty), null);
+                if (failed is not null) return View("~/Views/Owner/Resource.cshtml", failed);
+                return BadRequest("Could not save this definition.\n" + definition);
             }
             OwnerFlash.Success(this, "Resource saved.");
-            return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}" + (resourceId is null ? "" : "?id=" + Uri.EscapeDataString(resourceId)));
+            if (kind == "game-values" || resourceId is null)
+                return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}?tab=edit");
+            return Redirect($"/dashboard/projects/{Uri.EscapeDataString(projectId)}/resources/{kind}/{Uri.EscapeDataString(resourceId)}?tab=edit");
         }
         catch (Exception error) when (error is JsonException or ArgumentException)
         {
             Response.StatusCode = StatusCodes.Status400BadRequest;
-            return View("~/Views/Owner/Resources.cshtml", model with { Definition = definition ?? "", Error = error.Message });
+            var failed = await LoadDetailAsync(projectId, kind, id, "edit", null, ct, definition ?? "", error.Message, null);
+            if (failed is not null) return View("~/Views/Owner/Resource.cshtml", failed);
+            return BadRequest("Could not save this definition: " + error.Message + "\n" + (definition ?? ""));
         }
     }
 
@@ -149,6 +229,268 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
             else created.Add(companion.Id);
         }
         return Json(new { created, skipped, failed }, Web);
+    }
+
+    private static string CurrentMonth() => DateTime.UtcNow.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+
+    private static string NormalizeTab(string? tab, bool draft)
+        => tab is "overview" or "edit" or "code" ? tab : draft ? "edit" : "overview";
+
+    private static string ApplyDraftId(string skeleton, string draftId)
+    {
+        var draft = JsonNode.Parse(OwnerYamlDefinitions.ParseDefinition(skeleton, out _).GetRawText())!.AsObject();
+        draft["id"] = draftId;
+        if (draft.ContainsKey("slug")) draft["slug"] = draftId;
+        if (draft.ContainsKey("name")) draft["name"] = draftId;
+        return OwnerYamlDefinitions.ToYaml(JsonSerializer.SerializeToElement(draft));
+    }
+
+    private static long RowLong(JsonElement row, string name)
+        => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) ? number : 0;
+
+    private static string? RowString(JsonElement row, string name)
+        => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private async Task<OwnerResourceListModel?> LoadListAsync(string projectId, string kind, CancellationToken ct)
+    {
+        var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
+        if (access is null || access.StorageOwnerUserId != Owner || !access.CanManage) return null;
+        var resources = await OwnerProjectResources.LoadAsync(store, projectId, ct);
+        var month = CurrentMonth();
+        var usage = kind == "endpoint" ? await EndpointUsageMapAsync(projectId, month, ct) : new Dictionary<string, OwnerEndpointUsage>(StringComparer.Ordinal);
+        var queryRuns = kind == "query" ? await QueryRunMapAsync(projectId, ct) : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var counts = kind == "collection" ? await CollectionCountMapAsync(projectId, resources, ct) : new Dictionary<string, long>(StringComparer.Ordinal);
+        var rows = new List<OwnerResourceRow>();
+        foreach (var row in resources.Rows(kind).OrderBy(candidate => Text(candidate, "name") ?? Text(candidate, "slug") ?? Text(candidate, kind + "_id") ?? ""))
+            rows.Add(BuildRow(kind, row, OwnerProjectResources.Column(row, "definition_json"), usage, queryRuns, counts));
+        return new OwnerResourceListModel(projectId, access.Project.Name, kind, rows, month);
+    }
+
+    private async Task<Dictionary<string, OwnerEndpointUsage>> EndpointUsageMapAsync(string projectId, string month, CancellationToken ct)
+    {
+        var map = new Dictionary<string, OwnerEndpointUsage>(StringComparer.Ordinal);
+        foreach (var row in await store.ReadProjectUsageEndpointsAsync(projectId, month, 200, ct))
+        {
+            if (RowString(row, "endpoint_slug") is not { } slug) continue;
+            map[slug] = new OwnerEndpointUsage(RowLong(row, "calls"), RowLong(row, "errors"), RowLong(row, "duration_ms_sum"));
+        }
+        return map;
+    }
+
+    private async Task<Dictionary<string, JsonElement>> QueryRunMapAsync(string projectId, CancellationToken ct)
+    {
+        var map = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var row in await store.ListQueryLastRunsAsync(projectId, ct))
+            if (RowString(row, "query_id") is { } id) map[id] = row;
+        return map;
+    }
+
+    private async Task<Dictionary<string, long>> CollectionCountMapAsync(string projectId, OwnerProjectResources resources, CancellationToken ct)
+    {
+        var map = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var row in resources.Rows("collection"))
+        {
+            if (OwnerDataRecords.Describe(row) is not { } collection) continue;
+            map[collection.Id] = await OwnerDataRecords.CountAsync(store, projectId, collection, null, ct);
+        }
+        return map;
+    }
+
+    private async Task<OwnerResourceDetailModel?> LoadDetailAsync(string projectId, string kind, string? resourceId,
+        string? tab, string? draftId, CancellationToken ct, string? overrideDefinition = null,
+        string? overrideError = null, IReadOnlyList<DefinitionDiagnostic>? overrideDiagnostics = null)
+    {
+        var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
+        if (access is null || access.StorageOwnerUserId != Owner || !access.CanManage) return null;
+        var resources = await OwnerProjectResources.LoadAsync(store, projectId, ct);
+        var keys = await projects.GetProjectKeysAsync(Owner, projectId, ct);
+        var publicKey = keys.Where(key => key.Enabled && key.KeyType == "public").OrderBy(key => key.CreatedAt).FirstOrDefault()?.Key;
+        var baseUrl = ServerBaseUrl.ForRequest(config, Request);
+        var month = CurrentMonth();
+        if (kind == "game-values")
+        {
+            var stored = resources.GameValues;
+            var display = overrideDefinition
+                ?? (stored is { ValueKind: JsonValueKind.Object } payload ? OwnerResourceSource.DisplayText(payload) : OwnerResourceExamples.Skeletons[kind]);
+            var parsed = ParseDraft(display);
+            var integration = Integration(projectId, kind, null, default, stored, display, resources, publicKey, baseUrl);
+            return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, null, "Game values",
+                display, resources.BuilderJson(), NormalizeTab(tab, false), false, integration,
+                overrideError, overrideDiagnostics, null, parsed);
+        }
+        if (draftId is not null)
+        {
+            var display = overrideDefinition ?? ApplyDraftId(OwnerResourceExamples.Skeletons[kind], draftId);
+            var parsed = ParseDraft(display);
+            var name = (parsed is { ValueKind: JsonValueKind.Object } draft && OwnerProjectScope.Text(draft, "name") is { Length: > 0 } draftName)
+                ? draftName : draftId;
+            var integration = Integration(projectId, kind, null, default, parsed, display, resources, publicKey, baseUrl);
+            var row = BuildDraftRow(kind, draftId, name, parsed);
+            return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, draftId, name,
+                display, resources.BuilderJson(), NormalizeTab(tab, true), true, integration,
+                overrideError, overrideDiagnostics, row, parsed);
+        }
+        if (resourceId is null) return null;
+        var match = resources.Rows(kind).FirstOrDefault(candidate => Text(candidate, kind + "_id") == resourceId);
+        if (match.ValueKind != JsonValueKind.Object)
+        {
+            if (overrideDefinition is null) return null;
+            var parsedNew = ParseDraft(overrideDefinition);
+            var integrationNew = Integration(projectId, kind, null, default, parsedNew, overrideDefinition, resources, publicKey, baseUrl);
+            var rowNew = BuildDraftRow(kind, resourceId, resourceId, parsedNew);
+            return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, resourceId, resourceId,
+                overrideDefinition, resources.BuilderJson(), "edit", true, integrationNew,
+                overrideError, overrideDiagnostics, rowNew, parsedNew);
+        }
+        var storedDefinition = OwnerProjectResources.Column(match, "definition_json");
+        var text = overrideDefinition
+            ?? (storedDefinition is { ValueKind: JsonValueKind.Object } live ? OwnerResourceSource.DisplayText(live) : OwnerResourceExamples.Skeletons[kind]);
+        var json = overrideDefinition is null ? storedDefinition : ParseDraft(text);
+        var guide = Integration(projectId, kind, resourceId, match, storedDefinition, text, resources, publicKey, baseUrl);
+        var nameSaved = Text(match, "name") ?? Text(match, "slug") ?? resourceId;
+        var usage = kind == "endpoint" ? await EndpointUsageMapAsync(projectId, month, ct) : new Dictionary<string, OwnerEndpointUsage>(StringComparer.Ordinal);
+        var queryRuns = kind == "query" ? await QueryRunMapAsync(projectId, ct) : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+        if (kind == "collection" && OwnerDataRecords.Describe(match) is { } collection)
+            counts[collection.Id] = await OwnerDataRecords.CountAsync(store, projectId, collection, null, ct);
+        var detailRow = BuildRow(kind, match, storedDefinition, usage, queryRuns, counts);
+        return new OwnerResourceDetailModel(projectId, access.Project.Name, kind, resourceId, nameSaved,
+            text, resources.BuilderJson(), NormalizeTab(tab, false), false, guide,
+            overrideError, overrideDiagnostics, detailRow, json);
+    }
+
+    private async Task<OwnerResourcePreviewModel?> LoadPreviewAsync(string projectId, string kind, string resourceId, CancellationToken ct)
+    {
+        var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
+        if (access is null || access.StorageOwnerUserId != Owner || !access.CanManage) return null;
+        var resources = await OwnerProjectResources.LoadAsync(store, projectId, ct);
+        var match = resources.Rows(kind).FirstOrDefault(candidate => Text(candidate, kind + "_id") == resourceId);
+        if (match.ValueKind != JsonValueKind.Object) return null;
+        var definition = OwnerProjectResources.Column(match, "definition_json");
+        var display = definition is { ValueKind: JsonValueKind.Object } live ? OwnerResourceSource.DisplayText(live) : OwnerResourceExamples.Skeletons[kind];
+        var keys = await projects.GetProjectKeysAsync(Owner, projectId, ct);
+        var publicKey = keys.Where(key => key.Enabled && key.KeyType == "public").OrderBy(key => key.CreatedAt).FirstOrDefault()?.Key;
+        var baseUrl = ServerBaseUrl.ForRequest(config, Request);
+        var guide = Integration(projectId, kind, resourceId, match, definition, display, resources, publicKey, baseUrl);
+        var usage = kind == "endpoint" ? await EndpointUsageMapAsync(projectId, CurrentMonth(), ct) : new Dictionary<string, OwnerEndpointUsage>(StringComparer.Ordinal);
+        var queryRuns = kind == "query" ? await QueryRunMapAsync(projectId, ct) : new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var counts = new Dictionary<string, long>(StringComparer.Ordinal);
+        if (kind == "collection" && OwnerDataRecords.Describe(match) is { } collection)
+            counts[collection.Id] = await OwnerDataRecords.CountAsync(store, projectId, collection, null, ct);
+        var row = BuildRow(kind, match, definition, usage, queryRuns, counts);
+        return new OwnerResourcePreviewModel(projectId, kind, resourceId, row.Name, row, guide, display, definition);
+    }
+
+    private static OwnerResourceRow BuildRow(string kind, JsonElement row, JsonElement? definition,
+        Dictionary<string, OwnerEndpointUsage> usage, Dictionary<string, JsonElement> queryRuns, Dictionary<string, long> counts)
+    {
+        var id = Text(row, kind + "_id") ?? "";
+        var name = Text(row, "name") ?? Text(row, "slug") ?? id;
+        var steps = definition is { ValueKind: JsonValueKind.Object } d && d.TryGetProperty("steps", out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.GetArrayLength() : 0;
+        var slug = kind == "endpoint" ? Text(row, "slug") ?? Text(row, "endpoint_id") ?? id : null;
+        var method = kind == "endpoint" ? Text(row, "method") ?? (definition is { ValueKind: JsonValueKind.Object } e ? OwnerProjectScope.Text(e, "method") : null) ?? "POST" : null;
+        var enabled = kind == "endpoint" ? EndpointEnabled(row, definition) : (bool?)null;
+        var access = kind == "endpoint"
+            ? OwnerGameSnippets.IsInternalEndpoint(definition) ? "Internal"
+                : OwnerGameSnippets.RequiresSecretKey(definition) || OwnerGameSnippets.RowRequiresSecretKey(row) ? "Secret key" : "Public"
+            : null;
+        var stats = slug is not null && usage.TryGetValue(slug, out var hit) ? hit : new OwnerEndpointUsage(0, 0, 0);
+        if (slug is not null && !usage.ContainsKey(slug) && usage.TryGetValue(id, out var byId)) stats = byId;
+        var storage = kind == "collection"
+            ? OwnerDataRecords.Describe(row)?.Global == true || IsGlobalDefinition(definition) ? "Global" : "Per player" : null;
+        var clientAccess = kind == "collection" ? OwnerGameSnippets.IsPublicCollection(definition) ? "Public" : "Endpoints only" : null;
+        var fields = kind == "collection" ? CollectionFields(definition) : 0;
+        var records = kind == "collection" && counts.TryGetValue(id, out var count) ? count : (long?)null;
+        var parameters = kind == "workflow" ? WorkflowParams(definition) : null;
+        var queryType = kind == "query" ? (definition is { ValueKind: JsonValueKind.Object } q ? OwnerProjectScope.Text(q, "type") : null) ?? "Query" : null;
+        var sources = kind == "query" ? QuerySources(definition) : null;
+        queryRuns.TryGetValue(id, out var lastRun);
+        return new OwnerResourceRow(id, name, method, enabled, steps, access, slug,
+            stats.Calls, stats.Errors, stats.DurationMsSum,
+            storage, clientAccess, fields, records,
+            parameters, steps,
+            queryType, sources,
+            lastRun.ValueKind == JsonValueKind.Object ? RowString(lastRun, "run_at") : null,
+            lastRun.ValueKind == JsonValueKind.Object && lastRun.TryGetProperty("duration_ms", out var duration) && duration.ValueKind == JsonValueKind.Number && duration.TryGetInt64(out var durationMs) ? durationMs : null,
+            lastRun.ValueKind == JsonValueKind.Object && lastRun.TryGetProperty("records_returned", out var returned) && returned.ValueKind == JsonValueKind.Number && returned.TryGetInt32(out var returnedCount) ? returnedCount : null);
+    }
+
+    private static OwnerResourceRow BuildDraftRow(string kind, string id, string name, JsonElement? definition)
+    {
+        var slug = kind == "endpoint" ? id : null;
+        var method = kind == "endpoint" ? (definition is { ValueKind: JsonValueKind.Object } e ? OwnerProjectScope.Text(e, "method") : null) ?? "POST" : null;
+        var enabled = kind == "endpoint" ? EndpointEnabled(default, definition) : (bool?)null;
+        var access = kind == "endpoint"
+            ? OwnerGameSnippets.IsInternalEndpoint(definition) ? "Internal"
+                : OwnerGameSnippets.RequiresSecretKey(definition) ? "Secret key" : "Public"
+            : null;
+        var steps = definition is { ValueKind: JsonValueKind.Object } d && d.TryGetProperty("steps", out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.GetArrayLength() : 0;
+        return new OwnerResourceRow(id, name, method, enabled, steps, access, slug, 0, 0, 0,
+            kind == "collection" ? (IsGlobalDefinition(definition) ? "Global" : "Per player") : null,
+            kind == "collection" ? (OwnerGameSnippets.IsPublicCollection(definition) ? "Public" : "Endpoints only") : null,
+            kind == "collection" ? CollectionFields(definition) : 0, null,
+            kind == "workflow" ? WorkflowParams(definition) : null, steps,
+            kind == "query" ? ((definition is { ValueKind: JsonValueKind.Object } q ? OwnerProjectScope.Text(q, "type") : null) ?? "Query") : null,
+            kind == "query" ? QuerySources(definition) : null, null, null, null);
+    }
+
+    private static bool EndpointEnabled(JsonElement row, JsonElement? definition)
+    {
+        if (definition is { ValueKind: JsonValueKind.Object } d && d.TryGetProperty("enabled", out var flag))
+        {
+            if (flag.ValueKind == JsonValueKind.True) return true;
+            if (flag.ValueKind == JsonValueKind.False) return false;
+        }
+        if (row.ValueKind == JsonValueKind.Object && row.TryGetProperty("enabled", out var column))
+        {
+            if (column.ValueKind == JsonValueKind.True) return true;
+            if (column.ValueKind == JsonValueKind.False) return false;
+            if (column.ValueKind == JsonValueKind.Number && column.TryGetInt64(out var number)) return number != 0;
+        }
+        return true;
+    }
+
+    private static int CollectionFields(JsonElement? definition)
+    {
+        if (definition is not { ValueKind: JsonValueKind.Object } d) return 0;
+        if (!d.TryGetProperty("schema", out var schema) || schema.ValueKind != JsonValueKind.Object) return 0;
+        if (schema.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object)
+            return properties.EnumerateObject().Count();
+        return 0;
+    }
+
+    private static string WorkflowParams(JsonElement? definition)
+    {
+        if (definition is not { ValueKind: JsonValueKind.Object } d || !d.TryGetProperty("params", out var parameters)) return "None";
+        var names = parameters.ValueKind switch
+        {
+            JsonValueKind.Object => parameters.EnumerateObject().Select(p => p.Name).ToList(),
+            JsonValueKind.Array => parameters.EnumerateArray()
+                .Select(p => p.ValueKind == JsonValueKind.String ? p.GetString() : p.ValueKind == JsonValueKind.Object && p.TryGetProperty("name", out var named) && named.ValueKind == JsonValueKind.String ? named.GetString() : null)
+                .OfType<string>().ToList(),
+            _ => new List<string>(),
+        };
+        return names.Count == 0 ? "None" : string.Join(", ", names);
+    }
+
+    private static string QuerySources(JsonElement? definition)
+    {
+        if (definition is not { ValueKind: JsonValueKind.Object } d || !d.TryGetProperty("sources", out var sources) || sources.ValueKind != JsonValueKind.Array)
+            return "None";
+        var names = new List<string>();
+        foreach (var source in sources.EnumerateArray())
+        {
+            if (source.ValueKind == JsonValueKind.String && source.GetString() is { } text) names.Add(text);
+            else if (source.ValueKind == JsonValueKind.Object
+                && (OwnerProjectScope.Text(source, "collectionId") ?? OwnerProjectScope.Text(source, "collection") ?? OwnerProjectScope.Text(source, "queryId")) is { } named)
+                names.Add(named);
+        }
+        if (names.Count == 0) return sources.GetArrayLength() == 0 ? "None" : sources.GetArrayLength() + (sources.GetArrayLength() == 1 ? " source" : " sources");
+        return names.Count <= 2 ? string.Join(", ", names) : names[0] + ", " + names[1] + " (+" + (names.Count - 2) + " more)";
     }
 
     private async Task<(OwnerResourcesModel Model, OwnerProjectResources Resources)?> LoadAsync(string projectId, string kind, string? id, CancellationToken ct, string? draftId = null)
