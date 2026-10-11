@@ -35,3 +35,24 @@ Do not touch: `CHANGELOG.md`, `install/` scripts, `.github/workflows/`,
 and never put a secret API key in game code (public keys only). Do not share
 one PostgreSQL schema between independent server instances or data
 directories. Keep backups (`sbox-ns db backup`) before touching migrations.
+
+## Reporting test results
+
+Any result you report for the s&box editor or a real game client (a PR, an issue, a
+release check) MUST name all of these, or it is invalid evidence and does not count:
+
+- **Engine build**: the full s&box build string from the editor (About dialog or its
+  `.version`), for example `26.10.02`.
+- **Library version**: the git tag or `git:<sha>` for a library checked out from git, or the
+  version Library Manager shows (the `LibraryVersion` constant) for one installed through the
+  editor. Add the package revision (`.version`, `1.0.<revision>`) when known.
+- **Server build**: `version`, `kind` (`self-hosted` or `hosted`) and `database` from
+  `GET /v3/server-info`, plus the commit when it is not a release build.
+- **Operating system** the editor or game ran on.
+
+Record each editor run as a `tested` row in `compat/library-matrix.json` (fields `server`,
+`kind`, `library`, `librarySource`, `revision`, `engine`, `os`, `database`, `result`,
+`evidence`) instead of free text; see `docs/editor-test-plan.md`. A `pass` row without
+`engine`, `os`, `kind` and `librarySource` fails the schema test. Say exactly what you ran and
+what you did not. CI-only runs are `ci-only`, never `pass`. Never invent a version or an
+engine build you did not read from the machine.

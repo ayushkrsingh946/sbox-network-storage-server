@@ -547,12 +547,12 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
     { lock (_stateGate) { Id(projectId); RemoveWhere(StorageErrors, P(projectId), r => Long(r, "created_at_unix_ms") < beforeUnixMs); return Task.CompletedTask; } }
 
     // ── storage_request_log ───────────────────
-    public Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct)
+    public Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct, RequestClientInfo? client = null)
     {
         lock (_stateGate)
         {
         Id(projectId);
-        StorageRequestLog[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, method, path, status_code = statusCode, duration_ms = durationMs, api_key_identifier = apiKeyIdentifier ?? string.Empty });
+        StorageRequestLog[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, method, path, status_code = statusCode, duration_ms = durationMs, api_key_identifier = apiKeyIdentifier ?? string.Empty, library_version = client?.LibraryVersion, client_type = client?.ClientType, engine_version = client?.EngineVersion });
         return Task.CompletedTask;
         }
     }

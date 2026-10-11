@@ -45,6 +45,9 @@ public sealed record NetworkStorageRequest(
 
     /// <summary>True when the caller targets the staged ("next") revision; see <see cref="NetworkStoragePublishTarget"/>.</summary>
     public bool TargetsNext { get; init; }
+
+    /// <summary>The game's public key when the caller sent one next to its secret key (<c>x-public-key</c>); only <c>/validate</c> reads it.</summary>
+    public string? PublicKey { get; init; }
 }
 
 /// <summary>

@@ -735,7 +735,8 @@ needs a database migration.
 sbox-ns update --check            # show the latest version and release notes link
 sbox-ns update                    # install the latest release
 sbox-ns update --version v0.4.0   # install a specific release
-sbox-ns rollback                  # return to the previous binary
+sbox-ns rollback                  # return to the previous binary (restores the pre-update database backup)
+sbox-ns rollback --keep-data      # return to the previous binary and keep the database, when safe
 ```
 
 Take a backup (`sbox-ns db backup`) before updating to a release that needs a
@@ -762,6 +763,48 @@ Set `include_prereleases = true` to also be notified about prereleases.
 The update check requests
 `https://sboxcool.com/api/network-storage/releases/latest?channel=<updates.channel>`
 and falls back to the newest stable release on GitHub when the feed is unreachable.
+
+### Rolling back
+
+```sh
+sbox-ns rollback                   # previous binary + the database backup taken before the update
+sbox-ns rollback --keep-data       # previous binary, database kept as it is (only when that is safe)
+sbox-ns update --version 0.5.1 --allow-downgrade   # install an older release, same safety check
+```
+
+`sbox-ns rollback` restores the pre-update database backup, so everything written
+since the update is lost (it asks before doing so; `--yes` skips the question).
+
+`sbox-ns rollback --keep-data` swaps the binary back and leaves the database alone.
+It is available when every migration applied since the previous release is
+**additive**: each migration is tagged `additive` or `breaking` in the code, and the
+database records `min_binary_schema`, the highest `breaking` version applied. A binary
+runs on a newer database when the schema it supports is at least that floor. Before
+touching anything, `--keep-data` reads the database state and asks the previous binary
+which schema it supports (`sbox-ns schema-info --json`). If the previous binary cannot
+run on the database, the command changes nothing and prints why, for example:
+
+```text
+error: cannot do this without losing data: migration v4 ("drop column x") is breaking: a binary must support schema 4 or newer to run on this database, but 0.5.1 supports 3 (database schema 4). `sbox-ns rollback` (without --keep-data) restores the database backup taken before the update and loses everything written since.
+```
+
+then `sbox-ns rollback` is today's restore path. `sbox-ns update --version X.Y.Z
+--allow-downgrade` applies the same check to the release it downloads, before the
+service is stopped; without `--allow-downgrade` an older `--version` is refused.
+With `--all-instances`, `--keep-data` requires every instance's database to pass.
+`sbox-ns doctor` and `sbox-ns db status` show the same floor: a database that is newer
+than the binary through additive migrations only is reported as usable, and the
+server starts on it. A database with a breaking migration beyond the binary is
+refused exactly as before (`doctor` fails, `start` exits).
+
+Each release's notes end with a line such as "Rolls back without data loss to: 0.5.1,
+0.5.2", generated from the migration tags (see [releasing.md](releasing.md)).
+
+**Limitation.** Releases published before this feature neither know the floor rule nor
+answer `schema-info`. They only run on the exact schema they shipped with, so rolling
+back *to* one of them (or from a database it migrated) always needs the backup restore,
+and `--keep-data` refuses with "predates rollback-safe migrations". The first release
+that contains the floor rule is the oldest one `--keep-data` can return to.
 
 ### Automatic updates
 
@@ -845,9 +888,11 @@ with `sbox-ns config set updates.auto_install false` (or
 
 **What can still go wrong.**
 
-- Migrations are forward-only. A rollback restores the database backup taken
+- Migrations are forward-only. A plain rollback restores the database backup taken
   just before the update, so it only works with that backup in place: keep
-  enough disk space for one backup per instance.
+  enough disk space for one backup per instance. When every migration since is
+  additive, `sbox-ns rollback --keep-data` needs no backup
+  (see [Rolling back](#rolling-back)).
 - Data written after an update is lost when the update is rolled back: with
   `sbox-ns rollback`, everything since the update; with an automatic rollback,
   whatever players wrote to instances already restarted on the new version

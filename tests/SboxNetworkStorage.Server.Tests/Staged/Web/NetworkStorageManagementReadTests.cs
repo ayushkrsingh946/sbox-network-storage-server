@@ -130,6 +130,28 @@ public abstract class NetworkStorageManagementReadTests<TFactory> : IClassFixtur
         Assert.Equal("weapons", json.GetProperty("data")[0].GetProperty("name").GetString());
     }
 
+    [SkippableTheory]
+    [InlineData(null, false, "Not provided")]
+    [InlineData("pk-valid", true, "Valid")]
+    [InlineData("pk-wrong", false, "Invalid")]
+    [InlineData("sk-valid", false, "Not a public key")]
+    public async Task ValidateReportsThePublicKeyTheLibrarySends(string? publicKey, bool expectedOk, string expectedMessage)
+    {
+        var handler = new ManagementReadHandler(
+            new TwoKeyResolver(secretKey: "sk-valid", publicKey: "pk-valid", projectId: "proj-1"),
+            new FakeWorkspaceManagement("proj-1"),
+            new FakeProjectService());
+
+        var result = await handler.ExecuteAsync(
+            BuildRequest("proj-1", apiKey: "sk-valid", routeSuffix: "validate") with { PublicKey = publicKey });
+
+        Assert.Equal(200, result.StatusCode);
+        var checks = JsonSerializer.SerializeToElement(result.Body).GetProperty("checks");
+        Assert.True(checks.GetProperty("secretKey").GetProperty("ok").GetBoolean());
+        Assert.Equal(expectedOk, checks.GetProperty("publicKey").GetProperty("ok").GetBoolean());
+        Assert.Equal(expectedMessage, checks.GetProperty("publicKey").GetProperty("message").GetString());
+    }
+
     [SkippableFact]
     public async Task WorkflowsReturnsOkWithData()
     {
@@ -567,6 +589,17 @@ public abstract class NetworkStorageManagementReadTests<TFactory> : IClassFixtur
                     ProjectId: projectId,
                     Enabled: !_disabled,
                     KeyType: _keyType));
+        }
+    }
+
+    private sealed class TwoKeyResolver(string secretKey, string publicKey, string projectId) : IStorageApiKeyResolver
+    {
+        public Task<StorageApiKeyAuthResult?> ResolveApiKeyAsync(string apiKey, string requestedProjectId, CancellationToken cancellationToken)
+        {
+            var keyType = apiKey == secretKey ? "secret" : apiKey == publicKey ? "public" : null;
+            return Task.FromResult<StorageApiKeyAuthResult?>(keyType is null || requestedProjectId != projectId
+                ? null
+                : new StorageApiKeyAuthResult(UserId: 42, ProjectId: requestedProjectId, Enabled: true, KeyType: keyType));
         }
     }
 

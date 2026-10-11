@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 
@@ -10,7 +11,8 @@ namespace SboxNetworkStorage.Server.Updates;
 /// <summary>
 /// Contents of the <c>release.json</c> asset attached to every GitHub Release. The
 /// sboxcool.com feed returns the same shape plus <c>channel</c>, <c>promotedAt</c>
-/// (when the version entered that channel) and <c>held</c> (the channel is frozen at this version).
+/// (when the version entered that channel), <c>held</c> (the channel is frozen at this version) and an optional
+/// <c>libraryCompat</c> overlay that can only tighten the library compatibility matrix (see <see cref="LibraryMatrix.Merge"/>).
 /// </summary>
 public sealed record ReleaseInfo(
     [property: JsonPropertyName("version")] string Version,
@@ -22,7 +24,8 @@ public sealed record ReleaseInfo(
     [property: JsonPropertyName("prerelease")] bool Prerelease = false,
     [property: JsonPropertyName("channel")] string? Channel = null,
     [property: JsonPropertyName("promotedAt")] DateTimeOffset? PromotedAt = null,
-    [property: JsonPropertyName("held")] bool Held = false);
+    [property: JsonPropertyName("held")] bool Held = false,
+    [property: JsonPropertyName("libraryCompat")] LibraryCompatOverlay? LibraryCompat = null);
 
 /// <summary>A <c>major.minor.patch[-prerelease]</c> version with SemVer precedence.</summary>
 public sealed record SemanticVersion(int Major, int Minor, int Patch, string? Prerelease) : IComparable<SemanticVersion>

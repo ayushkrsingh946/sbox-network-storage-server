@@ -154,7 +154,8 @@ internal static class StoreColumns
     public static readonly Column[] StorageRequestLog =
     [
         new("created_at_unix_ms", Long), new("method", Text), new("path", Text), new("status_code", Int),
-        new("duration_ms", Int), new("api_key_identifier", Text),
+        new("duration_ms", Int), new("api_key_identifier", Text), new("library_version", Text), new("client_type", Text),
+        new("engine_version", Text),
     ];
 
     public static readonly Column[] UsageMonthly =

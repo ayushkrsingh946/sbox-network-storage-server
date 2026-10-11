@@ -1,5 +1,7 @@
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -114,7 +116,12 @@ public static class CliApp
                                         instance is health-checked and all are rolled back on any failure
                                         (exit 0 done/nothing to do, 1 rolled back, 2 config, 3 rollback incomplete,
                                         4 feed unavailable)
+          update --version X.Y.Z --allow-downgrade   Install an OLDER release, only when it can run on the current database
+                                        schema without a restore (every migration since is additive); otherwise refused
           rollback [--all-instances]    Restore the binary and database(s) from before the last update
+          rollback --keep-data [--all-instances]   Restore the previous binary and keep the current database, only when
+                                        every migration since the update is additive; otherwise refused with the reason
+          schema-info [--json]          The highest database schema this binary can run on (used by rollback/downgrade checks)
 
         Install layout (Linux, as root; docs/self-hosting.md "Config and state folders")
           layout migrate                Move runtime files (generated secrets, tunnel and DNS state) out of the config
@@ -170,6 +177,7 @@ public static class CliApp
                 "doctor" => await DoctorCommand.RunAsync(context),
                 "update" => await UpdateCommands.UpdateAsync(context),
                 "rollback" => await UpdateCommands.RollbackAsync(context),
+                "schema-info" => SchemaInfo(context),
                 "layout" => await LayoutCommands.RunAsync(context),
                 _ => UnknownCommand(command)
             };
@@ -178,6 +186,12 @@ public static class CliApp
         {
             Console.Error.WriteLine($"error: {ex.Message}");
             return ex.ExitCode;
+        }
+        catch (Exception ex) when (ex is SchemaVersionTooNewException or SchemaMigrationRequiredException)
+        {
+            // The message already says what to do; a stack trace only adds the build machine's paths.
+            Console.Error.WriteLine($"error: {ex.Message}");
+            return Failure;
         }
     }
 
@@ -194,6 +208,13 @@ public static class CliApp
         var config = context.LoadValidConfig();
         ConfigFiles.SetValue(config.ConfigDirectory, SettingDefinitions.All.Single(value => value.Key == "adminpanel.enabled"), command == "enable");
         Console.WriteLine($"Owner administration {(command == "enable" ? "enabled" : "disabled")} in configuration. Restart the server to apply. Game APIs are unchanged.");
+        return Ok;
+    }
+
+    private static int SchemaInfo(CliContext context)
+    {
+        var info = BinarySchemaInfo.ForThisBuild();
+        Console.WriteLine(context.Args.Flag("json") ? info.ToJson() : $"sbox-ns {info.Version}: supports database schema {info.SupportedSchemaVersion}");
         return Ok;
     }
 

@@ -182,13 +182,14 @@ public abstract partial class RelationalNetworkStorageStore
 
     // ── storage_request_log ─────────────────────────────────────────
 
-    public Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct)
+    public Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct, RequestClientInfo? client = null)
     {
         V.Id(projectId);
         return ExecuteAsync(_sql.InsertStorageRequestLog, ct,
             Text("project_id", projectId), Int64("created_at_unix_ms", createdAtUnixMs), Text("method", method),
             Text("path", path), Int32("status_code", statusCode), Int32("duration_ms", durationMs),
-            Text("api_key_identifier", apiKeyIdentifier ?? string.Empty));
+            Text("api_key_identifier", apiKeyIdentifier ?? string.Empty), Text("library_version", client?.LibraryVersion),
+            Text("client_type", client?.ClientType), Text("engine_version", client?.EngineVersion));
     }
 
     public Task<IReadOnlyList<JsonElement>> ListStorageRequestLogAsync(string projectId, int limit, CancellationToken ct)

@@ -140,7 +140,7 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             "game-package"     => await HandleGamePackageAsync(ownerUserId, projectId, auth.KeyType, request.CancellationToken),
             "rate-limit-rules" => await HandleRateLimitRulesAsync(ownerUserId, projectId, auth.KeyType, request.CancellationToken),
             "settings" or "config" => await HandleSettingsAsync(project, ownerUserId, projectId, auth.KeyType),
-            "validate"         => await HandleValidateAsync(apiKey, auth, projectId, ownerUserId),
+            "validate"         => await HandleValidateAsync(request, apiKey, auth, projectId, ownerUserId),
             "sync-jobs"        => NotImplementedResult("sync-jobs/:jobId"),
             "agent-manifest"   => NotImplementedResult("agent-manifest"),
             _                  => NotImplementedResult(resourceName),
@@ -406,16 +406,17 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
 
     // ── Validate ──
 
-    private Task<NetworkStorageResult> HandleValidateAsync(
-        string apiKey, StorageApiKeyAuthResult auth, string projectId, long ownerUserId)
+    private async Task<NetworkStorageResult> HandleValidateAsync(
+        NetworkStorageRequest request, string apiKey, StorageApiKeyAuthResult auth, string projectId, long ownerUserId)
     {
         // legacy server's routeManageValidate builds a checks result: projectId check + secretKey check
-        // Since we already resolved the key to reach here, both checks succeed.
+        // Since we already resolved the key to reach here, both checks succeed. The library's Setup window
+        // sends the game's public key in x-public-key, so report on it instead of always "Not provided".
         var checks = new Dictionary<string, object>
         {
             ["projectId"] = new { ok = true, message = "Found" },
             ["secretKey"] = new { ok = true, message = "Valid" },
-            ["publicKey"] = new { ok = false, message = "Not provided" },
+            ["publicKey"] = await CheckPublicKeyAsync(request.PublicKey, projectId, request.CancellationToken),
         };
 
         var projectInfo = new Dictionary<string, object?>
@@ -435,10 +436,32 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["checks"] = checks,
         };
 
-        return Task.FromResult(NetworkStorageResult.Ok(
+        return NetworkStorageResult.Ok(
             response,
             storagePathsRead: Array.Empty<string>(),
-            authDecision: auth.KeyType));
+            authDecision: auth.KeyType);
+    }
+
+    private async Task<object> CheckPublicKeyAsync(string? publicKey, string projectId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(publicKey))
+            return new { ok = false, message = "Not provided" };
+
+        StorageApiKeyAuthResult? resolved;
+        try
+        {
+            resolved = await _apiKeyResolver.ResolveApiKeyAsync(publicKey, projectId, ct);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            resolved = null;
+        }
+
+        if (resolved is null || !resolved.Enabled)
+            return new { ok = false, message = "Invalid" };
+        return string.Equals(resolved.KeyType, "public", StringComparison.OrdinalIgnoreCase)
+            ? new { ok = true, message = "Valid" }
+            : new { ok = false, message = "Not a public key" };
     }
 
     // ── Helpers ──

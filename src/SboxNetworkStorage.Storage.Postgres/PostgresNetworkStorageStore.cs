@@ -75,6 +75,15 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
         return await command.ExecuteScalarAsync(ct) is true;
     }
 
+    protected override async Task<bool> SchemaVersionHasFloorColumnAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = @schema AND table_name = 'schema_version' AND column_name = 'min_binary_schema')";
+        AddText(command, "schema", _schema);
+        return await command.ExecuteScalarAsync(ct) is true;
+    }
+
     public override ValueTask DisposeAsync() => _dataSource.DisposeAsync();
 
     private static string SchemaPrefix(PostgresStoreOptions options)

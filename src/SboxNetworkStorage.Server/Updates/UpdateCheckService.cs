@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 
@@ -22,6 +23,7 @@ public sealed record UpdateNotice(string CurrentVersion, ReleaseInfo Latest, boo
 public sealed class UpdateCheckService(
     EffectiveConfig config,
     UpdateNoticeState state,
+    LibraryCompatProvider libraryCompat,
     ILogger<UpdateCheckService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -57,6 +59,8 @@ public sealed class UpdateCheckService(
             var latest = await feed.GetReleaseAsync(specificVersion: null, ct);
             var notice = Evaluate(BuildInfo.Version, latest, DateTimeOffset.UtcNow);
             state.Set(notice);
+            // A release without a libraryCompat object says nothing and keeps the last overlay; an empty object clears it.
+            if (latest.LibraryCompat is not null) libraryCompat.SetOverlay(latest.LibraryCompat);
             if (!notice.UpdateAvailable)
             {
                 return;

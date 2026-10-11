@@ -3,6 +3,7 @@ using SboxNetworkStorage.Server.Cli;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Cli.Tests;
 
@@ -10,6 +11,7 @@ namespace SboxNetworkStorage.Cli.Tests;
 /// <c>layout migrate [--revert]</c> on real folders. The host (root, systemd, account lookups, chown) is faked,
 /// so nothing needs privileges; modes are applied for real.
 /// </summary>
+[Collection("Console")]
 public sealed class LayoutMigratorTests : IDisposable
 {
     private static readonly UnixOwner Service = new(1000, 1000);
@@ -567,5 +569,9 @@ public sealed class LayoutMigratorTests : IDisposable
         public Task<int> RestoreAsync(string binary, ServerInstance instance, string backupPath, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<int> RevertLayoutAsync(string binary, IReadOnlyList<ServerInstance> instances, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<SchemaState?> ReadSchemaStateAsync(string binary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct) => throw new NotSupportedException();
     }
 }

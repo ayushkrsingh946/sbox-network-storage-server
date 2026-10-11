@@ -39,6 +39,7 @@
     <EmbeddedResource Include="wwwroot/js/owner-manage.js" LogicalName="SboxNetworkStorage.Server.Owner.manage.js" />
     <EmbeddedResource Include="wwwroot/css/owner-manage.css" LogicalName="SboxNetworkStorage.Server.Owner.manage.css" />
     <EmbeddedResource Include="Owner/Examples/*.yml" LogicalName="SboxNetworkStorage.Server.Owner.Examples.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../compat/library-matrix.json" LogicalName="SboxNetworkStorage.Server.Compat.library-matrix.json" />
     <EmbeddedResource Include="Updates/release-signing-keys.pub" LogicalName="SboxNetworkStorage.Server.Updates.release-signing-keys.pub" />
     <EmbeddedResource Include="../../install/*.service;../../install/*.timer" LogicalName="SboxNetworkStorage.Server.Systemd.%(Filename)%(Extension)" />
     <!-- Guides served as MCP resources. A glob, like the units above, so builds without docs/ (the container image) still succeed. -->

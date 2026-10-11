@@ -145,6 +145,7 @@ public static class AutoUpdateCommand
         }
 
         // Rollback restores the fixed installed binary from the root-only state folder; paths in the records are never followed.
+        var keepData = context.Args.Flag("keep-data");
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         UpdateCommands.RequireStandaloneExecutable(binary);
         if (!File.Exists(state.PreviousBinaryPath))
@@ -152,23 +153,37 @@ public static class AutoUpdateCommand
             throw new CliException($"rollback binary is missing ({state.PreviousBinaryPath})");
         }
 
-        foreach (var (instance, record) in records.Where(r => r.Record.BackupPath is not null && !File.Exists(r.Record.BackupPath)))
+        if (!keepData)
         {
-            throw new CliException($"{instance.Name}: backup {record.BackupPath} is missing");
+            foreach (var (instance, record) in records.Where(r => r.Record.BackupPath is not null && !File.Exists(r.Record.BackupPath)))
+            {
+                throw new CliException($"{instance.Name}: backup {record.BackupPath} is missing");
+            }
         }
 
-        Console.WriteLine($"Rolling back {first.ToVersion} -> {first.FromVersion} on {string.Join(", ", records.Select(r => r.Instance.Name))}");
-        UpdateCommands.ConfirmDataLoss(context);
+        var host = new SystemUpdateHost();
+        if (keepData)
+        {
+            // Every instance shares the one installed binary, so one database that needs the restore path stops them all.
+            await UpdateCommands.RequireDataPreservingRollbackAsync(host, binary, state.PreviousBinaryPath, records.Select(r => r.Instance).ToList(), UpdateCommands.RestoreAlternative);
+            Console.WriteLine($"Rolling back {first.ToVersion} -> {first.FromVersion} on {string.Join(", ", records.Select(r => r.Instance.Name))}; databases are kept as they are.");
+        }
+        else
+        {
+            Console.WriteLine($"Rolling back {first.ToVersion} -> {first.FromVersion} on {string.Join(", ", records.Select(r => r.Instance.Name))}");
+            UpdateCommands.ConfirmDataLoss(context);
+        }
+
         using var updateLock = UpdateCommands.AcquireUpdateLock(binary);
         using var health = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        var problems = await new AutoUpdater(new SystemUpdateHost(), state, health, Console.WriteLine).RollbackRecordedAsync(records, binary, CancellationToken.None);
+        var problems = await new AutoUpdater(host, state, health, Console.WriteLine).RollbackRecordedAsync(records, binary, CancellationToken.None, keepData);
         if (problems.Count > 0)
         {
             Console.Error.WriteLine($"error: rollback incomplete: {string.Join("; ", problems)}");
             return RollbackFailed;
         }
 
-        Console.WriteLine($"Rolled back to {first.FromVersion}.");
+        Console.WriteLine(keepData ? $"Rolled back to {first.FromVersion}; no data was lost." : $"Rolled back to {first.FromVersion}.");
         return CliApp.Ok;
     }
 

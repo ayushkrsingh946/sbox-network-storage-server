@@ -37,14 +37,120 @@ natively without a database write:
   "database": "sqlite",
   "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel"],
   "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
+  "compat": { "library": { "minimum": "1.1.0", "recommended": "1.1.0", "latest": "1.1.0", "legacy": "supported", "deprecated": [], "blocked": [], "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "Stale library breaks editor startup on s&box engine 26.10 or later.", "issue": "sbox-cool/sbox-network-storage#4" }], "tested": [] }, "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json" },
   "update": null
 }
 ```
 
 `database` is the configured provider name. `tunnel` describes the
 `sbox-ns tunnel` connector. `update` carries the latest release notice when
-an update check has run, else null. `sbox-ns doctor` also polls this route
-to check the listener.
+an update check has run, else null. `compat` is described under
+[Library compatibility](#library-compatibility). `sbox-ns doctor` also polls
+this route to check the listener.
+
+## Library compatibility
+
+The server runs many library versions at once, and most are older than the
+server. Nothing here is required: a library that sends none of the request
+headers below keeps working exactly as before. The rules are in
+[compat/library-matrix.json](../compat/library-matrix.json), which is also
+embedded in the binary, so everything on this page works offline.
+
+### Request headers (library to server)
+
+The library sends these on runtime and Sync Tool requests. All are optional.
+
+|Header|Value|Meaning|
+|---|---|---|
+|`x-ns-library-version`|SemVer, e.g. `1.1.0`|Version of the Network Storage library. Missing or invalid (not `MAJOR.MINOR.PATCH[-pre][+build]`, longer than 64 characters) is the `legacy` bucket, never an error. The old constant `1.0` counts as `legacy`.|
+|`x-ns-library-revision`|integer, e.g. `309133`|s&box package revision of the library, best effort. Ignored when not a non-negative integer.|
+|`x-ns-client-type`|`game`, `editor` or `dedicated`|Which kind of client is calling. Any other value is ignored.|
+|`x-ns-revision-id`|integer|Game revision the client was built from (published bundles only).|
+|`x-ns-engine-version`|engine build, e.g. `26.10.02`|The s&box engine build the client runs on. At most 32 characters of `[0-9A-Za-z._+-]`; any other value is ignored.|
+
+Libraries that do not send the header can still report their version in a
+request body, and the server uses it when the headers carry no valid version
+(a valid header always wins):
+
+- `networkStorageVersion` in the `revision-init` body,
+- `libraryVersion` (or `library_version`) in heartbeat and analytics event bodies.
+
+An old library's constant `"1.0"` there is `legacy` as well.
+
+The resolved identity (library version or `legacy`, client type, engine build)
+is written with each runtime request to `storage_request_log` and shown as the
+**Library**, **Client** and **Engine** columns on the project's Logs tab. Rows
+written before the columns existed show them empty.
+
+### Response headers (server to library)
+
+Every response carries these, including errors and rejected requests. They are
+headers only: no response body changes, and older libraries ignore them.
+
+|Header|When|Value|
+|---|---|---|
+|`x-ns-server-version`|always|The server version (`BuildInfo.Version`), e.g. `0.5.0`.|
+|`x-ns-library-status`|always|`supported`, `outdated`, `deprecated`, `unsupported`, `blocked` or `unknown`.|
+|`x-ns-library-latest`|status `outdated` or worse|Newest library version the server knows.|
+|`x-ns-library-sunset`|status `deprecated`|Date (`yyyy-MM-dd`) support for that version ends.|
+
+|Status|Meaning|
+|---|---|
+|`supported`|At or above the recommended version.|
+|`outdated`|Supported, but a newer version is recommended.|
+|`deprecated`|Support ends on the sunset date.|
+|`unsupported`|Below the matrix `minimum`, or a build known to be broken (for example on the engine builds named in the matrix).|
+|`blocked`|A security or data-loss problem, listed in the matrix `blocked` ranges.|
+|`unknown`|No valid library version was sent: the `legacy` bucket. The server serves it as before; the status is `unknown` because it cannot tell which build this is.|
+
+When several rules match, the strictest status wins. The server only reports
+status. Runtime requests are served whatever the status; the editor and the
+dashboard are where developers are pushed to update.
+
+### `compat` block of `/v3/server-info`
+
+```json
+"compat": {
+  "library": {
+    "minimum": "1.1.0",
+    "recommended": "1.1.0",
+    "latest": "1.1.0",
+    "legacy": "supported",
+    "deprecated": [{ "range": "<1.2.0", "sunset": "2027-03-01" }],
+    "blocked": [{ "range": "1.2.1", "reason": "...", "advisory": "GHSA-..." }],
+    "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "...", "issue": "sbox-cool/sbox-network-storage#4" }],
+    "tested": [{ "server": "0.5.0", "library": "1.1.0", "revision": 310500, "engine": "26.10.02", "os": "Windows 11", "database": ["sqlite"], "result": "pass", "evidence": ["..."] }]
+  },
+  "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json"
+}
+```
+
+`minimum` and `recommended` are library versions; `latest` is the newest the
+matrix knows. `legacy` is the status the matrix gives the no-version bucket.
+`deprecated` and `blocked` are version ranges (`1.2.1` exact, `<1.2.0`,
+`>=1.1.0 <1.3.0`; all comparators must hold). `knownBroken` lists builds known to break on
+particular engine builds. `tested` lists the editor and CI runs recorded for
+releases ([release evidence](releasing.md#release-evidence)). `deprecated`, `blocked`, `knownBroken` and
+`tested` are empty arrays when there is nothing to report.
+
+A library should decide features from `capabilities`, not from version
+numbers. Where the server must act on a library version anyway, it does so in
+one place (`LibraryCompatShims`), and each entry there names its reason, its
+issue and the server version at which it must be removed.
+
+### Release-feed overlay
+
+When update checks are on (`updates.check`), the server also reads an optional
+`libraryCompat` object from the release feed, so a `blocked` range can reach
+servers that have not been updated. An overlay can only make a status
+**stricter**: it can raise `minimum` and `recommended`, add `blocked` and
+`deprecated` ranges, and deprecate or un-support the `legacy` bucket. It cannot
+change an announced sunset: a feed `deprecated` range only dates versions the
+embedded matrix does not already deprecate. It cannot lower `minimum`, remove a
+block, set `legacy` back to `supported` or block the whole `legacy` bucket; those parts
+are ignored. A feed response without `libraryCompat` leaves the current
+overlay in place, and an empty `{}` removes it. Nothing needs network access:
+without the feed, the embedded matrix applies.
 
 ## Revision init handshake
 

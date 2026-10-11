@@ -1,0 +1,31 @@
+{
+  "$schema": "./library-matrix.schema.json",
+  "schemaVersion": 1,
+  "minimum": "1.1.0",
+  "recommended": "1.1.0",
+  "libraries": [
+    {
+      "version": "legacy",
+      "revisions": "<=309133",
+      "status": "supported",
+      "notes": "Every build that sends no x-ns-library-version header, up to package revision 309133 (1.0.309133). Served as before; reported to the client as 'unknown'."
+    },
+    {
+      "version": "1.0.165702",
+      "revision": 165702,
+      "status": "known-broken",
+      "engine": ">=26.10",
+      "reason": "Stale library breaks editor startup on s&box engine 26.10 or later.",
+      "issue": "sbox-cool/sbox-network-storage#4"
+    },
+    {
+      "version": "1.1.0",
+      "minServer": "0.5.0",
+      "status": "supported",
+      "notes": "First library that reports its own version. Package revision is recorded after publish."
+    }
+  ],
+  "deprecated": [],
+  "blocked": [],
+  "tested": []
+}
