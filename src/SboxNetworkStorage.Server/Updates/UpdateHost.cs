@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using SboxNetworkStorage.Server.Cli;
+using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Updates;
 
@@ -29,6 +30,18 @@ public interface IUpdateHost
     /// so an older binary can start. The units are already stopped and the update lock is held. Returns 0 on success.
     /// </summary>
     Task<int> RevertLayoutAsync(string binary, IReadOnlyList<ServerInstance> instances, CancellationToken ct);
+
+    /// <summary>
+    /// Runs <c>&lt;binary&gt; db status --json</c> for one instance and parses the schema version and compatibility floor;
+    /// null when the command fails or prints something else.
+    /// </summary>
+    Task<SchemaState?> ReadSchemaStateAsync(string binary, ServerInstance instance, CancellationToken ct);
+
+    /// <summary>
+    /// Runs <c>&lt;binary&gt; schema-info --json</c>. Null when the binary does not know the command, i.e. it predates
+    /// rollback-safe migrations and only runs on the exact schema it shipped with.
+    /// </summary>
+    Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct);
 }
 
 /// <summary>systemd on Linux; elsewhere only the default service via the platform service manager.</summary>
@@ -85,12 +98,31 @@ public sealed class SystemUpdateHost : IUpdateHost
         }
     }
 
+    public Task<SchemaState?> ReadSchemaStateAsync(string binary, ServerInstance instance, CancellationToken ct)
+    {
+        var (file, arguments) = ServiceUserInvocation(binary, instance, ["db", "status", "--json"]);
+        var result = ServiceCommands.RunCapture(file, arguments);
+        return Task.FromResult(result.ExitCode == 0 ? SchemaRollback.TryParseState(result.Output) : null);
+    }
+
+    public Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct)
+    {
+        var result = ServiceCommands.RunCapture(binary, ["schema-info", "--json"]);
+        return Task.FromResult(result.ExitCode == 0 ? BinarySchemaInfo.TryParse(result.Output) : null);
+    }
+
     /// <summary>
     /// Runs a database command of <paramref name="binary"/> for one instance as the unit's service user:
     /// root-owned database files would stop the service, and root must not write into a folder the
     /// service account controls.
     /// </summary>
-    private static async Task<int> RunAsServiceUserAsync(string binary, ServerInstance instance, IReadOnlyList<string> command, CancellationToken ct)
+    private static Task<int> RunAsServiceUserAsync(string binary, ServerInstance instance, IReadOnlyList<string> command, CancellationToken ct)
+    {
+        var (file, arguments) = ServiceUserInvocation(binary, instance, command);
+        return RunAsync(file, arguments, ct, TimeSpan.FromMinutes(20));
+    }
+
+    private static (string File, IReadOnlyList<string> Arguments) ServiceUserInvocation(string binary, ServerInstance instance, IReadOnlyList<string> command)
     {
         var arguments = new List<string>(command) { "--config-dir", instance.Config.ConfigDirectory, "--data-dir", instance.Config.DataDirectory };
         if (OperatingSystem.IsLinux())
@@ -104,11 +136,11 @@ public sealed class SystemUpdateHost : IUpdateHost
             if (!string.IsNullOrWhiteSpace(user.Output) && user.Output.Trim() != "root")
             {
                 var extractDirectory = "DOTNET_BUNDLE_EXTRACT_BASE_DIR=" + Path.Combine(instance.Config.DataDirectory, ".net");
-                return await RunAsync("runuser", ["-u", user.Output.Trim(), "--", "env", extractDirectory, binary, .. arguments], ct, TimeSpan.FromMinutes(20));
+                return ("runuser", ["-u", user.Output.Trim(), "--", "env", extractDirectory, binary, .. arguments]);
             }
         }
 
-        return await RunAsync(binary, arguments, ct, TimeSpan.FromMinutes(20));
+        return (binary, arguments);
     }
 
     private static async Task<int> ControlAsync(string action, string unit, CancellationToken ct)

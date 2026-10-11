@@ -108,10 +108,12 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
     /// Undoes a recorded successful update for every instance: restores the previous
     /// binary once and every instance's backup, then starts the instances that were running.
     /// Only the fixed <paramref name="binary"/> is replaced and only <see cref="UpdateState.PreviousBinaryPath"/>
-    /// is used as the source; the paths stored in the records are never followed.
+    /// is used as the source; the paths stored in the records are never followed. With <paramref name="keepData"/> the
+    /// databases are left exactly as they are (the caller has already verified the previous binary can run on them);
+    /// the layout revert and the health check still run.
     /// </summary>
     public async Task<IReadOnlyList<string>> RollbackRecordedAsync(IReadOnlyList<(ServerInstance Instance, UpdateRecord Record)> recorded,
-        string binary, CancellationToken ct)
+        string binary, CancellationToken ct, bool keepData = false)
     {
         state.Require();
         var first = recorded[0].Record;
@@ -125,7 +127,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
         }
 
         var problems = await RollbackAsync(first.FromVersion, binary, state.PreviousBinaryPath, binaryReplaced: true, active,
-            recorded.Select(r => (r.Instance, r.Record.BackupPath)).ToList(), revertLayout: true);
+            recorded.Select(r => (r.Instance, r.Record.BackupPath)).ToList(), revertLayout: true, restoreDatabases: !keepData);
         if (problems.Count == 0)
         {
             foreach (var (instance, _) in recorded)
@@ -138,7 +140,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
     }
 
     private async Task<List<string>> RollbackAsync(string fromVersion, string binary, string previous, bool binaryReplaced,
-        IReadOnlyList<ServerInstance> active, IReadOnlyList<(ServerInstance Instance, string? Path)> backups, bool revertLayout)
+        IReadOnlyList<ServerInstance> active, IReadOnlyList<(ServerInstance Instance, string? Path)> backups, bool revertLayout, bool restoreDatabases = true)
     {
         var problems = new List<string>();
         async Task TryAsync(string step, Func<Task> action)
@@ -188,7 +190,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
             });
         }
 
-        foreach (var (instance, backup) in backups)
+        foreach (var (instance, backup) in backups.Where(_ => restoreDatabases))
         {
             await TryAsync($"restore {instance.Name} database", async () =>
             {

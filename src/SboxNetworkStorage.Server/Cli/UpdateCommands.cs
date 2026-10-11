@@ -6,6 +6,7 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage.Sqlite;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -43,6 +44,18 @@ public static class UpdateCommands
             return CliApp.Ok;
         }
 
+        var downgrade = SemanticVersion.TryParse(release.Version, out var target) && SemanticVersion.TryParse(BuildInfo.Version, out var installed)
+            && target.CompareTo(installed) < 0;
+        if (context.Args.Flag("allow-downgrade") && requested is null)
+        {
+            throw new CliException("--allow-downgrade needs --version X.Y.Z", CliApp.Usage);
+        }
+
+        if (downgrade && !context.Args.Flag("allow-downgrade"))
+        {
+            throw new CliException($"{release.Version} is older than the installed {BuildInfo.Version}. Downgrades need --allow-downgrade, and only go ahead when the older release can run on the current database without a restore (see docs/self-hosting.md).");
+        }
+
         if (requested is null && !notice.UpdateAvailable)
         {
             Console.WriteLine("You are up to date.");
@@ -61,6 +74,12 @@ public static class UpdateCommands
         try
         {
             var newBinary = await StageReleaseAsync(http, feed, release.Version, binary, work.FullName);
+            if (downgrade)
+            {
+                // Decided before the service stops or anything is backed up: an unsafe downgrade changes nothing.
+                await RequireDataPreservingRollbackAsync(host, binary, newBinary, [instance],
+                    $"To go back anyway, install {release.Version} on a restored database backup taken before the newer release (`sbox-ns db restore <backup>`); data written since that backup is lost.");
+            }
 
             var serviceInstalled = ServiceCommands.IsInstalled();
             if (serviceInstalled)
@@ -123,6 +142,7 @@ public static class UpdateCommands
             return await AutoUpdateCommand.RollbackAllAsync(context);
         }
 
+        var keepData = context.Args.Flag("keep-data");
         var config = context.LoadValidConfig();
         var state = UpdateState.ForHost();
         var instance = ServerInstances.ForConfig(config);
@@ -134,13 +154,23 @@ public static class UpdateCommands
         // root-only state folder and never follows a path stored in the record.
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         RequireStandaloneExecutable(binary);
-        if (!File.Exists(state.PreviousBinaryPath) || record.BackupPath is null || !File.Exists(record.BackupPath))
+        if (!File.Exists(state.PreviousBinaryPath) || (!keepData && (record.BackupPath is null || !File.Exists(record.BackupPath))))
         {
-            throw new CliException($"rollback files are missing ({state.PreviousBinaryPath}, {record.BackupPath ?? "no backup"})");
+            throw new CliException($"rollback files are missing ({state.PreviousBinaryPath}, {(keepData ? "backup not needed" : record.BackupPath ?? "no backup")})");
         }
 
-        Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion} and restoring {record.BackupPath}");
-        ConfirmDataLoss(context);
+        var host = new SystemUpdateHost();
+        if (keepData)
+        {
+            await RequireDataPreservingRollbackAsync(host, binary, state.PreviousBinaryPath, [instance], RestoreAlternative);
+            Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion}; the database is kept as it is.");
+        }
+        else
+        {
+            Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion} and restoring {record.BackupPath}");
+            ConfirmDataLoss(context);
+        }
+
         using var updateLock = AcquireUpdateLock(binary);
 
         var serviceInstalled = ServiceCommands.IsInstalled();
@@ -150,7 +180,6 @@ public static class UpdateCommands
         }
 
         // The binary being restored may predate the state folder and expect its secrets in the config folder.
-        var host = new SystemUpdateHost();
         try
         {
             RequireSuccess(await host.RevertLayoutAsync(binary, [instance], CancellationToken.None), "layout revert");
@@ -161,16 +190,39 @@ public static class UpdateCommands
         }
 
         BinarySwap.Replace(state.PreviousBinaryPath, binary);
-        RequireSuccess(await host.RestoreAsync(binary, instance, record.BackupPath, CancellationToken.None), "database restore");
+        if (!keepData)
+        {
+            RequireSuccess(await host.RestoreAsync(binary, instance, record.BackupPath!, CancellationToken.None), "database restore");
+        }
+
         state.Delete(instance.Name);
         if (serviceInstalled)
         {
             await RequireServiceControlAsync("start");
         }
 
-        Console.WriteLine($"Rolled back to {record.FromVersion}.");
+        Console.WriteLine(keepData ? $"Rolled back to {record.FromVersion}; no data was lost." : $"Rolled back to {record.FromVersion}.");
         return CliApp.Ok;
     }
+
+    /// <summary>
+    /// The <c>--keep-data</c> / <c>--allow-downgrade</c> gate: throws unless <paramref name="targetBinary"/> can run on every
+    /// instance's current database (the floor rule). <paramref name="alternative"/> names today's restore path in the refusal.
+    /// </summary>
+    internal static async Task RequireDataPreservingRollbackAsync(IUpdateHost host, string installedBinary, string targetBinary,
+        IReadOnlyList<ServerInstance> instances, string alternative)
+    {
+        var target = await host.ProbeSchemaInfoAsync(targetBinary, CancellationToken.None);
+        var decision = await SchemaRollback.CheckAsync(host, installedBinary, target, instances, SqliteMigrations.All, CancellationToken.None);
+        if (!decision.Safe)
+        {
+            throw new CliException($"cannot do this without losing data: {decision.Reason}. {alternative}");
+        }
+
+        Console.WriteLine($"Data-preserving: {decision.Reason}.");
+    }
+
+    internal const string RestoreAlternative = "`sbox-ns rollback` (without --keep-data) restores the database backup taken before the update and loses everything written since.";
 
     private static void RequireSuccess(int exitCode, string step)
     {

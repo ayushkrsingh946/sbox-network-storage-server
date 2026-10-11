@@ -3,6 +3,7 @@ using SboxNetworkStorage.Server.Cli;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Cli.Tests;
 
@@ -567,5 +568,9 @@ public sealed class LayoutMigratorTests : IDisposable
         public Task<int> RestoreAsync(string binary, ServerInstance instance, string backupPath, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<int> RevertLayoutAsync(string binary, IReadOnlyList<ServerInstance> instances, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<SchemaState?> ReadSchemaStateAsync(string binary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct) => throw new NotSupportedException();
     }
 }

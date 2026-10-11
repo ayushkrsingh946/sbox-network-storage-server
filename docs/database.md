@@ -123,8 +123,52 @@ rows are preserved by the migration. Version 2 remains the earlier
 legacy-player-projection opt-in migration.
 
 Before applying or testing migrations against an existing database, run
-`sbox-ns db backup`. Migrations are forward-only; rollback requires restoring
-the pre-migration backup with the matching older binary.
+`sbox-ns db backup`. A plain rollback restores that pre-migration backup with the
+matching older binary; when every migration since is additive,
+`sbox-ns rollback --keep-data` returns to the older binary without restoring
+anything (see below).
+
+### Rollback-safe migrations
+
+Migrations still only move forward, but each one is tagged in code
+(`SchemaChange` in `SqliteMigrations.cs` and `PostgresMigrations.cs`, which must agree):
+
+- **`additive`**: the previous binary's statements keep working on the result: a new
+  nullable column, a new table, a new index, data that older code ignores or tolerates.
+- **`breaking`**: anything else: a dropped or renamed column, a changed type or
+  constraint, a table rebuilt so that old statements no longer fit, rewritten data that
+  older code would misread. When in doubt, tag it `breaking`. Migration 1 (the baseline) is `breaking`.
+
+`schema_version` records the tag (`compat`) and `min_binary_schema` for every applied
+migration: the highest `breaking` version applied so far (the *compatibility floor*). Tables
+created before this feature get the two columns, and their rows are filled from the tags in
+the binary, the first time `db migrate` (or the server on start) runs; until then the floor is
+derived on read, so `db status` and `doctor` work either way.
+
+| Database vs. this binary | Result |
+| --- | --- |
+| Schema equal | Runs |
+| Schema older | Pending migrations: applied on start or by `db migrate` |
+| Schema newer, binary's supported schema ≥ `min_binary_schema` | Runs on it as is: nothing is applied or rewritten, `doctor` passes (it names the floor) |
+| Schema newer, binary's supported schema < `min_binary_schema` | Refused with the existing `SchemaVersionTooNewException` message ("…supports schema version N at most… restore a backup taken before the upgrade to roll back"); `doctor` fails |
+| Newer rows with no recorded floor | Counted as `breaking` (safe default) |
+
+`sbox-ns db status` prints the floor (`Compat floor:`), and `db status --json` prints
+`{"provider","schemaVersion","minBinarySchema","supportedSchemaVersion"}`;
+`sbox-ns schema-info [--json]` prints the highest schema the binary supports. `rollback --keep-data` and
+`update --allow-downgrade` use exactly these (see [self-hosting.md](self-hosting.md#rolling-back)).
+
+Adding a migration: pick the tag with the rule above and put it in both drivers.
+`scripts/rollback-notes.sh` turns the tags into the release-notes line
+"Rolls back without data loss to: …" ([releasing.md](releasing.md)).
+
+**Limitation.** Binaries released before this feature check for an exact schema match and
+have no `schema-info` command, so they are never offered a data-preserving rollback: going
+back to one of them still needs the restore of the pre-update backup (and loses data written
+since). The same applies to the first update that crosses this feature: only releases that
+already contain the floor rule can be rolled back to with `--keep-data`.
+
+### Transactions
 
 Endpoint record writes and deletes commit in one store transaction on both
 backends. A failure rolls back the complete endpoint flush instead of issuing
