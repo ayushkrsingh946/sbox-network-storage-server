@@ -29,6 +29,7 @@
     endpoint.addEventListener("change", function () {
       if (input.value.trim() === lastTemplate.trim() || input.value.trim() === "" || input.value.trim() === "{}") {
         input.value = template();
+        input.dispatchEvent(new Event("change", { bubbles: true }));
       }
       lastTemplate = template();
     });
@@ -76,6 +77,68 @@
       if (emptyNote) emptyNote.hidden = visible !== 0;
     });
   }
+
+  // New-resource dialog: validate the id, then load a pristine draft skeleton through
+  // ?draft=<id>. The current editor is left untouched so editing one resource while
+  // starting another cannot inherit the old hidden resource id. Navigation is a plain
+  // location change, so the normal unsaved-source warning still applies.
+  (function () {
+    var confirm = document.getElementById("new-resource-confirm");
+    if (!confirm) return;
+    confirm.addEventListener("click", function () {
+      var field = document.getElementById("new-resource-id");
+      var status = document.getElementById("new-resource-status");
+      var id = field ? field.value.trim() : "";
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(id)) {
+        if (status) status.textContent = "Use 1-128 letters, numbers, underscore or hyphen.";
+        if (field) field.focus();
+        return;
+      }
+      window.location.assign(window.location.pathname + "?draft=" + encodeURIComponent(id));
+    });
+    var field = document.getElementById("new-resource-id");
+    if (field) field.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") { event.preventDefault(); confirm.click(); }
+    });
+  })();
+
+  // Pinned projects float to the top of the dashboard grid. Pins live in
+  // localStorage, so they never touch server data.
+  var pinKey = "sbox-ns-pinned-projects";
+  function pinnedIds() {
+    try { return JSON.parse(localStorage.getItem(pinKey) || "[]"); } catch (e) { return []; }
+  }
+  function orderPinned() {
+    var grid = document.querySelector(".project-grid");
+    if (!grid) return;
+    var pinned = pinnedIds();
+    var columns = Array.prototype.slice.call(grid.children);
+    columns.forEach(function (column) {
+      var card = column.querySelector(".project-card");
+      // The card is wrapped in a .project-cell carrying data-project-id; the
+      // anchor itself holds no data attributes so it stays a plain link.
+      var on = pinned.indexOf(column.getAttribute("data-project-id") || "") >= 0;
+      if (card) card.classList.toggle("pinned", on);
+      var button = column.querySelector("[data-pin-project]");
+      if (button) button.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    columns.sort(function (a, b) {
+      var pa = a.querySelector(".project-card.pinned") ? 1 : 0;
+      var pb = b.querySelector(".project-card.pinned") ? 1 : 0;
+      return pb - pa;
+    });
+    columns.forEach(function (column) { grid.appendChild(column); });
+  }
+  document.querySelectorAll("[data-pin-project]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var id = button.getAttribute("data-pin-project") || "";
+      var pinned = pinnedIds().filter(function (entry) { return entry !== id; });
+      if (pinned.length === pinnedIds().length) pinned.push(id);
+      try { localStorage.setItem(pinKey, JSON.stringify(pinned)); } catch (e) {}
+      orderPinned();
+    });
+  });
+  orderPinned();
 
   // Inline style attributes are blocked by the panel CSP; color swatches are set through CSSOM.
   document.querySelectorAll(".manage-swatch[data-color]").forEach(function (swatch) {

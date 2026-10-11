@@ -5,27 +5,29 @@
     var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.Project.Id) + "/clients";
     var report = Model.Report;
 }
-<div class="page-heading"><div><h1>@Model.Project.Name · Clients</h1><p>Self-reported library versions, not security attestation. Batched once per minute; 90-day retention.</p></div><a href="/dashboard/projects/@Uri.EscapeDataString(Model.Project.Id)">Project</a></div>
+<div class="page-heading"><div><h1>@Model.Project.Name · Clients</h1><p>Self-reported library versions, not security attestation. Batched once per minute; 90-day retention.</p></div><a class="button secondary" href="/dashboard/projects/@Uri.EscapeDataString(Model.Project.Id)">Project overview</a></div>
 <section class="card">
     <h2>Compatibility impact · @report.Days days</h2>
     <p>@report.Requests requests · approximately @report.EstimatedPlayers distinct players · @report.OutdatedPercent.ToString("0.0", CultureInfo.InvariantCulture)% outdated · @report.AffectedPercent.ToString("0.0", CultureInfo.InvariantCulture)% affected by the proposed minimum or blocklist.</p>
     <p class="muted">Distinct players use a mergeable sketch (~3.25% relative error); player IDs are not stored here. Unknown player identities are not counted. Share is by requests, not players. @report.DroppedRequests requests dropped at the server-wide telemetry cardinality bound since startup.</p>
-    <form method="get" action="@url"><label>Days <input name="days" type="number" min="1" max="90" value="@report.Days" /></label><label>Preview minimum library <input name="minimum" value="@Model.CandidateMinimum" placeholder="Off" /></label><button type="submit">Preview impact</button></form>
-    <div class="table-scroll"><table><caption class="sr-only">Observed client versions and compatibility status</caption><thead><tr><th scope="col">Library / package revision</th><th scope="col">Context</th><th scope="col">Game revision</th><th scope="col">Requests</th><th scope="col">Players ≈</th><th scope="col">Last seen UTC</th><th scope="col">Status / sunset</th></tr></thead><tbody>
+    <form method="get" action="@url"><div class="form-grid"><label>Days <input name="days" type="number" min="1" max="90" value="@report.Days" /></label><label>Preview minimum library <input name="minimum" value="@Model.CandidateMinimum" placeholder="Off" /></label></div><div class="actions"><button type="submit">Preview impact</button></div></form>
+    <div class="table-scroll"><table data-sortable><caption class="sr-only">Observed client versions and compatibility status</caption><thead><tr><th scope="col">Library / package revision</th><th scope="col">Context</th><th scope="col">Game revision</th><th scope="col">Requests</th><th scope="col">Players ≈</th><th scope="col">Last seen UTC</th><th scope="col">Status / sunset</th></tr></thead><tbody>
     @foreach (var row in report.Versions)
     {
-        <tr><td>@row.LibraryVersion / @(row.LibraryRevision?.ToString() ?? "unknown")</td><td>@row.ClientType</td><td>@(row.GameRevision?.ToString() ?? "unknown")</td><td>@row.Requests</td><td>@row.EstimatedPlayers</td><td>@row.LastSeen.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)</td><td>@row.Status @row.Sunset</td></tr>
+        <tr><td><span class="badge">@row.LibraryVersion / @(row.LibraryRevision?.ToString() ?? "unknown")</span></td><td>@row.ClientType</td><td>@(row.GameRevision?.ToString() ?? "unknown")</td><td>@row.Requests</td><td>@row.EstimatedPlayers</td><td>@row.LastSeen.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)</td><td>@row.Status @row.Sunset</td></tr>
     }
     </tbody></table></div>
-    @if (report.Versions.Count == 0) { <p>No authenticated client traffic recorded in this window.</p> }
+    @if (report.Versions.Count == 0) { <div class="empty-state"><h3>No client traffic yet</h3><p>No authenticated client traffic recorded in this window.</p></div> }
 </section>
 <section class="card"><h2>Operator override · off by default</h2>
     <p>A server update never sets this project minimum. Setting it refuses older runtime clients that report a library version with HTTP 426. Clients that report no library version are never refused. Players cannot update the library themselves: update it and republish your game first. Pull and Test Live stay available.</p>
     <form method="post" action="@url">
         @Html.AntiForgeryToken()
+        <div class="form-grid">
         <label>Minimum library <input name="minimum" value="@Model.CandidateMinimum" placeholder="Blank: do not block" /></label>
         <label>Alert when unsupported/blocked requests reach (%) <input name="alertPercent" type="number" min="1" max="100" value="@Model.Project.LibraryAlertPercent" placeholder="Off" /></label>
+        </div>
         <label class="check"><input name="acknowledge" type="checkbox" value="true" /> I previewed the impact and accept that older published games that report a library version will be blocked.</label>
-        <button type="submit">Save explicit policy</button>
+        <div class="actions"><button type="submit">Save explicit policy</button></div>
     </form>
 </section>

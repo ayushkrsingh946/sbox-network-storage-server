@@ -43,19 +43,14 @@ brackets match the Gesso catalog so findings can be cross-referenced.
   [row-as-card]. Lists separate rows with spacing or one hairline, never a
   border on every side of every row [redundant-border].
 - No heavy or colored drop shadows, glows or neon [heavy-box-shadow,
-  dark-glow]. Elevation is a 1px border and a slightly lighter surface.
-- No glassmorphism, `backdrop-filter` blur, gradients, gradient borders or
-  gradient text [gradient-text, gradient-fill, gradient-border].
+  dark-glow]. Elevation is a 1px border, a slightly lighter surface and one
+  shallow neutral shadow. No single-side accent bars: with rounded corners
+  they read as slop, not identity.
 
 ## Color
 
-- Neutral surfaces, one accent per theme, used for primary actions, links,
-  focus and the current nav item only. No second accent mid-page.
-- Brand exception: the default dark and light themes use the sboxns.com brand
-  accent (violet `#bb91f5` on dark surfaces, a darker shade of the same hue
-  `#6633c7` on light surfaces), chosen so accent text meets WCAG AA in both
-  directions. This is the one explicitly-purple theme the catalog allows
-  [indigo-accent, purple-violet-wash]. Slate and warm keep their own accents.
+- Neutral silver surfaces. One primary accent per theme (dull green), used for primary actions, links, focus, code and the current nav item only.
+- One restrained secondary token (`--accent-2`, muted purple) for small wayfinding markers only: project avatars, the current section icon. No purple washes, gradients or large fills [indigo-accent, purple-violet-wash].
 - State colors (success, warning, danger, info) only for state. Never decorative.
   Every state is also conveyed in words, never by color alone.
 - No pure `#000` or `#fff` surfaces. Text contrast meets WCAG AA in every
@@ -119,8 +114,8 @@ the accent is used as link text on surfaces and as a button background.
 
 ## Themes
 
-- Every color in CSS comes from a token (`--bg`, `--surface`, `--surface-2`,
-  `--border`, `--text`, `--muted`, `--accent`, `--accent-text`, `--success`,
+- Every color in CSS comes from a token (`--bg`, `--card`, `--surface`, `--surface-2`,
+  `--border`, `--text`, `--muted`, `--accent`, `--accent-text`, `--accent-2`, `--green`, `--success`,
   `--warning`, `--danger`, `--info`, `--code-bg`). No raw hex outside theme blocks.
 - Themes are `[data-theme="…"]` blocks on `<html>` that only redefine tokens.
   Components never branch on the theme name.
@@ -139,11 +134,51 @@ the accent is used as link text on surfaces and as a button background.
 1. `rg -n '—|–' src/SboxNetworkStorage.Server/Views src/SboxNetworkStorage.Server/Owner/*.cs`
    is empty. Controller messages are visible text too.
 2. No `text-transform: uppercase`, `border-left`/`border-right` rails,
-   `linear-gradient`, `backdrop-filter`, `box-shadow` larger than 1px, or raw
-   hex outside theme token blocks in `wwwroot/css`.
+   `linear-gradient`, `backdrop-filter`, `box-shadow` beyond the single shallow
+   elevation shadow, or raw hex outside theme token blocks in `wwwroot/css`.
 3. Every new view checked in the light theme and one dark theme.
 4. Empty, loading and error states exist for every new list or form.
 5. `rg -n 'window\.confirm' src/SboxNetworkStorage.Server/wwwroot/js` is empty:
    destructive actions use the shared confirm dialog, and every dialog form
    works with JavaScript disabled. Toasts render from TempData flashes and
    stay visible as inline notices without JavaScript.
+
+
+## Shell conventions (compact owner shell)
+
+- Topbar: 56px, sticky, brand mark 28px. Contains only the brand, theme
+  picker, version and logout. A hamburger toggle (`#nav-toggle`) shows
+  below 760px and opens `#owner-nav`; behavior lives in `owner-theme.js`.
+- Sidebar: 232px (200px below 1100px), sticky under the topbar with its
+  own scroll. Groups use plain sentence-case labels (Workspace, Project,
+  Build, Manage, Observe) that stay visible on mobile; the panel opens
+  and closes instead of collapsing to unlabeled chips. The current item
+  keeps surface-2 plus an inset 2px `accent-2` rail (state, not
+  decoration).
+- Content: `main` caps at 1320px with compact padding. Page titles are
+  1.45rem with one plain supporting sentence. Cards use 1rem padding.
+- Projects list uses `.project-grid` (auto-fill, 300px minimum), not
+  Bootstrap grid classes. Bootstrap vendor files stay linked for
+  compatibility but views must not add new Bootstrap layout classes.
+- Buttons: 32px desktop controls, 28px source tools and 44px mobile targets.
+  Use 1px borders, 600 weight and no lift on hover. Primary hover is a token
+  mix of accent and accent text; secondary hover is surface-2.
+  Focus is a 2px accent outline with 2px offset everywhere.
+- Tables: headers .76rem muted, cells .83rem with .6rem padding,
+  tabular numbers, row hover only.
+- Motion: no smooth scroll, no card lift. One `prefers-reduced-motion`
+  block disables remaining transitions.
+- `workbench.css` loads in `<head>`; `workbench.js` loads deferred at
+  the end of `<body>` so page editors initialize before it wraps
+  `textarea.code-editor`.
+- Resource pages use a 180px resource list and an editor/integration split.
+  The integration guide sits beside the editor on wide screens and below it
+  under 1250px. At 760px the resource list and workspace stack.
+- Code retains a native authoritative textarea. The syntax overlay and
+  clickable line-number gutter never enter copied source or submitted forms.
+  Tab modes are progressively enhanced; source and examples remain readable
+  without JavaScript.
+- Table sorting is opt-in with `data-sortable`. Keep workflow execution,
+  pending writes and editable value rows in semantic order. Sort controls use
+  native buttons, `aria-sort` and a live announcement. Display-only sorting
+  must never imply reordering an entire paginated database.

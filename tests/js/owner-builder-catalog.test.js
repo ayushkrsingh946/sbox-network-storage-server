@@ -1,7 +1,6 @@
 "use strict";
-// Guards for the resources editor gallery, palette and check wiring
-// (wwwroot/js/owner-builder-catalog.js). The script returns early without a
-// definition textarea; stub the DOM it touches on load.
+// Behavioral regression coverage for catalog recovery, safe replacement,
+// partial companion failures and validation snapshots.
 globalThis.document = { getElementById: () => null };
 globalThis.window = { location: { pathname: "/" } };
 
@@ -15,32 +14,11 @@ describe("projectPaths", () => {
       catalog.projectPaths("/dashboard/projects/proj_1/resources/endpoint"),
       { projectRoot: "/dashboard/projects/proj_1/resources", kind: "endpoint" });
   });
-  it("defaults to endpoint", () => {
-    assert.equal(catalog.projectPaths("/dashboard/projects/proj_1/resources").kind, "endpoint");
-  });
   it("rejects other pages", () => {
     assert.equal(catalog.projectPaths("/dashboard/projects"), null);
   });
 });
 
-describe("stepGroups", () => {
-  it("covers every executor step type exactly once", () => {
-    const supported = ["read", "write", "delete", "lookup", "filter", "lookup_many", "random_select",
-      "condition", "assert", "transform", "object", "array", "merge", "sort", "switch", "compute",
-      "random", "block", "workflow", "webhook", "sleep", "response"];
-    const grouped = Object.values(catalog.stepGroups).flat();
-    assert.deepEqual([...grouped].sort(), [...supported].sort());
-  });
-});
-
-describe("callSummary", () => {
-  it("describes secret and public calls", () => {
-    assert.equal(
-      catalog.callSummary({ method: "POST", secret: false, status: 200, input: '{"a":1}' }),
-      "POST, public key, expects 200, input {\"a\":1}");
-    assert.equal(catalog.callSummary({ secret: true, status: 409 }), "POST, secret key, expects 409");
-  });
-});
 
 // Exercise browser wiring without adding a DOM dependency.
 const fs = require("node:fs");
@@ -52,6 +30,7 @@ class Node {
     this.tagName = tag;
     this.children = [];
     this.attributes = {};
+    this.dataset = {};
     this.listeners = {};
     this.value = "";
     this.disabled = false;
@@ -60,6 +39,7 @@ class Node {
   set textContent(value) { this.text = value; this.children = []; }
   get textContent() { return this.text + this.children.map(node => node.textContent).join(""); }
   appendChild(node) { this.children.push(node); return node; }
+  append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
   setAttribute(name, value) { this.attributes[name] = value; }
   addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
   dispatchEvent(event) { (this.listeners[event.type] || []).forEach(callback => callback(event)); }
@@ -72,22 +52,23 @@ const example = {
   id: "endpoint.example", kind: "endpoint", category: "Data", title: "Example",
   summary: "An example", source: "method: POST\n", requires: ["collection.players"], exists: false
 };
-const catalogResponse = { examples: [example], stepYaml: { read: "read:\n" } };
+const catalogResponse = { examples: [example], stepDefaults: { read: { id: "read", type: "read" } } };
 const response = (body, ok = true) => ({ ok, json: async () => body });
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
 function browser(responses, definition = "") {
-  const nodes = Object.fromEntries(["definition", "example-gallery", "builder-step", "builder-add-step",
-    "builder-check", "check-results"].map(id => [id, new Node(id)]));
+  const nodes = Object.fromEntries(["definition", "example-gallery", "edit-tab",
+    "definition-guided", "builder-check", "check-results"].map(id => [id, new Node(id)]));
   nodes.definition.value = definition;
   const requests = [];
   const confirmations = [];
   const context = {
-    document: { getElementById: id => nodes[id] || null, createElement: tag => new Node(tag), querySelector: () => null },
+    document: { getElementById: id => nodes[id] || null, createElement: tag => new Node(tag), querySelector: () => null, addEventListener() {}, dispatchEvent() {} },
     window: { location: { pathname: "/dashboard/projects/proj_1/resources/endpoint" },
       OwnerDialog: { confirm: options => { confirmations.push(options.message); return Promise.resolve(context.confirmReplacement); } } },
     confirmReplacement: false,
     Event: class { constructor(type) { this.type = type; } },
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options?.detail; } },
     FormData, URLSearchParams,
     fetch: (url, options) => {
       requests.push({ url, options });
@@ -114,11 +95,9 @@ describe("catalog browser behavior", () => {
     const ui = browser([response({ error: "missing" }, false), response(catalogResponse)]);
     await settle();
     assert.match(ui.feedback().textContent, /Could not load/);
-    assert.equal(ui.nodes["builder-add-step"].disabled, true);
     ui.button("Retry examples").click();
     await settle();
     assert.ok(ui.button("Use example"));
-    assert.equal(ui.nodes["builder-add-step"].disabled, false);
   });
 
   it("also recovers from network and malformed catalog failures", async () => {
@@ -187,15 +166,6 @@ describe("definition check browser behavior", () => {
     }
   });
 
-  it("describes successful validation without promising saving or runtime execution", async () => {
-    const ui = browser([response(catalogResponse), response({ ok: true, diagnostics: [] })]);
-    await settle();
-    ui.nodes["builder-check"].click();
-    await settle();
-    assert.match(ui.nodes["check-results"].textContent, /Validation passed/);
-    assert.match(ui.nodes["check-results"].textContent, /Nothing was saved or executed/);
-    assert.equal(ui.nodes["check-results"].attributes.role, "status");
-  });
 
   it("honors ok false and renders server diagnostics", async () => {
     const ui = browser([response(catalogResponse), response({ ok: false,

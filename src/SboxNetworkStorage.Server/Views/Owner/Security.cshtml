@@ -1,4 +1,5 @@
 @model SboxNetworkStorage.Server.Owner.OwnerSecurityModel
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
 @{ Layout = "~/Views/Owner/_Layout.cshtml"; }
 <section class="card auth">
     <h1>Authenticator security</h1>
@@ -7,7 +8,7 @@
     {
         <h2>Save your recovery codes now</h2>
         <p>Each code works once instead of an authenticator code. These codes will not be shown again. All previous sessions are signed out. Store these offline before logging in again.</p>
-        <pre>@string.Join("\n", Model.RecoveryCodes)</pre>
+        <div class="copy-row"><pre>@string.Join("\n", Model.RecoveryCodes)</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
         <a href="/login">Log in with your authenticator</a>
     }
     else if (Model.Enabled)
@@ -19,7 +20,7 @@
     {
         <p>On a phone, open this link to add the account to your authenticator app: <a href="@Model.EnrollmentUri">Add to authenticator app</a></p>
         <p>Or add the account manually with this secret, using time-based codes, SHA-1, six digits and a 30-second period.</p>
-        <pre>@Model.Secret</pre>
+        <div class="copy-row"><pre>@Model.Secret</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
         <p>The secret is not activated until you confirm a valid code. Enrollment expires after ten minutes.</p>
         <form method="post" action="/dashboard/security/enroll">
             @Html.AntiForgeryToken()
@@ -31,3 +32,4 @@
     }
     else { <a href="/dashboard/security">Start enrollment again</a> }
 </section>
+<script src="/owner-assets/m/manage.js" defer></script>

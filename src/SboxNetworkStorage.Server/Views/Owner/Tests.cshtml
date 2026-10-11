@@ -44,7 +44,7 @@ else
             <label>Expected status <input name="expectStatus" value="@form.ExpectStatus" inputmode="numeric" maxlength="3" placeholder="Any" /></label>
         </div>
         <label for="test-input">Input (JSON object)</label>
-        <textarea id="test-input" class="code-editor manage-input" name="input" rows="8" spellcheck="false" data-test-input>@form.InputJson</textarea>
+        <textarea id="test-input" class="code-editor manage-input" name="input" rows="8" spellcheck="false" data-test-input data-json-editor data-language="json">@form.InputJson</textarea>
         <label class="check"><input type="checkbox" name="asServer" value="true" checked="@form.AsServer" /> Call as a dedicated server (secret key). Leave off to call as a game client.</label>
         <label>Test name <input name="name" value="@form.Name" maxlength="120" placeholder="Needed only to save, for example Spend more than balance is rejected" /></label>
         <div class="actions"><button type="submit" name="intent" value="run">Run test</button><button type="submit" name="intent" value="save" class="secondary">@(form.TestId is null ? "Save and run" : "Update and run")</button>@if (form.TestId is not null) { <a class="button secondary" href="@url/tests">New test</a> }</div>
@@ -105,7 +105,7 @@ else
     @if (Model.Tests.Count == 0) { <p class="muted">No saved tests yet. Fill in Try it, give the test a name and choose Save and run.</p> }
     else
     {
-        <div class="table-scroll"><table>
+        <div class="table-scroll"><table data-sortable>
             <thead><tr><th>Test</th><th>Endpoint</th><th>Expects</th><th>Player</th><th>Actions</th></tr></thead>
             <tbody>
             @foreach (var test in Model.Tests)
@@ -124,7 +124,7 @@ else
 {
     <section class="card" id="report">
         <div class="section-heading"><h2>Saved test run</h2><div class="actions"><span class="badge positive">@Str(report, "passed") passed</span><span class="badge @(Str(report, "failed") == "0" ? "" : "manage-failed")">@Str(report, "failed") failed</span></div></div>
-        <div class="table-scroll"><table>
+        <div class="table-scroll"><table data-sortable>
             <thead><tr><th>Test</th><th>Endpoint</th><th>Result</th><th>Status</th><th>Time</th></tr></thead>
             <tbody>
             @foreach (var entry in Items(report, "results"))
@@ -138,3 +138,4 @@ else
     </section>
 }
 <script src="/owner-assets/m/manage.js" defer></script>
+<script src="/owner-assets/json-editor.js" defer></script>

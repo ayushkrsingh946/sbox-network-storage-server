@@ -19,7 +19,7 @@
     }
     else
     {
-        <div class="table-scroll"><table>
+        <div class="table-scroll"><table data-sortable>
             <thead><tr><th>Rule</th><th>Target</th><th>Scope</th><th>Windows</th><th>When exceeded</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
             @foreach (var rule in Model.Rules)
@@ -50,7 +50,7 @@
 </section>
 <section class="card" id="rule-form">
     <h2>@(editing is null ? "Add a rule" : "Edit " + editing.Id)</h2>
-    <form method="post" action="@url/rate-limits" class="manage-form">
+    <form method="post" action="@url/rate-limits">
         @Html.AntiForgeryToken()
         <input type="hidden" name="originalId" value="@editing?.Id" />
         <div class="form-grid">

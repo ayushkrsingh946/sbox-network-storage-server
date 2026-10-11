@@ -59,7 +59,7 @@
                     <pre class="manage-diff">@foreach (var line in Model.Diff) {<span class="@(line.Op switch { '+' => "manage-diff-add", '-' => "manage-diff-del", _ => "" })">@line.Op @line.Text
 </span>}</pre>
                 }
-                <details><summary>Full source of this version</summary><pre>@Model.SelectedText</pre></details>
+                <details><summary>Full source of this version</summary><pre data-language="yaml">@Model.SelectedText</pre></details>
             </section>
         }
     }
