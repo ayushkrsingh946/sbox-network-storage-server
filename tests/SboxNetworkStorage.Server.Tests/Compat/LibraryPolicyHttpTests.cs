@@ -3,7 +3,10 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Contracts.NetworkStorage;
+using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Server.Activity;
 using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Hosting;
@@ -166,6 +169,80 @@ public abstract class LibraryPolicyHttpTests<TFactory> : IClassFixture<TFactory>
             if (key is not null) request.Headers.Add("x-api-key", key);
             using var response = await client.SendAsync(request);
             Assert.Equal(expected, response.StatusCode);
+        }
+    }
+
+    [SkippableFact]
+    public async Task Policy_lookup_failure_fails_open_for_versioned_clients()
+    {
+        var project = await factory.CreateProjectAsync();
+        await using (var scope = factory.Services.CreateAsyncScope())
+            await scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>().UpdateProjectSettingsAsync(1, project.ProjectId, "library", new() { ["libraryMinimum"] = "1.2.0" }, CancellationToken.None);
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<INetworkStorageProjectService>();
+            services.AddScoped<INetworkStorageProjectService>(_ => new ThrowingPolicyLookupProjectService());
+        }));
+        using var client = host.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/v3/values/{project.ProjectId}?apiKey={project.PublicKey}");
+        request.Headers.TryAddWithoutValidation(ClientHeaders.LibraryVersion, "1.1.0");
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [SkippableFact]
+    public async Task Legacy_request_skips_key_resolution_and_the_project_lookup()
+    {
+        var project = await factory.CreateProjectAsync();
+        await using (var scope = factory.Services.CreateAsyncScope())
+            await scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>().UpdateProjectSettingsAsync(1, project.ProjectId, "library", new() { ["libraryMinimum"] = "1.2.0" }, CancellationToken.None);
+        var counting = new CountingProjectService();
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<INetworkStorageProjectService>();
+            services.AddScoped<INetworkStorageProjectService>(_ => counting);
+        }));
+        using var client = host.CreateClient();
+        using var response = await client.GetAsync($"/v3/values/{project.ProjectId}?apiKey={project.PublicKey}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, counting.ResolveProjectAccessCalls);
+    }
+
+    /// <summary>The values route never calls the project service, so every member throws.</summary>
+    private class UnusableProjectService : INetworkStorageProjectService
+    {
+        public virtual Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<NetworkStorageProjectResources?> GetProjectResourcesAsync(long userId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<NetworkStorageProjectResources?> GetProjectResourcesForOwnerAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<NetworkStorageTeamData?> GetProjectTeamAsync(long storageOwnerUserId, string projectId, string? organizationId, string callerRole, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<IReadOnlyList<ApiKeyInfo>> GetProjectKeysAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<(ApiKeyInfo Key, string RawKey)> CreateProjectKeyAsync(long storageOwnerUserId, string projectId, string label, string keyType, Dictionary<string, string>? permissions, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task ToggleProjectKeyAsync(long storageOwnerUserId, string projectId, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task RemoveProjectKeyAsync(long storageOwnerUserId, string projectId, string key, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task UpdateProjectKeyPermissionsAsync(long storageOwnerUserId, string projectId, string keyIdentifier, Dictionary<string, string> permissions, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task DeleteProjectAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task UpdateProjectSettingsAsync(long storageOwnerUserId, string projectId, string settingsTab, Dictionary<string, string> formValues, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<ProjectUsageData> GetProjectUsageAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<ProjectRateLimits> GetProjectRateLimitsAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task SaveEndpointRateLimitsAsync(long storageOwnerUserId, string projectId, Dictionary<string, object> endpointRateLimits, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task SaveRateLimitRulesAsync(long storageOwnerUserId, string projectId, IReadOnlyList<RateLimitRule> rules, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<ProjectAuditLogResult> BrowseProjectLogsAsync(long storageOwnerUserId, string projectId, string? search, string? action, string? date, string sort, int page, int pageSize, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingPolicyLookupProjectService : UnusableProjectService
+    {
+        public override Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken) => throw new InvalidOperationException("Policy lookup unavailable.");
+    }
+
+    private sealed class CountingProjectService : UnusableProjectService
+    {
+        private int _resolveProjectAccessCalls;
+        public int ResolveProjectAccessCalls => _resolveProjectAccessCalls;
+        public override Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _resolveProjectAccessCalls);
+            return Task.FromResult<NetworkStorageProjectAccessResult?>(null);
         }
     }
 }

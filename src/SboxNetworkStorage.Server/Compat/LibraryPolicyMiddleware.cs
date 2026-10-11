@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Middleware;
@@ -9,11 +10,13 @@ namespace SboxNetworkStorage.Server.Compat;
 /// explicit library minimum and the client reports a parsed version below it, or (b) the client reports a
 /// parsed version in a <c>blocked</c> range of the embedded matrix (<see cref="LibraryCompatProvider.Embedded"/>).
 /// The release-feed overlay never refuses anything: it stays report-only in the status headers.
-/// Requests with no, legacy or unparseable library version are never refused here. Version metadata is
-/// self-reported, never authentication: missing or unauthorized keys keep their original 401/403 contract,
-/// and management diagnostics and recovery (Pull, Test Live, revision-init) stay reachable.
+/// Requests with no, legacy or unparseable library version are never refused here, and never pay for
+/// key resolution or the project lookup. The minimum lookup fails open: a lookup error is logged and
+/// treated as "no minimum". Version metadata is self-reported, never authentication: missing or
+/// unauthorized keys keep their original 401/403 contract, and management diagnostics and recovery
+/// (Pull, Test Live, revision-init) stay reachable.
 /// </summary>
-public sealed class LibraryPolicyMiddleware(RequestDelegate next, LibraryCompatProvider compat, LibraryPolicyCache policies)
+public sealed class LibraryPolicyMiddleware(RequestDelegate next, LibraryCompatProvider compat, LibraryPolicyCache policies, ILogger<LibraryPolicyMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext context, IStorageApiKeyResolver keys, INetworkStorageProjectService projects)
     {
@@ -29,6 +32,31 @@ public sealed class LibraryPolicyMiddleware(RequestDelegate next, LibraryCompatP
                 || path.EndsWith("/package-sync", StringComparison.Ordinal)));
         // Keep management diagnostics/recovery (Pull, Test Live, revision-init) available even when runtime policy blocks.
         if (management && !push) { await next(context); return; }
+        var identity = ClientIdentityContext.Get(context);
+        // Legacy and unknown clients predate enforcement and can never be refused: skip key
+        // resolution and the project lookup entirely. This mirrors the client-side parse in
+        // ClientVersionsQuery.BelowMinimum so the two cannot disagree about what is parseable.
+        if (!ClientIdentity.TryParseLibraryVersion(identity.LibraryVersion, out _))
+        {
+            await next(context);
+            return;
+        }
+        var verdict = compat.Embedded.Evaluate(identity);
+        var block = verdict.Status is LibraryStatus.Blocked ? verdict : null;
+        string? minimum;
+        try
+        {
+            minimum = await policies.MinimumAsync(projects, projectId, context.RequestAborted);
+        }
+        catch (Exception ex) when (!context.RequestAborted.IsCancellationRequested)
+        {
+            // The minimum is advisory data for an opt-in rule: never turn a lookup failure into a 500.
+            // Nothing is cached, so recovery is immediate on the next request.
+            logger.LogWarning(ex, "Library minimum lookup failed for project {ProjectId}; failing open.", projectId);
+            minimum = null;
+        }
+        var unsupported = ClientVersionsQuery.BelowMinimum(identity.LibraryVersion, minimum);
+        if (block is null && !unsupported) { await next(context); return; }
         var apiKey = context.Request.Headers["x-api-key"].FirstOrDefault()
             ?? context.Request.Query["apiKey"].FirstOrDefault() ?? context.Request.Headers["x-public-key"].FirstOrDefault();
         if (string.IsNullOrEmpty(apiKey) || await keys.ResolveApiKeyAsync(apiKey, projectId, context.RequestAborted) is not { Enabled: true } auth)
@@ -36,12 +64,6 @@ public sealed class LibraryPolicyMiddleware(RequestDelegate next, LibraryCompatP
             await next(context); // Existing route keeps its own auth/error contract.
             return;
         }
-        var identity = ClientIdentityContext.Get(context);
-        var verdict = compat.Embedded.Evaluate(identity);
-        var block = verdict.Status is LibraryStatus.Blocked ? verdict : null;
-        var minimum = await policies.MinimumAsync(projects, projectId, context.RequestAborted);
-        var unsupported = ClientVersionsQuery.BelowMinimum(identity.LibraryVersion, minimum);
-        if (block is null && !unsupported) { await next(context); return; }
         if (push && (string.IsNullOrWhiteSpace(context.Request.Headers["x-api-key"])
             || !string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase) || !PackageSyncHandler.HasWritePermissions(auth)))
         {
