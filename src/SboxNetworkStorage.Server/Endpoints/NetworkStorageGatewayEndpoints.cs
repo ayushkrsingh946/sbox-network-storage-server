@@ -653,6 +653,9 @@ public static class NetworkStorageGatewayEndpoints
             context.RequestAborted)
         {
             TargetsNext = TargetsNext(context, query),
+            PublicKey = context.Request.Headers.TryGetValue("x-public-key", out var publicKeyHeader) && !string.IsNullOrWhiteSpace(publicKeyHeader)
+                ? publicKeyHeader.ToString().Trim()
+                : null,
         };
 
         var result = await handler.ExecuteAsync(request);
