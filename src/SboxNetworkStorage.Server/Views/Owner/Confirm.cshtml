@@ -1,0 +1,29 @@
+@model SboxNetworkStorage.Server.Owner.OwnerConfirm.ConfirmModel
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    // Cancel returns to the page the form was on. Only a same-host http(s) Referer is trusted, and only its path is used.
+    var cancel = "/dashboard";
+    if (Uri.TryCreate(Context.Request.Headers.Referer.ToString(), UriKind.Absolute, out var from)
+        && (from.Scheme == Uri.UriSchemeHttp || from.Scheme == Uri.UriSchemeHttps)
+        && string.Equals(from.Authority, Context.Request.Host.Value, StringComparison.OrdinalIgnoreCase))
+    {
+        cancel = from.PathAndQuery;
+    }
+}
+<section class="card">
+    <h1>@Model.Title</h1>
+    @if (Model.Message.Length > 0) { <p>@Model.Message</p> }
+    <form method="post" action="@Context.Request.Path@Context.Request.QueryString">
+        @Html.AntiForgeryToken()
+        @foreach (var field in Context.Request.Form)
+        {
+            if (field.Key is "confirmed" or "confirmTitle" or "confirmMessage" or "__RequestVerificationToken") { continue; }
+            foreach (var value in field.Value) { <input type="hidden" name="@field.Key" value="@value" /> }
+        }
+        <input type="hidden" name="confirmed" value="true" />
+        <div class="actions">
+            <button type="submit" class="danger">Confirm</button>
+            <a class="button secondary" href="@cancel">Cancel</a>
+        </div>
+    </form>
+</section>
