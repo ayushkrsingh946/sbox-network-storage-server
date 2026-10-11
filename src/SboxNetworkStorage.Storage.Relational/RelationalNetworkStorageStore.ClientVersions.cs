@@ -5,37 +5,55 @@ namespace SboxNetworkStorage.Storage.Relational;
 /// <summary>Daily client-version aggregates (schema v5): buffered analytics flushes merge here, never game data.</summary>
 public abstract partial class RelationalNetworkStorageStore : IClientVersionStore
 {
+    /// <summary>
+    /// Most daily-group rows one read returns. Public keys can mint groups by rotating the
+    /// revision headers, so reads are bounded no matter how many days are asked for. The query
+    /// below keeps <c>ORDER BY day DESC, requests DESC</c>, so truncation drops the least useful
+    /// tail (oldest, quietest groups) first.
+    /// </summary>
+    public const int ReadLimit = 20000;
+    /// <summary>One row past <see cref="ReadLimit"/>, so callers can tell a truncated tail from a complete one.</summary>
+    private const int ReadProbe = ReadLimit + 1;
+    /// <summary>
+    /// Most groups written in one transaction. A full flush is split into this many groups per
+    /// transaction, so it never holds the SQLite write lock for long.
+    /// </summary>
+    public const int WriteChunkGroups = 200;
+
     public async Task WriteClientVersionsAsync(IReadOnlyList<ClientVersionDelta> batch, CancellationToken ct)
     {
         if (batch.Count == 0) return;
         await using var connection = await OpenConnectionAsync(ct);
-        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        foreach (var delta in batch)
+        foreach (var chunk in batch.Chunk(WriteChunkGroups))
         {
-            StoreValidation.Id(delta.Key.ProjectId);
-            if (delta.Requests <= 0) throw new ArgumentOutOfRangeException(nameof(batch));
-            var sketch = new byte[PlayerCountSketch.Size];
-            PlayerCountSketch.Merge(sketch, delta.PlayerSketch);
-            await using (var read = Command(connection,
-                $"SELECT player_sketch FROM {TablePrefix}client_versions_daily WHERE project_id = @project AND day = @day AND group_key = @group",
-                [Text("project", delta.Key.ProjectId), Int32("day", delta.Key.Day), Text("group", delta.Key.GroupKey)], transaction))
+            await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            foreach (var delta in chunk)
             {
-                if (await read.ExecuteScalarAsync(ct) is string existing) PlayerCountSketch.Merge(sketch, Convert.FromBase64String(existing));
+                StoreValidation.Id(delta.Key.ProjectId);
+                if (delta.Requests <= 0) throw new ArgumentOutOfRangeException(nameof(batch));
+                var sketch = new byte[PlayerCountSketch.Size];
+                PlayerCountSketch.Merge(sketch, delta.PlayerSketch);
+                await using (var read = Command(connection,
+                    $"SELECT player_sketch FROM {TablePrefix}client_versions_daily WHERE project_id = @project AND day = @day AND group_key = @group",
+                    [Text("project", delta.Key.ProjectId), Int32("day", delta.Key.Day), Text("group", delta.Key.GroupKey)], transaction))
+                {
+                    if (await read.ExecuteScalarAsync(ct) is string existing) PlayerCountSketch.Merge(sketch, Convert.FromBase64String(existing));
+                }
+                await using var write = Command(connection, $"""
+                    INSERT INTO {TablePrefix}client_versions_daily
+                        (project_id, day, group_key, library_version, library_revision, client_type, game_revision, requests, last_seen_unix_ms, player_sketch)
+                    VALUES (@project, @day, @group, @version, @revision, @type, @game, @requests, @seen, @sketch)
+                    ON CONFLICT (project_id, day, group_key) DO UPDATE SET
+                        requests = {TablePrefix}client_versions_daily.requests + excluded.requests,
+                        last_seen_unix_ms = CASE WHEN {TablePrefix}client_versions_daily.last_seen_unix_ms > excluded.last_seen_unix_ms THEN {TablePrefix}client_versions_daily.last_seen_unix_ms ELSE excluded.last_seen_unix_ms END,
+                        player_sketch = excluded.player_sketch
+                    """, [Text("project", delta.Key.ProjectId), Int32("day", delta.Key.Day), Text("group", delta.Key.GroupKey),
+                        Text("version", delta.Key.LibraryVersion), Int64("revision", delta.Key.LibraryRevision), Text("type", delta.Key.ClientType),
+                        Int64("game", delta.Key.GameRevision), Int64("requests", delta.Requests), Int64("seen", delta.LastSeenUnixMs), Text("sketch", Convert.ToBase64String(sketch))], transaction);
+                await write.ExecuteNonQueryAsync(ct);
             }
-            await using var write = Command(connection, $"""
-                INSERT INTO {TablePrefix}client_versions_daily
-                    (project_id, day, group_key, library_version, library_revision, client_type, game_revision, requests, last_seen_unix_ms, player_sketch)
-                VALUES (@project, @day, @group, @version, @revision, @type, @game, @requests, @seen, @sketch)
-                ON CONFLICT (project_id, day, group_key) DO UPDATE SET
-                    requests = {TablePrefix}client_versions_daily.requests + excluded.requests,
-                    last_seen_unix_ms = CASE WHEN {TablePrefix}client_versions_daily.last_seen_unix_ms > excluded.last_seen_unix_ms THEN {TablePrefix}client_versions_daily.last_seen_unix_ms ELSE excluded.last_seen_unix_ms END,
-                    player_sketch = excluded.player_sketch
-                """, [Text("project", delta.Key.ProjectId), Int32("day", delta.Key.Day), Text("group", delta.Key.GroupKey),
-                    Text("version", delta.Key.LibraryVersion), Int64("revision", delta.Key.LibraryRevision), Text("type", delta.Key.ClientType),
-                    Int64("game", delta.Key.GameRevision), Int64("requests", delta.Requests), Int64("seen", delta.LastSeenUnixMs), Text("sketch", Convert.ToBase64String(sketch))], transaction);
-            await write.ExecuteNonQueryAsync(ct);
+            await transaction.CommitAsync(ct);
         }
-        await transaction.CommitAsync(ct);
     }
 
     public async Task<IReadOnlyList<ClientVersionRow>> ReadClientVersionsAsync(string projectId, int sinceDay, CancellationToken ct)
@@ -43,7 +61,7 @@ public abstract partial class RelationalNetworkStorageStore : IClientVersionStor
         StoreValidation.Id(projectId);
         await using var connection = await OpenConnectionAsync(ct);
         await using var command = Command(connection,
-            $"SELECT day, library_version, library_revision, client_type, game_revision, requests, last_seen_unix_ms, player_sketch FROM {TablePrefix}client_versions_daily WHERE project_id = @project AND day >= @day ORDER BY day DESC, requests DESC",
+            $"SELECT day, library_version, library_revision, client_type, game_revision, requests, last_seen_unix_ms, player_sketch FROM {TablePrefix}client_versions_daily WHERE project_id = @project AND day >= @day ORDER BY day DESC, requests DESC LIMIT {ReadProbe}",
             [Text("project", projectId), Int32("day", sinceDay)]);
         await using var reader = await command.ExecuteReaderAsync(ct);
         var rows = new List<ClientVersionRow>();

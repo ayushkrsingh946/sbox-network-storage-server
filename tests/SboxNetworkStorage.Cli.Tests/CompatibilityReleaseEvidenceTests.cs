@@ -134,7 +134,9 @@ public sealed class CompatibilityReleaseEvidenceTests
             var malformed = await RunAsync(python!, ["--matrix", path]);
             Assert.NotEqual(0, malformed.Exit);
             Assert.Contains("range token", malformed.Output);
-            matrix["deprecated"]![0]!["range"] = "<1.2.0";
+            matrix["deprecated"]![0]!["range"] = ">=1.1.0  <1.2.0"; // double space: accepted, like VersionRange.TryParse
+            File.WriteAllText(path, matrix.ToJsonString());
+            Assert.Equal(0, (await RunAsync(python!, ["--matrix", path])).Exit);
             matrix["deprecated"]![0]!["sunset"] = "2026-02-30";
             File.WriteAllText(path, matrix.ToJsonString());
             Assert.NotEqual(0, (await RunAsync(python!, ["--matrix", path])).Exit);
@@ -155,6 +157,44 @@ public sealed class CompatibilityReleaseEvidenceTests
     }
 
     [Fact]
+    public async Task Deprecated_library_sunsets_honor_the_six_month_and_ninety_day_windows()
+    {
+        var python = PythonCommand();
+        if (python is null) return; // No Python 3 on this machine; InstallerTests uses the same early return.
+        var path = Path.GetTempFileName();
+        try
+        {
+            var matrix = JsonNode.Parse(File.ReadAllText(Path.Combine(RepositoryRoot(), "compat", "library-matrix.json")))!;
+            matrix["libraries"]!.AsArray().Add(new JsonObject
+            {
+                ["version"] = "1.2.0", ["revision"] = 310500, ["released"] = "2026-01-15",
+                ["minServer"] = "0.5.0", ["status"] = "supported"
+            });
+            var entry = matrix["libraries"]!.AsArray().First(node => node!["version"]!.GetValue<string>() == "1.1.0");
+            entry!["status"] = "deprecated";
+            entry!["sunset"] = "2026-07-15"; // exactly six months after the 1.2.0 successor shipped
+            File.WriteAllText(path, matrix.ToJsonString());
+            Assert.Equal(0, (await RunAsync(python!, ["--matrix", path])).Exit);
+            entry!["sunset"] = "2026-07-14"; // one day short of the six-month window
+            File.WriteAllText(path, matrix.ToJsonString());
+            var early = await RunAsync(python!, ["--matrix", path]);
+            Assert.NotEqual(0, early.Exit);
+            Assert.Contains("1.1.0", early.Output);
+            Assert.Contains("six months", early.Output);
+            entry!["sunset"] = "2026-07-29"; // inside six months but short of announced + 90 days
+            entry!["announced"] = "2026-05-01";
+            File.WriteAllText(path, matrix.ToJsonString());
+            var rushed = await RunAsync(python!, ["--matrix", path]);
+            Assert.NotEqual(0, rushed.Exit);
+            Assert.Contains("90 days", rushed.Output);
+            entry!["sunset"] = "2026-07-30"; // announced + 90 days exactly
+            File.WriteAllText(path, matrix.ToJsonString());
+            Assert.Equal(0, (await RunAsync(python!, ["--matrix", path])).Exit);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public async Task Rollback_reports_use_the_target_binary_compatibility_shape()
     {
         var python = PythonCommand();
@@ -167,6 +207,11 @@ public sealed class CompatibilityReleaseEvidenceTests
             Assert.Equal(0, notes.Exit);
             Assert.Contains("Rollback compatibility", notes.Output);
             Assert.Contains("0.5.1", notes.Output);
+            // A target that supports a newer schema than the probed database is safe: warn, do not refuse.
+            File.WriteAllText(reportPath, """{"protocol":1,"version":"0.5.2","schemaVersion":4,"supportedSchemaVersion":5,"minBinarySchema":4,"compatible":true}""");
+            var newer = await RunAsync(python!, ["--rollback-report", reportPath]);
+            Assert.Equal(0, newer.Exit);
+            Assert.Contains("newer schema", newer.Output);
             File.WriteAllText(reportPath, """{"protocol":1,"version":"0.5.1","schemaVersion":5,"supportedSchemaVersion":5,"minBinarySchema":9,"compatible":true}""");
             Assert.NotEqual(0, (await RunAsync(python!, ["--rollback-report", reportPath])).Exit);
         }

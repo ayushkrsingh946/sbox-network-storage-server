@@ -51,7 +51,12 @@ public static class NetworkStorageServices
         // per-request identity groups in memory; the writer flushes them into client_versions_daily.
         services.AddSingleton<LibraryPolicyCache>();
         services.AddSingleton<ClientVersionTracker>();
-        services.AddSingleton<IClientVersionStore>(sp => (IClientVersionStore)sp.GetRequiredService<INetworkStorageStoreAdmin>());
+        services.AddSingleton<IClientVersionStore>(sp =>
+        {
+            var admin = sp.GetRequiredService<INetworkStorageStoreAdmin>();
+            return admin is IClientVersionStore versions ? versions
+                : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IClientVersionStore)}: client-version analytics need a relational store.");
+        });
         services.AddSingleton<ClientVersionsQuery>();
         services.AddSingleton<ClientVersionWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<ClientVersionWriter>());

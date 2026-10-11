@@ -211,7 +211,7 @@ public abstract class LibraryPolicyHttpTests<TFactory> : IClassFixture<TFactory>
     /// <summary>The values route never calls the project service, so every member throws.</summary>
     private class UnusableProjectService : INetworkStorageProjectService
     {
-        public virtual Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public virtual Task<NetworkStorageProjectCreateResult> CreateProjectAsync(long userId, string name, string? description, bool enabled, bool requireSboxAuth, string keyMode, string organizationId, CancellationToken cancellationToken, string? hostingProfile = null) => throw new NotSupportedException();
         public virtual Task<NetworkStorageProjectAccessResult?> ResolveProjectAccessAsync(long userId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public virtual Task<NetworkStorageProjectResources?> GetProjectResourcesAsync(long userId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();
         public virtual Task<NetworkStorageProjectResources?> GetProjectResourcesForOwnerAsync(long storageOwnerUserId, string projectId, CancellationToken cancellationToken) => throw new NotSupportedException();

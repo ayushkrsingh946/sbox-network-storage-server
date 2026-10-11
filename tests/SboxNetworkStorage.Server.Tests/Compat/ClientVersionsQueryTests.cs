@@ -1,5 +1,6 @@
 using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Storage;
+using SboxNetworkStorage.Storage.Relational;
 using Xunit;
 
 namespace SboxNetworkStorage.Server.Tests.Compat;
@@ -50,6 +51,7 @@ public sealed class ClientVersionsQueryTests
         Assert.Equal("unknown", legacy.Status);
         Assert.Equal(25, report.AffectedPercent);   // only the 5 old-library requests
         Assert.Equal(25, report.OutdatedPercent);
+        Assert.False(report.Truncated);
     }
 
     [Fact]
@@ -60,5 +62,22 @@ public sealed class ClientVersionsQueryTests
 
         Assert.Equal("unsupported", report.Versions.Single(v => v.LibraryVersion == "0.9.0").Status);
         Assert.Equal(20, report.AffectedPercent);
+        Assert.False(report.Truncated);
+    }
+
+    [Fact]
+    public async Task Report_flags_truncation_when_the_store_returns_more_than_the_read_limit()
+    {
+        // The store reads one row past its limit so the tail cut is detectable; every row is its
+        // own group here, so the report carries exactly the limit and says so.
+        var sketch = new byte[PlayerCountSketch.Size];
+        var rows = Enumerable.Range(0, RelationalNetworkStorageStore.ReadLimit + 1)
+            .Select(i => new ClientVersionRow(new ClientVersionKey("proj_example", 1000, "1.1.0", null, "game", i), 1, 1_700_000_000_000, sketch))
+            .ToArray();
+        var report = await Query(rows).ReadAsync("proj_example", 30, null, CancellationToken.None);
+
+        Assert.True(report.Truncated);
+        Assert.Equal(RelationalNetworkStorageStore.ReadLimit, report.Versions.Count);
+        Assert.Equal(RelationalNetworkStorageStore.ReadLimit, report.Requests);
     }
 }

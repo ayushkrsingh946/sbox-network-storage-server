@@ -26,6 +26,15 @@ public sealed class UpdateCheckService(
     LibraryCompatProvider libraryCompat,
     ILogger<UpdateCheckService> logger) : BackgroundService
 {
+    /// <summary>
+    /// Consecutive checks without an applicable overlay (no <c>libraryCompat</c> in the signed
+    /// feed, an unsigned fallback, or a failed check) before the current overlay is cleared.
+    /// A stale overlay must not tighten statuses forever after the feed has gone quiet.
+    /// </summary>
+    public const int OverlayExpiryMisses = 3;
+
+    private int _overlayMisses;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!config.GetBoolean("updates.check"))
@@ -52,15 +61,32 @@ public sealed class UpdateCheckService(
         }
     }
 
-    private async Task CheckOnceAsync(ReleaseFeed feed, CancellationToken ct)
+    internal async Task CheckOnceAsync(ReleaseFeed feed, CancellationToken ct)
     {
         try
         {
-            var latest = await feed.GetReleaseAsync(specificVersion: null, ct);
+            var (latest, fromSignedFeed) = await feed.GetReleaseWithSourceAsync(specificVersion: null, ct);
             var notice = Evaluate(BuildInfo.Version, latest, DateTimeOffset.UtcNow);
             state.Set(notice);
-            // A release without a libraryCompat object says nothing and keeps the last overlay; an empty object clears it.
-            if (latest.LibraryCompat is not null) libraryCompat.SetOverlay(latest.LibraryCompat);
+            // Overlays ride the signed feed only: the unsigned GitHub release.json fallback says
+            // nothing about library policy, even when it carries a libraryCompat object.
+            if (fromSignedFeed && latest.LibraryCompat is { IsEmpty: false })
+            {
+                libraryCompat.SetOverlay(latest.LibraryCompat);
+                _overlayMisses = 0;
+                logger.LogWarning("Applied the library compatibility overlay from release {Version}.", latest.Version);
+            }
+            else if (fromSignedFeed && latest.LibraryCompat is not null)
+            {
+                // An explicit empty object withdraws the overlay; it is not a missed check.
+                _overlayMisses = 0;
+                libraryCompat.SetOverlay(null);
+                logger.LogWarning("Cleared the library compatibility overlay: release {Version} withdrew it.", latest.Version);
+            }
+            else
+            {
+                NoteOverlayMiss();
+            }
             if (!notice.UpdateAvailable)
             {
                 return;
@@ -82,7 +108,18 @@ public sealed class UpdateCheckService(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogDebug(ex, "Update check failed");
+            NoteOverlayMiss();
         }
+    }
+
+    private void NoteOverlayMiss()
+    {
+        if (++_overlayMisses < OverlayExpiryMisses) return;
+        _overlayMisses = 0;
+        libraryCompat.SetOverlay(null);
+        logger.LogWarning(
+            "Cleared the library compatibility overlay after {Misses} consecutive update checks without one.",
+            OverlayExpiryMisses);
     }
 
     public static UpdateNotice Evaluate(string currentVersion, ReleaseInfo latest, DateTimeOffset checkedAt)

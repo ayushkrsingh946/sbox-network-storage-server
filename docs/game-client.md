@@ -150,15 +150,21 @@ issue and the server version at which it must be removed.
 ### Release-feed overlay
 
 When update checks are on (`updates.check`), the server also reads an optional
-`libraryCompat` object from the release feed, so a `blocked` range can reach
-servers that have not been updated. An overlay can only make a status
+`libraryCompat` object from the signed release feed, so a `blocked` range can reach
+servers that have not been updated. The overlay applies only when the release info
+came from the signed feed: the unsigned GitHub `release.json` fallback never carries
+one, even if it contains a `libraryCompat` object. An overlay can only make a status
 **stricter**: it can raise `minimum` and `recommended`, add `blocked` and
 `deprecated` ranges, and deprecate or un-support the `legacy` bucket. It cannot
 change an announced sunset: a feed `deprecated` range only dates versions the
 embedded matrix does not already deprecate. It cannot lower `minimum`, remove a
 block, set `legacy` back to `supported` or block the whole `legacy` bucket; those parts
-are ignored. A feed response without `libraryCompat` leaves the current
-overlay in place, and an empty `{}` removes it. Nothing needs network access:
+are ignored, as is an overlay whose optional `schemaVersion` is newer than the matrix
+schema this server reads (1). A feed response without `libraryCompat` keeps the current
+overlay, but only for a while: after 3 consecutive checks with no overlay (or failed
+checks) the overlay expires and the embedded matrix applies again. An empty `{}` removes
+it immediately. `/v3/server-info` reports whether one is in effect in the `compat` block
+(`"overlay": {"applied": true}`). Nothing needs network access:
 without the feed, the embedded matrix applies.
 
 ## Revision init handshake

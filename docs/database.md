@@ -119,7 +119,10 @@ so old installs may need to step through an intermediate release
 Schema version 3 adds project/slug endpoint and project/key-identifier API-key
 indexes, plus surrogate primary keys for request logs and storage errors.
 Events sharing a project and millisecond are now kept separately. Existing log
-rows are preserved by the migration. Version 2 remains the earlier
+rows are preserved by the migration. On PostgreSQL, the v3 `ADD PRIMARY KEY`
+on the log tables takes an `ACCESS EXCLUSIVE` lock on each table for the whole
+migration: expect request/error-log writes to pause on large tables. Take a
+backup and migrate in a maintenance window. Version 2 remains the earlier
 legacy-player-projection opt-in migration.
 
 Before applying or testing migrations against an existing database, run

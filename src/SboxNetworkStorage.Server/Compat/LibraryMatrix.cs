@@ -80,8 +80,12 @@ public sealed record LibraryMatrix(
     IReadOnlyList<MatrixLibrary> Libraries,
     IReadOnlyList<MatrixRule> Deprecated,
     IReadOnlyList<MatrixRule> Blocked,
-    IReadOnlyList<JsonElement> Tested)
+    IReadOnlyList<JsonElement> Tested,
+    int SchemaVersion = 0)
 {
+    /// <summary>The only matrix schema this server reads. A newer embedded matrix means the binary is older than its data, never a policy to guess at.</summary>
+    public const int SupportedSchemaVersion = 1;
+
     public const string ResourceName = "SboxNetworkStorage.Server.Compat.library-matrix.json";
     public const string MatrixUrl = "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json";
 
@@ -91,6 +95,10 @@ public sealed record LibraryMatrix(
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<MatrixRule> FeedDeprecated { get; init; } = [];
+
+    /// <summary>True when a release-feed overlay is currently merged into this matrix: the <c>overlay</c> field of <c>/v3/server-info</c>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OverlayApplied { get; init; }
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -120,6 +128,11 @@ public sealed record LibraryMatrix(
             Blocked = parsed.Blocked ?? [],
             Tested = parsed.Tested ?? [],
         };
+
+        if (matrix.SchemaVersion != SupportedSchemaVersion)
+            throw new InvalidDataException(matrix.SchemaVersion <= 0
+                ? "The library matrix is missing schemaVersion: this server reads matrix schema 1."
+                : $"The library matrix schema version {matrix.SchemaVersion} is newer than this server supports (1): update the server instead of guessing at the policy.");
 
         if (matrix.Minimum is not null && !ClientIdentity.TryParseLibraryVersion(matrix.Minimum, out _))
             throw new InvalidDataException($"minimum '{matrix.Minimum}' is not a SemVer version.");
@@ -275,6 +288,7 @@ public sealed record LibraryMatrix(
                 .Select(l => Compact(("version", l.Version), ("revision", l.Revision), ("engine", l.Engine), ("reason", l.Reason), ("issue", l.Issue))).ToArray(),
             ["tested"] = Tested,
         },
+        ["overlay"] = new Dictionary<string, object?> { ["applied"] = OverlayApplied },
         ["matrixUrl"] = MatrixUrl,
     };
 
@@ -286,11 +300,15 @@ public sealed record LibraryMatrix(
     /// <c>minimum</c> and <c>recommended</c> can only rise, <c>blocked</c> and <c>deprecated</c> only gain entries
     /// (a repeated range keeps its shipped sunset, and a feed date never applies to a version the shipped matrix
     /// already deprecates), and the legacy status can only get stricter. Anything the overlay says that would loosen
-    /// the matrix, or that this server cannot read, is ignored.
+    /// the matrix, or that this server cannot read, is ignored. An overlay whose <c>schemaVersion</c> is above
+    /// <see cref="SupportedSchemaVersion"/> is ignored whole; an empty overlay withdraws the current one.
     /// </summary>
     public LibraryMatrix Merge(LibraryCompatOverlay? overlay)
     {
-        if (overlay is null) return this;
+        // An empty object withdraws the overlay; a feed from the future cannot tighten what this
+        // server cannot read. Both leave the embedded matrix (and its cleared overlay flag) in place.
+        if (overlay is null || overlay.IsEmpty) return this;
+        if (overlay.SchemaVersion > SupportedSchemaVersion) return this;
 
         var minimum = Higher(Minimum, overlay.Minimum);
         var recommended = Higher(Recommended, overlay.Recommended);
@@ -298,13 +316,13 @@ public sealed record LibraryMatrix(
         var blocked = Blocked.ToList();
         foreach (var rule in overlay.Blocked ?? [])
         {
-            if (IsLibraryRange(rule.Range) && !blocked.Any(b => b.Range == rule.Range)) blocked.Add(rule with { Sunset = null });
+            if (VersionRange.TryParse(rule.Range, out var range) && range.IsLibraryRange && !blocked.Any(b => b.Range == rule.Range)) blocked.Add(rule with { Sunset = null });
         }
 
         var feedDeprecated = new List<MatrixRule>();
         foreach (var rule in overlay.Deprecated ?? [])
         {
-            if (!IsLibraryRange(rule.Range) || !IsDate(rule.Sunset)) continue;
+            if (!VersionRange.TryParse(rule.Range, out var range) || !range.IsLibraryRange || !IsDate(rule.Sunset)) continue;
             if (Deprecated.Any(d => d.Range == rule.Range) || feedDeprecated.Any(d => d.Range == rule.Range)) continue;
             feedDeprecated.Add(rule with { Advisory = null });
         }
@@ -323,10 +341,8 @@ public sealed record LibraryMatrix(
             else libraries.Add(entry);
         }
 
-        return this with { Minimum = minimum, Recommended = recommended, Libraries = libraries, Blocked = blocked, FeedDeprecated = feedDeprecated };
+        return this with { Minimum = minimum, Recommended = recommended, Libraries = libraries, Blocked = blocked, FeedDeprecated = feedDeprecated, OverlayApplied = true };
     }
-
-    private static bool IsLibraryRange(string? text) => VersionRange.TryParse(text, out var range) && range.IsLibraryRange;
 
     /// <summary>The higher of two SemVer strings; an unreadable overlay value never replaces the current one.</summary>
     private static string? Higher(string? current, string? candidate)
@@ -347,7 +363,14 @@ public sealed record LibraryCompatOverlay(
     string? Legacy = null,
     string? LegacySunset = null,
     IReadOnlyList<MatrixRule>? Deprecated = null,
-    IReadOnlyList<MatrixRule>? Blocked = null);
+    IReadOnlyList<MatrixRule>? Blocked = null,
+    int? SchemaVersion = null)
+{
+    /// <summary>True when the object carries nothing: <c>{}</c> withdraws the overlay instead of applying one.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsEmpty => Minimum is null && Recommended is null && Legacy is null && LegacySunset is null
+        && (Deprecated is null || Deprecated.Count == 0) && (Blocked is null || Blocked.Count == 0) && SchemaVersion is null;
+}
 
 /// <summary>The matrix this server evaluates against: the embedded one, tightened by the latest feed overlay.</summary>
 public sealed class LibraryCompatProvider

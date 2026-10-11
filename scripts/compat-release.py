@@ -161,11 +161,12 @@ def valid_version(value, pattern):
 
 
 def check_range(text, pattern):
+    # Same tokenization as VersionRange.TryParse (src/SboxNetworkStorage.Server/Compat/VersionRange.cs):
+    # split on spaces and drop empties, so the gate accepts exactly the strings the
+    # server loader accepts (a double space is fine in both).
     if not isinstance(text, str) or not text.strip() or len(text) > 256:
         raise ValueError("Invalid library version range")
-    for token in text.split(" "):
-        if not token:
-            raise ValueError("Invalid library version range")
+    for token in [token for token in text.split(" ") if token]:
         match = re.fullmatch(r"(<=|>=|<|>|=)?(.+)", token)
         if match is None or not valid_version(match.group(2), pattern):
             raise ValueError("Invalid library version range token: " + token)
@@ -216,6 +217,52 @@ def validate(matrix, schema, today, baseline=None):
             check_range(rule.get("range"), semver)
         except ValueError as error:
             semantic.append(str(error))
+    # LTS support window (docs/compatibility.md, docs/releasing.md): a deprecated
+    # library entry superseded by a newer supported entry keeps working until at
+    # least six months after the successor shipped, and at least 90 days after
+    # the deprecation was announced when the matrix records an announcement.
+    def semver_key(version):
+        try:
+            core = re.split(r"[-+]", version, maxsplit=1)[0].split(".")
+            prerelease = "-" in version or "+" in version
+            return (int(core[0]), int(core[1]), int(core[2]), not prerelease, version)
+        except (ValueError, AttributeError, IndexError, TypeError):
+            return None
+    libraries = [library for library in policy.get("libraries") or [] if isinstance(library, dict)]
+    for library in libraries:
+        if library.get("status") != "deprecated" or library.get("version") in (None, "legacy"):
+            continue
+        key = semver_key(library.get("version"))
+        if key is None:
+            continue  # already reported as a bad version above
+        successors = [other for other in libraries
+                      if other.get("status") == "supported" and other.get("version") != "legacy"
+                      and other.get("released") is not None
+                      and (semver_key(other.get("version")) or ()) > key]
+        if not successors:
+            continue
+        successor = min(successors, key=lambda other: semver_key(other.get("version")) or ())
+        try:
+            released = dt.date.fromisoformat(successor["released"])
+        except (ValueError, TypeError):
+            continue  # already reported as a bad release date above
+        try:
+            sunset = dt.date.fromisoformat(library.get("sunset"))
+        except (ValueError, TypeError):
+            continue  # the schema shape requires a real sunset date
+        if sunset < six_months(released):
+            semantic.append(f"Library {library.get('version')} sunset {library.get('sunset')} must be at least six months "
+                            f"after its successor {successor.get('version')} released {successor.get('released')}")
+        announced = library.get("announced")
+        if announced is not None:
+            try:
+                announced_date = dt.date.fromisoformat(announced)
+            except (ValueError, TypeError):
+                semantic.append(f"Library {library.get('version')} announcement date must be a real date (yyyy-MM-dd)")
+                continue
+            if sunset < announced_date + dt.timedelta(days=90):
+                semantic.append(f"Library {library.get('version')} sunset {library.get('sunset')} must be at least 90 days "
+                                f"after its announced deprecation {announced}")
     if isinstance(baseline, dict):
         old = {rule.get("range"): rule.get("sunset") for rule in baseline.get("deprecated") or [] if isinstance(rule, dict)}
         new = {rule.get("range"): rule.get("sunset") for rule in policy.get("deprecated") or [] if isinstance(rule, dict)}
@@ -283,9 +330,14 @@ def rollback_notes(paths):
         database = report.get("schemaVersion")
         if type(floor) is not int or type(supported) is not int or type(database) is not int:
             raise ValueError("Rollback report has no valid schema versions")
-        if floor > supported or database < supported:
+        if floor > supported:
             raise ValueError("Rollback target has no valid certified schema floor")
-        lines.append(f"- Preserved-data rollback target: **{report['version']}**; database schema {database}, target supports {supported}, certified floor {floor}.")
+        if database < supported:
+            # The target supports a newer schema than the database it was probed against. That is safe:
+            # the older database migrates forward on start, so warn instead of refusing the target.
+            lines.append(f"- Preserved-data rollback target: **{report['version']}**; database schema {database}, target supports newer schema {supported}, certified floor {floor}. The target migrates the older database forward on start.")
+        else:
+            lines.append(f"- Preserved-data rollback target: **{report['version']}**; database schema {database}, target supports {supported}, certified floor {floor}.")
     lines.append("Use `rollback --keep-data`; it rechecks the actual target and every instance before changing the binary. These reports certify schema/config compatibility, not a game-editor test.")
     return "\n".join(lines)
 

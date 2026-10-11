@@ -105,6 +105,7 @@ public abstract class LibraryStatusHttpTests<TFactory> : IClassFixture<TFactory>
         Assert.Equal(JsonValueKind.Array, library.GetProperty("blocked").ValueKind);
         Assert.Equal(JsonValueKind.Array, library.GetProperty("tested").ValueKind);
         Assert.Equal("1.0.165702", library.GetProperty("knownBroken")[0].GetProperty("version").GetString());
+        Assert.False(compat.GetProperty("overlay").GetProperty("applied").GetBoolean());
         Assert.Equal(LibraryMatrix.MatrixUrl, compat.GetProperty("matrixUrl").GetString());
     }
 

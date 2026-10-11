@@ -542,6 +542,17 @@ public sealed class MigrationTagTests
     }
 
     [Fact]
+    public void Migration_lists_are_contiguous_from_one_with_an_explicit_tag_on_every_version()
+    {
+        Assert.Equal(SqliteMigrations.All.Count, PostgresMigrations.All.Count);
+        foreach (var migrations in new[] { SqliteMigrations.All, PostgresMigrations.All })
+        {
+            Assert.Equal(Enumerable.Range(1, migrations.Count), migrations.Select(m => m.Version));
+            Assert.All(migrations, m => Assert.True(Enum.IsDefined(m.Compat), $"Migration {m.Version} has no explicit SchemaChange tag."));
+        }
+    }
+
+    [Fact]
     public void Floor_is_the_highest_breaking_version_at_or_below_the_given_one()
     {
         SchemaMigration M(int v, SchemaChange c) => new(v, "x", c, _ => "");

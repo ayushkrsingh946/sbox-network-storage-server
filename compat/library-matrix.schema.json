@@ -63,8 +63,8 @@
     },
     "range": {
       "type": "string",
-      "description": "Space-separated comparators (<, <=, >, >=, =, or a bare exact version), all of which must hold: '1.2.1', '<1.2.0', '>=1.1.0 <1.3.0'.",
-      "pattern": "^(([<>]=?|=)?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?)( (([<>]=?|=)?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?))*$"
+      "description": "Space-separated comparators (<, <=, >, >=, =, or a bare exact version), all of which must hold: '1.2.1', '<1.2.0', '>=1.1.0 <1.3.0'. Extra spaces are tolerated, as in VersionRange.TryParse.",
+      "pattern": "^(([<>]=?|=)?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?)( +(([<>]=?|=)?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?))*$"
     },
     "date": {
       "type": "string",
@@ -77,8 +77,8 @@
     },
     "engineRange": {
       "type": "string",
-      "description": "Engine build comparators, e.g. '>=26.10'.",
-      "pattern": "^([<>]=?|=)?[0-9]+(\\.[0-9]+)*( ([<>]=?|=)?[0-9]+(\\.[0-9]+)*)*$"
+      "description": "Engine build comparators, e.g. '>=26.10'. Extra spaces are tolerated, as in VersionRange.TryParse.",
+      "pattern": "^([<>]=?|=)?[0-9]+(\\.[0-9]+)*( +([<>]=?|=)?[0-9]+(\\.[0-9]+)*)*$"
     },
     "library": {
       "type": "object",
@@ -90,11 +90,12 @@
           "anyOf": [{ "$ref": "#/$defs/semver" }, { "const": "legacy" }]
         },
         "revision": { "type": "integer", "minimum": 0, "description": "s&box package revision (the <revision> of .version 1.0.<revision>); assigned by sbox.game at publish, so recorded after it." },
-        "revisions": { "type": "string", "pattern": "^([<>]=?|=)?[0-9]+( ([<>]=?|=)?[0-9]+)*$", "description": "Revision range for a bucket, e.g. '<=309133'." },
+        "revisions": { "type": "string", "pattern": "^([<>]=?|=)?[0-9]+( +([<>]=?|=)?[0-9]+)*$", "description": "Revision range for a bucket, e.g. '<=309133'. Extra spaces are tolerated, as in VersionRange.TryParse." },
         "released": { "$ref": "#/$defs/date" },
         "minServer": { "$ref": "#/$defs/semver", "description": "Oldest server version this library works with." },
         "status": { "enum": ["supported", "deprecated", "unsupported", "known-broken"] },
         "sunset": { "$ref": "#/$defs/date", "description": "Required when status is 'deprecated'." },
+        "announced": { "$ref": "#/$defs/date", "description": "Optional: when the deprecation was published. When present, the release gate requires sunset to be at least 90 days later (docs/compatibility.md)." },
         "engine": { "$ref": "#/$defs/engineRange", "description": "For 'known-broken': the engine builds it breaks on." },
         "reason": { "type": "string" },
         "issue": { "type": "string" },
