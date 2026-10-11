@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Server.Activity;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Middleware;
 using Xunit;
 
@@ -178,7 +179,8 @@ public sealed class UsageTrackerAndMiddlewareTests
             handler,
             tracker,
             activity ?? new RuntimeActivityLog(TimeProvider.System),
-            NullLogger<NetworkStorageUsageMiddleware>.Instance);
+            NullLogger<NetworkStorageUsageMiddleware>.Instance,
+            new ClientVersionTracker(TimeProvider.System));
         await middleware.InvokeAsync(context);
         await tracker.FlushAsync(force: true, CancellationToken.None);
         return store;
@@ -251,7 +253,7 @@ public sealed class UsageTrackerAndMiddlewareTests
         {
             NetworkStorageUsageContext.SetAuthenticated(ctx, "proj1");
             throw new InvalidOperationException("boom");
-        }, tracker, activity, NullLogger<NetworkStorageUsageMiddleware>.Instance);
+        }, tracker, activity, NullLogger<NetworkStorageUsageMiddleware>.Instance, new ClientVersionTracker(TimeProvider.System));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.InvokeAsync(BuildContext("/v3/storage/proj1/players/765")));
         await tracker.FlushAsync(force: true, CancellationToken.None);

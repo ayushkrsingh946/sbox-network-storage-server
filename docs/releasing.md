@@ -29,7 +29,10 @@ project is only the value for local builds.
    (`docs/database.md`, "Rollback-safe migrations"). Run `scripts/rollback-notes.sh` on the
    release commit and add its output to the release notes: the line
    "Rolls back without data loss to: 0.x.y, …" lists the earlier releases that
-   `sbox-ns rollback --keep-data` can return to without restoring a backup.
+   `sbox-ns rollback --keep-data` can return to without restoring a backup. The same tags
+   drive the runtime checks: `rollback --keep-data` and pinned downgrades proceed only when
+   the target binary's supported schema covers the database's `min_binary_schema` floor,
+   confirmed both by the installed binary and by the target's own `sbox-ns compatibility` probe.
 4. Run the **Install matrix** workflow on the commit (Actions > Install matrix > Run workflow)
    and wait for it to pass. It replaces the manual VM checklist; see below.
 5. Confirm the compatibility evidence, then tag. `compat/library-matrix.json` must have a `pass`

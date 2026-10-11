@@ -176,7 +176,8 @@ public interface INetworkStorageStore
     Task DeletePageAsync(string projectId, string pageSlug, CancellationToken ct);
 
     // ── storage_errors ────────────────────────────────────────────────
-    Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct);
+    /// <summary>Appends an error row. <paramref name="client"/> is the caller's library identity as the request reported it, when the error has a request.</summary>
+    Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct, RequestClientInfo? client = null);
     Task<IReadOnlyList<JsonElement>> ListStorageErrorsAsync(string projectId, int limit, CancellationToken ct);
     Task PurgeStorageErrorsAsync(string projectId, long beforeUnixMs, CancellationToken ct);
 
@@ -240,7 +241,7 @@ public interface IStoreTransaction : IAsyncDisposable
 
 /// <summary>Trusted observed record state for comparisons against writers that reuse versions.</summary>
 /// <summary>Who made a logged request, as the request reported it. Any part may be unknown (null).</summary>
-public sealed record RequestClientInfo(string? LibraryVersion, string? ClientType, string? EngineVersion);
+public sealed record RequestClientInfo(string? LibraryVersion, string? ClientType, string? EngineVersion, long? LibraryRevision = null, long? GameRevision = null);
 
 public sealed record RecordMutationSnapshot(string PayloadJson, long? ChangedAtUnixMs);
 

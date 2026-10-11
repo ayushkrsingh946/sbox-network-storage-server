@@ -36,6 +36,31 @@ and never put a secret API key in game code (public keys only). Do not share
 one PostgreSQL schema between independent server instances or data
 directories. Keep backups (`sbox-ns db backup`) before touching migrations.
 
+## Compatibility invariant
+
+Read `docs/compatibility.md` before changing game-facing API syntax, defaults,
+save semantics, library-version policy or migrations. Backend updates must keep
+older and unidentified published games working by default: no request without a
+parseable library version is ever refused for its version, and the release-feed
+overlay only ever tightens reported statuses, never enforcement. Add
+replacements without removing old forms; support the old form for at least six
+months after its successor ships and publish at least 90 days' removal notice.
+No surprise game-facing breaking patch; prefer side-by-side API generations.
+
+Link compatibility issues/PRs in both repos and record the exact tested source
+commit, server/library/package revisions, engine and database in the matrix
+evidence. Backend HTTP tests are not a real s&box editor pass. New migrations are
+conservatively `breaking` unless old read/write assumptions demonstrably survive;
+never modify released migration SQL. Exercise unchanged legacy requests and
+SQLite/PostgreSQL parity before delivery. Version headers are self-reported
+metadata, never authentication; runtime minimum enforcement remains explicit
+owner opt-in.
+
+Certify each server/library/engine/provider pairing once with real evidence;
+a fundamental wire/semantic/storage change invalidates affected certifications
+and must be re-tested before release. Library methods and endpoint support are
+LTS surface: no silent rename/removal/narrowing.
+
 ## Reporting test results
 
 Any result you report for the s&box editor or a real game client (a PR, an issue, a

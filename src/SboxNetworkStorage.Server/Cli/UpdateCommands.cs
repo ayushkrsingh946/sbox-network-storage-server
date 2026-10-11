@@ -6,7 +6,6 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Updates;
-using SboxNetworkStorage.Storage.Sqlite;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -49,17 +48,16 @@ public static class UpdateCommands
             return CliApp.Ok;
         }
 
-        var downgrade = SemanticVersion.TryParse(release.Version, out var target) && SemanticVersion.TryParse(BuildInfo.Version, out var installed)
-            && target.CompareTo(installed) < 0;
-        if (downgrade && !context.Args.Flag("allow-downgrade"))
-        {
-            throw new CliException($"{release.Version} is older than the installed {BuildInfo.Version}. Downgrades need --allow-downgrade, and only go ahead when the older release can run on the current database without a restore (see docs/self-hosting.md).");
-        }
-
         if (requested is null && !notice.UpdateAvailable)
         {
             Console.WriteLine("You are up to date.");
             return CliApp.Ok;
+        }
+
+        var downgrade = IsDowngrade(BuildInfo.Version, release.Version);
+        if (downgrade && (requested is null || !context.Args.Flag("allow-downgrade")))
+        {
+            throw new CliException($"{release.Version} is not newer than the installed {BuildInfo.Version}. Downgrades need a pinned version and --allow-downgrade (--version X.Y.Z --allow-downgrade), and only go ahead when the older release can run on the current database without a restore (see docs/self-hosting.md).", CliApp.Usage);
         }
 
         RequireUpgradable(release);
@@ -92,6 +90,17 @@ public static class UpdateCommands
             var replacementAttempted = false;
             try
             {
+                if (downgrade)
+                {
+                    // Re-checked while stopped: a write accepted between the first check and the stop
+                    // cannot have moved the schema, but the check is cheap and the swap has not happened yet.
+                    var quiesced = await CheckDataPreservingAsync(host, binary, newBinary, [instance]);
+                    if (!quiesced.Safe)
+                    {
+                        throw new CliException($"quiesced compatibility check failed: {quiesced.Reason}; nothing was installed or swapped.");
+                    }
+                }
+
                 // Quiesce writes before the snapshot so recovery cannot discard
                 // writes accepted between the backup and stopping the service.
                 backup = DatabaseBackup.DefaultBackupPath(config, $"pre-{release.Version}");
@@ -179,6 +188,21 @@ public static class UpdateCommands
             await RequireServiceControlAsync("stop");
         }
 
+        if (keepData)
+        {
+            // Re-checked while stopped, before the layout revert and the binary swap.
+            var quiesced = await CheckDataPreservingAsync(host, binary, state.PreviousBinaryPath, [instance]);
+            if (!quiesced.Safe)
+            {
+                if (serviceInstalled)
+                {
+                    await RequireServiceControlAsync("start");
+                }
+
+                throw new CliException($"quiesced compatibility check failed: {quiesced.Reason}; nothing was changed.");
+            }
+        }
+
         // The binary being restored may predate the state folder and expect its secrets in the config folder.
         try
         {
@@ -207,13 +231,14 @@ public static class UpdateCommands
 
     /// <summary>
     /// The <c>--keep-data</c> / <c>--allow-downgrade</c> gate: throws unless <paramref name="targetBinary"/> can run on every
-    /// instance's current database (the floor rule). <paramref name="alternative"/> names today's restore path in the refusal.
+    /// instance's current database. The floor rule decides and the target binary's own <c>compatibility</c> probe
+    /// must agree (see <see cref="SchemaRollback.CheckDataPreservingAsync"/>); either side refusing changes nothing.
+    /// <paramref name="alternative"/> names today's restore path in the refusal.
     /// </summary>
     internal static async Task RequireDataPreservingRollbackAsync(IUpdateHost host, string installedBinary, string targetBinary,
         IReadOnlyList<ServerInstance> instances, string alternative)
     {
-        var target = await host.ProbeSchemaInfoAsync(targetBinary, CancellationToken.None);
-        var decision = await SchemaRollback.CheckAsync(host, installedBinary, target, instances, SqliteMigrations.All, CancellationToken.None);
+        var decision = await CheckDataPreservingAsync(host, installedBinary, targetBinary, instances);
         if (!decision.Safe)
         {
             throw new CliException($"cannot do this without losing data: {decision.Reason}. {alternative}");
@@ -222,7 +247,24 @@ public static class UpdateCommands
         Console.WriteLine($"Data-preserving: {decision.Reason}.");
     }
 
+    /// <summary>Same gate without throwing or printing, for the re-check while the services are stopped.</summary>
+    internal static Task<RollbackDecision> CheckDataPreservingAsync(IUpdateHost host, string installedBinary, string targetBinary,
+        IReadOnlyList<ServerInstance> instances)
+        => SchemaRollback.CheckDataPreservingAsync(host, installedBinary, targetBinary, instances, CancellationToken.None);
+
     internal const string RestoreAlternative = "`sbox-ns rollback` (without --keep-data) restores the database backup taken before the update and loses everything written since.";
+
+    /// <summary>
+    /// Fail-closed downgrade detection: true unless <paramref name="target"/> is provably newer than
+    /// <paramref name="installed"/>. An unparseable version on either side, an equal version
+    /// (equal-but-different builds), or an older target all take the downgrade path: a pinned
+    /// <c>--version</c> with <c>--allow-downgrade</c> plus the compatibility gate, and never an
+    /// unattended install.
+    /// </summary>
+    internal static bool IsDowngrade(string installed, string target)
+        => !SemanticVersion.TryParse(target, out var next)
+            || !SemanticVersion.TryParse(installed, out var current)
+            || next.CompareTo(current) <= 0;
 
     private static void RequireSuccess(int exitCode, string step)
     {

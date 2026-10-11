@@ -155,8 +155,12 @@ derived on read, so `db status` and `doctor` work either way.
 
 `sbox-ns db status` prints the floor (`Compat floor:`), and `db status --json` prints
 `{"provider","schemaVersion","minBinarySchema","supportedSchemaVersion"}`;
-`sbox-ns schema-info [--json]` prints the highest schema the binary supports. `rollback --keep-data` and
-`update --allow-downgrade` use exactly these (see [self-hosting.md](self-hosting.md#rolling-back)).
+`sbox-ns schema-info [--json]` prints the highest schema the binary supports, and
+`sbox-ns compatibility [--json]` runs this binary's non-mutating preflight (the floor-rule
+verdict plus the layout generation it understands). `rollback --keep-data` and
+`update --allow-downgrade` run the *target* binary's copy of that preflight against every
+instance's database, so either side refusing stops everything before the service is stopped
+(see [self-hosting.md](self-hosting.md#rolling-back)).
 
 Adding a migration: pick the tag with the rule above and put it in both drivers.
 `scripts/rollback-notes.sh` turns the tags into the release-notes line

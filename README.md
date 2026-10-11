@@ -236,6 +236,11 @@ and update your server base URL.
 > established. This server's owner console supports resource authoring and
 > self-hosted project portability; editor source sync remains supported.
 
+Backend and library releases are independent: older and unidentified game libraries
+remain accepted by default. [Compatibility rules](docs/compatibility.md) require
+six months' replacement support and 90 days' removal notice; **Project → Clients**
+shows observed library-version traffic and opt-in minimum impact.
+
 
 ### Client reachability
 
@@ -290,6 +295,7 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns register --email ADDRESS` / `register --remove` | Opt in to confirmed security/update email notices or remove the subscription |
 | `sbox-ns telemetry status\|enable\|disable\|preview` | Inspect, opt in to, opt out of, or preview the anonymous usage statistics (off by default) |
 | `sbox-ns project create <name>\|list\|delete <projectId>` | Manage projects |
+| `sbox-ns project clients <projectId> [--days 30] [--json]` | Local client-version compatibility traffic and approximate player report |
 | `sbox-ns key create <projectId> --type public\|secret [--label L]` | Create an API key |
 | `sbox-ns key list <projectId>` / `key revoke <projectId> <key>` | List and revoke API keys |
 | `sbox-ns service install\|uninstall\|start\|stop\|restart\|status` | Run as a systemd unit (Linux), launchd job (macOS) or Windows service |

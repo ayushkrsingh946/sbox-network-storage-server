@@ -141,4 +141,45 @@ public static class ClientIdentityContext
             }
         }
     }
+
+    /// <summary>
+    /// Applies the published-game revision from an already-parsed request body, for clients that do not send
+    /// <c>x-ns-revision-id</c>. Only a positive numeric <c>revisionId</c> on a published game bundle
+    /// (<c>isPublishedGameBundle: true</c>) counts: anything else is an editor or unpublished build whose
+    /// revision is not the published game revision. A header revision wins; this only enriches analytics.
+    /// </summary>
+    public static void ApplyBodyGameRevision(HttpContext context, System.Text.Json.JsonElement? body)
+    {
+        if (body is not { ValueKind: System.Text.Json.JsonValueKind.Object } json) return;
+        if (Get(context).RevisionId is not null) return;
+        if (!json.TryGetProperty("isPublishedGameBundle", out var published)
+            || published.ValueKind != System.Text.Json.JsonValueKind.True) return;
+        if (json.TryGetProperty("revisionId", out var revision) && revision.ValueKind == System.Text.Json.JsonValueKind.Number
+            && revision.TryGetInt64(out var gameRevision) && gameRevision > 0)
+        {
+            context.Items[ItemKey] = Get(context) with { RevisionId = gameRevision };
+        }
+    }
+
+    /// <summary>
+    /// The player the caller claims to be, from headers or the query string (best effort, self-reported).
+    /// Only numeric Steam IDs count; anything else is ignored for player estimates. The request body is
+    /// deliberately not read here: by the time analytics run the body stream is consumed.
+    /// </summary>
+    public static string? PlayerId(HttpContext context)
+    {
+        var request = context.Request;
+        foreach (var candidate in new[]
+        {
+            request.Headers["x-steam-id"].FirstOrDefault(),
+            request.Headers["x-sbox-steam-id"].FirstOrDefault(),
+            request.Query["steamId"].FirstOrDefault(),
+            request.Query["steamid"].FirstOrDefault(),
+        })
+        {
+            if (candidate is { Length: > 0 and <= 20 } id && id.All(char.IsAsciiDigit)) return id;
+        }
+
+        return null;
+    }
 }

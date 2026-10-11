@@ -450,6 +450,13 @@ public sealed class NetworkStorageProjectService(
 
         switch (settingsTab)
         {
+            case "library":
+                project = project with
+                {
+                    LibraryMinimum = string.IsNullOrWhiteSpace(formValues.GetValueOrDefault("libraryMinimum")) ? null : formValues["libraryMinimum"].Trim(),
+                    LibraryAlertPercent = ParseOptionalInt(formValues.GetValueOrDefault("libraryAlertPercent"), min: 1, max: 100)
+                };
+                break;
             case "project":
                 {
                     var name = (formValues.GetValueOrDefault("name") ?? "").Trim();

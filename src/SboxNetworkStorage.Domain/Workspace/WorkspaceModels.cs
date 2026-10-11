@@ -78,7 +78,9 @@ public sealed record WorkspaceProject(
     string? DiscordWebhook = null,
     Dictionary<string, object>? Analytics = null,
     Dictionary<string, object>? EndpointRateLimits = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LegacyPlayerProjections = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LegacyPlayerProjections = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LibraryMinimum = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? LibraryAlertPercent = null
 );
 public static class WorkspaceProjectProfiles
 {

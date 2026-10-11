@@ -633,6 +633,7 @@ public static partial class StorageApiEndpoints
         }
 
         ClientIdentityContext.ApplyBodyLibraryVersion(context, body, "libraryVersion", "library_version");
+        ClientIdentityContext.ApplyBodyGameRevision(context, body);
         var raw = body.GetRawText();
         if (raw.Length > 32_768)
         {

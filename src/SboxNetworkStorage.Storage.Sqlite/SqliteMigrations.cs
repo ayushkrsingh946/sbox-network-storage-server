@@ -19,7 +19,23 @@ public static class SqliteMigrations
         new(2, "Existing projects keep the built-in player projections", SchemaChange.Additive, V2),
         new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", SchemaChange.Additive, V3),
         new(4, "Request log records the caller's library version, client type and engine build", SchemaChange.Additive, V4),
+        new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
     ];
+
+    // Additive: one new table plus five nullable error columns. The previous binary's named-column
+    // INSERTs and SELECTs keep working; existing rows keep NULL, which the Errors tab shows as unknown.
+    private static string V5(string p) => $"""
+        ALTER TABLE {p}storage_errors ADD COLUMN library_version TEXT;
+        ALTER TABLE {p}storage_errors ADD COLUMN client_type TEXT;
+        ALTER TABLE {p}storage_errors ADD COLUMN engine_version TEXT;
+        ALTER TABLE {p}storage_errors ADD COLUMN library_revision INTEGER;
+        ALTER TABLE {p}storage_errors ADD COLUMN game_revision INTEGER;
+        CREATE TABLE {p}client_versions_daily (
+            project_id TEXT NOT NULL, day INTEGER NOT NULL, group_key TEXT NOT NULL,
+            library_version TEXT NOT NULL, library_revision INTEGER, client_type TEXT NOT NULL, game_revision INTEGER,
+            requests INTEGER NOT NULL, last_seen_unix_ms INTEGER NOT NULL, player_sketch TEXT NOT NULL,
+            PRIMARY KEY (project_id, day, group_key)) STRICT, WITHOUT ROWID;
+        """;
 
     // Additive: three nullable columns. Existing rows keep NULL, which the Logs tab shows as unknown; no table rebuild.
     private static string V4(string p) => $"""

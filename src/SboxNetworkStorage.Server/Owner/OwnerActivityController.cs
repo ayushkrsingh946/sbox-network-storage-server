@@ -34,6 +34,7 @@ public sealed class OwnerActivityController(INetworkStorageProjectService projec
         ["requests"] = "Requests", ["reads"] = "Reads", ["writes"] = "Writes", ["endpoint_calls"] = "Endpoint calls",
         ["errors"] = "Errors", ["bytes_in"] = "Bytes in", ["bytes_out"] = "Bytes out", ["compute_units"] = "Compute units",
         ["library_version"] = "Library", ["client_type"] = "Client", ["engine_version"] = "Engine",
+        ["library_revision"] = "Package revision", ["game_revision"] = "Game revision",
         ["day"] = "Day", ["endpoint_slug"] = "Endpoint", ["calls"] = "Calls", ["duration_ms_sum"] = "Total duration (ms)",
     };
 
@@ -64,7 +65,8 @@ public sealed class OwnerActivityController(INetworkStorageProjectService projec
                 break;
             case "errors":
                 tables.Add(Table("Errors · latest 200", await store.ListStorageErrorsAsync(projectId, 200, ct),
-                    $"No errors recorded in the last {RuntimeActivityLog.Retention.Days} days.", "created_at_unix_ms", "severity", "error_id", "message", "source", "request_path"));
+                    $"No errors recorded in the last {RuntimeActivityLog.Retention.Days} days.", "created_at_unix_ms", "severity", "error_id", "message", "source", "request_path",
+                    "library_version", "client_type", "library_revision", "game_revision"));
                 break;
             case "usage":
                 var monthly = await store.ReadProjectUsageMonthlyAsync(projectId, month, ct);

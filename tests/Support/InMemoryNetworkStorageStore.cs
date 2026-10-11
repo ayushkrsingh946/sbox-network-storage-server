@@ -532,12 +532,12 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
         => K(projectId, Num(createdAtUnixMs), Num(Interlocked.Increment(ref _logSequence)).PadLeft(20, '0'));
 
     // ── storage_errors ──
-    public Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct)
+    public Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct, RequestClientInfo? client = null)
     {
         lock (_stateGate)
         {
         Id(projectId);
-        StorageErrors[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, error_id = errorId, message, stack_trace = stackTrace ?? string.Empty, source = source ?? string.Empty, request_path = requestPath ?? string.Empty, severity });
+        StorageErrors[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, error_id = errorId, message, stack_trace = stackTrace ?? string.Empty, source = source ?? string.Empty, request_path = requestPath ?? string.Empty, severity, library_version = client?.LibraryVersion, client_type = client?.ClientType, engine_version = client?.EngineVersion, library_revision = client?.LibraryRevision, game_revision = client?.GameRevision });
         return Task.CompletedTask;
         }
     }

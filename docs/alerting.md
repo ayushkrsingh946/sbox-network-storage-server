@@ -24,6 +24,12 @@ any configured channel:
   `POST /api/network-storage/{projectId}/save-failure`. That route needs an
   enabled project and real collection and record ids, and cuts the client's
   `reason` to 200 characters.
+- Optional library compatibility alerts: set the project's affected-traffic
+  percentage in **Project → Clients**. A flushed batch needs at least 100
+  authenticated requests and the configured share of unsupported/blocked
+  library traffic (including the project's explicit minimum). Notifications
+  use the existing rate-limited sink; the default is off. Version identities
+  are self-reported. See [compatibility.md](compatibility.md).
 
 Each alert carries the correlation ID, route, classification, project, and
 timestamp so it can be matched against `/admin/errors` entries and logs.

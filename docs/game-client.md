@@ -48,6 +48,15 @@ an update check has run, else null. `compat` is described under
 [Library compatibility](#library-compatibility). `sbox-ns doctor` also polls
 this route to check the listener.
 
+The additive `compat` advertisement and optional `x-ns-library-*` identity/status
+headers are the whole version contract. Unidentified older libraries remain
+accepted by default; recommendations and deprecations alone never reject a
+working game. An explicit owner minimum and advisory-linked blocks return
+HTTP 426 with `{ "ok": false, "error": { "code": "LIBRARY_UNSUPPORTED",
+"message": "..." } }` (or `LIBRARY_BLOCKED`); the existing library understands
+this structured envelope, but the engine may hide 4xx bodies. See
+[compatibility.md](compatibility.md) for the operator policy.
+
 ## Library compatibility
 
 The server runs many library versions at once, and most are older than the
