@@ -54,15 +54,19 @@ public static class DoctorCommand
             {
                 var ping = await admin.PingAsync(CancellationToken.None);
                 Report(Outcome.Pass, "database", $"{admin.ProviderName} at {admin.RedactedTarget} ({ping.ServerVersion}, {ping.RoundTrip.TotalMilliseconds:F0} ms)");
-                var version = await admin.GetSchemaVersionAsync(CancellationToken.None);
+                var state = await admin.GetSchemaStateAsync(CancellationToken.None);
+                var version = state.Version;
+                var supported = admin.SupportedSchemaVersion;
                 Report(
-                    version == admin.SupportedSchemaVersion ? Outcome.Pass : version < admin.SupportedSchemaVersion ? Outcome.Warn : Outcome.Fail,
+                    version == supported || state.IsNewerButCompatibleWith(supported) ? Outcome.Pass : version < supported ? Outcome.Warn : Outcome.Fail,
                     "schema",
-                    version == admin.SupportedSchemaVersion
+                    version == supported
                         ? $"version {version}"
-                        : version < admin.SupportedSchemaVersion
-                            ? $"version {version}, {admin.SupportedSchemaVersion} pending (applied on next start or `sbox-ns db migrate`)"
-                            : $"version {version} is newer than this binary supports ({admin.SupportedSchemaVersion}); upgrade sbox-ns");
+                        : state.IsNewerButCompatibleWith(supported)
+                            ? $"version {version} is newer than this binary's {supported}, but every later migration is additive (min_binary_schema {state.MinBinarySchema}); this binary can run on it"
+                            : version < supported
+                                ? $"version {version}, {supported} pending (applied on next start or `sbox-ns db migrate`)"
+                                : $"version {version} is newer than this binary supports ({supported}) and needs at least schema {state.MinBinarySchema}; upgrade sbox-ns");
             }
             catch (Exception ex)
             {

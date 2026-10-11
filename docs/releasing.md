@@ -25,12 +25,17 @@ project is only the value for local builds.
 1. Move the `CHANGELOG.md` **Unreleased** entries under a new `## [0.x.z] - YYYY-MM-DD` heading.
 2. Set `.github/release-meta.json` when the release is a security update (`security`), needs a
    migration (`migrationRequired`) or cannot be installed over very old versions (`minUpgradableFrom`).
-3. Run the **Install matrix** workflow on the commit (Actions > Install matrix > Run workflow)
+3. If the release adds a migration, check its `additive`/`breaking` tag in both drivers
+   (`docs/database.md`, "Rollback-safe migrations"). Run `scripts/rollback-notes.sh` on the
+   release commit and add its output to the release notes: the line
+   "Rolls back without data loss to: 0.x.y, …" lists the earlier releases that
+   `sbox-ns rollback --keep-data` can return to without restoring a backup.
+4. Run the **Install matrix** workflow on the commit (Actions > Install matrix > Run workflow)
    and wait for it to pass. It replaces the manual VM checklist; see below.
-4. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
-5. The release workflow runs the tests, the HTTP smoke gate and the stable-reference parity
+5. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
+6. The release workflow runs the tests, the HTTP smoke gate and the stable-reference parity
    diff, then builds, signs and publishes. A failing gate stops the release.
-6. Check the published assets: `SHA256SUMS`, `SHA256SUMS.p256.sig`, the SBOMs and the
+7. Check the published assets: `SHA256SUMS`, `SHA256SUMS.p256.sig`, the SBOMs and the
    provenance attestations. `docs/self-hosting.md` describes how operators verify them.
 
 ## Install matrix

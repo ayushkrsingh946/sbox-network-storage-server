@@ -98,6 +98,14 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
         return Convert.ToInt64(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture) > 0;
     }
 
+    protected override async Task<bool> SchemaVersionHasFloorColumnAsync(DbConnection connection, DbTransaction? transaction, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('schema_version') WHERE name = 'min_binary_schema'";
+        return Convert.ToInt64(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture) > 0;
+    }
+
     public override ValueTask DisposeAsync()
     {
         // Release pooled handles so the file is no longer held open.

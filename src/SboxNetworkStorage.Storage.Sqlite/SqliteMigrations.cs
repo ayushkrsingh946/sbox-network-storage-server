@@ -7,13 +7,17 @@ namespace SboxNetworkStorage.Storage.Sqlite;
 /// new version instead. Tables mirror the production CQL schema (same table and
 /// column names, same primary keys and clustering directions).
 /// </summary>
-internal static class SqliteMigrations
+public static class SqliteMigrations
 {
+    // Every migration carries a SchemaChange tag (docs/database.md "Rollback-safe migrations"). Additive means the previous
+    // binary's statements keep working on the result; Breaking means they may not. v1 is the baseline and always breaking.
+    // v3 rebuilds the two log tables with a surrogate key but keeps every column and name, and the previous binary only
+    // uses named-column INSERTs and (project_id, created_at) filters on them, so it is additive.
     public static readonly IReadOnlyList<SchemaMigration> All =
     [
-        new(1, "Network Storage tables, usage counters, workspace objects", V1),
-        new(2, "Existing projects keep the built-in player projections", V2),
-        new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", V3),
+        new(1, "Network Storage tables, usage counters, workspace objects", SchemaChange.Breaking, V1),
+        new(2, "Existing projects keep the built-in player projections", SchemaChange.Additive, V2),
+        new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", SchemaChange.Additive, V3),
     ];
 
     // The log tables are rebuilt as rowid tables: event_id is the surrogate key, so events that share a
