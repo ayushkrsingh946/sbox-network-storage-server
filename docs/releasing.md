@@ -20,6 +20,10 @@ The git tag. Pushing `v0.5.1` makes the release workflow build `0.5.1` into the 
 that is not `vMAJOR.MINOR.PATCH[-pre]`. The `<Version>0.1.0-dev</Version>` in the server
 project is only the value for local builds.
 
+Game-facing API changes follow [compatibility.md](compatibility.md), independently
+of these operator version numbers. A patch must not require a library update.
+
+
 ## Cutting a release
 
 1. Move the `CHANGELOG.md` **Unreleased** entries under a new `## [0.x.z] - YYYY-MM-DD` heading.
@@ -32,6 +36,46 @@ project is only the value for local builds.
    diff, then builds, signs and publishes. A failing gate stops the release.
 6. Check the published assets: `SHA256SUMS`, `SHA256SUMS.p256.sig`, the SBOMs and the
    provenance attestations. `docs/self-hosting.md` describes how operators verify them.
+
+### Library compatibility evidence gate
+
+Before tagging, validate `compat/library-matrix.json` with
+`python3 scripts/compat-release.py` (also exercised by `dotnet test`). Follow
+[editor-test-plan.md](editor-test-plan.md) and attach a detached matrix artifact
+for the **exact tested source commit**, including library/package revision,
+engine build, SQLite/PostgreSQL results and evidence links.
+
+```sh
+python3 scripts/compat-release.py --matrix /path/to/release-evidence.json \
+  --server 0.x.y --commit TESTED_SOURCE_COMMIT \
+  --baseline /path/to/previous-release-matrix.json \
+  --policy-source compat/library-matrix.json \
+  --rollback-report /path/to/target-compatibility.json
+```
+
+Attach the generated **Tested with** table and matrix to the release. The gate
+requires a matching `pass` for the recommended library (or legacy while no
+recommendation exists). Without a real editor pass, only a matching `ci-only`
+row plus explicit `--allow-ci-only` can render release notes; retain that warning.
+Do not relabel automated HTTP tests as an editor pass. Evidence recorded in the
+repo afterwards retains the original tested commit, not its bookkeeping commit.
+
+Capture rollback reports using each actual target's `compatibility --json`
+against the release schema/config. Without reports, no preserved-data target is
+certified. The schema certificate does not replace update → write → rollback →
+read and game-pairing tests. Pre-compatibility binaries still need backup restore.
+
+Publish using `-p:LibraryCompatibilityMatrix=/absolute/path/to/release-evidence.json`
+to embed the validated detached evidence without a self-referential source SHA.
+The `--policy-source` gate allows only `tested` rows to differ from the exercised
+source policy. The normal build embeds the committed matrix.
+
+The maintainer owns wiring generated evidence into the protected release
+workflow and adding the preserved-data scenario to the install matrix. This
+change does not alter those workflows. Track that integration in
+[S2 #59](https://github.com/sbox-cool/sbox-network-storage-server/issues/59) and
+[S5 #62](https://github.com/sbox-cool/sbox-network-storage-server/issues/62).
+
 
 ## Install matrix
 

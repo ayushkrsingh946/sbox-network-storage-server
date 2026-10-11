@@ -91,10 +91,11 @@ public sealed class SqliteNetworkStorageStore : RelationalNetworkStorageStore
         return Convert.ToString(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture);
     }
 
-    protected override async Task<bool> SchemaVersionTableExistsAsync(DbConnection connection, CancellationToken ct)
+    protected override async Task<bool> SchemaTableExistsAsync(DbConnection connection, string tableName, CancellationToken ct)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'";
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @table_name";
+        command.Parameters.Add(new SqliteParameter("@table_name", tableName));
         return Convert.ToInt64(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture) > 0;
     }
 

@@ -67,11 +67,11 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    protected override async Task<bool> SchemaVersionTableExistsAsync(DbConnection connection, CancellationToken ct)
+    protected override async Task<bool> SchemaTableExistsAsync(DbConnection connection, string tableName, CancellationToken ct)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT to_regclass(@table_name) IS NOT NULL";
-        AddText(command, "table_name", TablePrefix + "schema_version");
+        AddText(command, "table_name", TablePrefix + tableName);
         return await command.ExecuteScalarAsync(ct) is true;
     }
 

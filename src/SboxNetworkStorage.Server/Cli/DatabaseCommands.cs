@@ -1,5 +1,7 @@
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Server.Hosting;
+using System.Text.Json;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -46,16 +48,14 @@ public static class DatabaseCommands
             }
             case "status":
             {
-                var version = await admin.GetSchemaVersionAsync(CancellationToken.None);
+                var compatibility = await admin.GetSchemaCompatibilityAsync(CancellationToken.None);
                 Console.WriteLine($"Database:        {admin.ProviderName} at {admin.RedactedTarget}");
-                Console.WriteLine($"Schema version:  {version} (this build supports {admin.SupportedSchemaVersion})");
-                Console.WriteLine(version switch
-                {
-                    _ when version == admin.SupportedSchemaVersion => "Status:          up to date",
-                    _ when version < admin.SupportedSchemaVersion => "Status:          migration pending (sbox-ns db migrate, or start the server)",
-                    _ => "Status:          database is newer than this binary; upgrade sbox-ns"
-                });
-                return version > admin.SupportedSchemaVersion ? CliApp.Failure : CliApp.Ok;
+                Console.WriteLine($"Schema version:  {compatibility.DatabaseVersion} (this build supports {admin.SupportedSchemaVersion})");
+                Console.WriteLine($"Compatibility floor: {compatibility.MinimumBinarySchema?.ToString() ?? "unknown"}");
+                Console.WriteLine(compatibility.MigrationRequired ? "Status:          migration pending (sbox-ns db migrate, or start the server)"
+                    : compatibility.Compatible ? "Status:          compatible (newer additive schemas remain usable)"
+                    : "Status:          database is incompatible with this binary; upgrade sbox-ns or restore a backup");
+                return compatibility.Compatible || compatibility.MigrationRequired ? CliApp.Ok : CliApp.Failure;
             }
             case "migrate":
             {
@@ -68,5 +68,19 @@ public static class DatabaseCommands
             default:
                 throw new CliException($"unknown db command '{sub}'", CliApp.Usage);
         }
+    }
+
+    public static async Task<int> CheckCompatibilityAsync(CliContext context)
+    {
+        // Dedicated top-level command: older binaries reject it before loading configuration or generating secrets.
+        var config = context.LoadValidConfig();
+        await using var probe = new ServiceCollection().AddConfiguredStore(config).BuildServiceProvider();
+        var compatibility = await probe.GetRequiredService<INetworkStorageStoreAdmin>().GetSchemaCompatibilityAsync(CancellationToken.None);
+        if (context.Args.Flag("json"))
+            Console.WriteLine(JsonSerializer.Serialize(new { protocol = 1, version = BuildInfo.Version, compatibility.DatabaseVersion,
+                compatibility.SupportedVersion, compatibility.MinimumBinarySchema, compatibility.Compatible }));
+        else
+            Console.WriteLine($"Schema {compatibility.DatabaseVersion}; binary supports {compatibility.SupportedVersion}; certified floor {compatibility.MinimumBinarySchema?.ToString() ?? "unknown"}; compatible: {compatibility.Compatible}.");
+        return compatibility.Compatible ? CliApp.Ok : CliApp.Failure;
     }
 }

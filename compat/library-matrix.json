@@ -1,0 +1,19 @@
+{
+  "$schema": "library-matrix.schema.json",
+  "schemaVersion": 1,
+  "minimum": null,
+  "recommended": null,
+  "latest": null,
+  "legacy": "supported",
+  "libraries": [{"version": "legacy", "revisions": "<=309133", "status": "supported"}],
+  "deprecated": [],
+  "blocked": [],
+  "tested": [],
+  "knownBroken": [{
+    "revision": 165702,
+    "engine": ">=26.10",
+    "scope": "editor-startup",
+    "reason": "Old DockWindow constructors cannot be registered by the 26.10 editor. This is not a server API incompatibility and does not block published games.",
+    "evidence": ["https://github.com/sbox-cool/sbox-network-storage/issues/4"]
+  }]
+}

@@ -11,6 +11,7 @@ using SboxNetworkStorage.Server.Telemetry;
 using SboxNetworkStorage.Server.Tunnels;
 using SboxNetworkStorage.Server.SignedDns;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Server.Compatibility;
 
 namespace SboxNetworkStorage.Server.Hosting;
 
@@ -86,6 +87,7 @@ public static class ServerHost
 
         configureBuilder?.Invoke(builder);
         var app = builder.Build();
+        app.UseMiddleware<ClientIdentityMiddleware>();
         app.UseMiddleware<ClientAddressMiddleware>();
         app.UseForwardedHeaders();
         app.UseMiddleware<HstsMiddleware>();
@@ -96,6 +98,7 @@ public static class ServerHost
         app.UseMiddleware<RequestBodyLimitMiddleware>();
         app.UseOwnerManagement();
         app.UseMiddleware<NetworkStorageUsageMiddleware>();
+        app.UseMiddleware<LibraryPolicyMiddleware>();
         app.UseResponseCompression();
 
         app.MapServerInfo();

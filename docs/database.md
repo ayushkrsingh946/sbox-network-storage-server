@@ -108,13 +108,16 @@ sbox-ns db status    # provider, schema version, pending migrations
 sbox-ns db migrate   # apply pending migrations
 ```
 
-`db status` prints the schema version, the version the binary supports, and
-whether a migration is pending (or the database is newer than the binary, in
-which case upgrade `sbox-ns`). `db migrate` applies pending migrations; the
-server also migrates on start. Take a backup before upgrading to a release
-that needs a migration; releases list the minimum version they upgrade from,
-so old installs may need to step through an intermediate release
-(see [self-hosting.md](self-hosting.md#updates)).
+`db status` prints the database schema, the binary's supported schema, the
+certified minimum binary schema and pending migrations. A newer database is
+accepted only when its complete compatibility certificate chain proves that
+this binary can read/write it. Missing certificates or a breaking gap require
+an upgrade or backup restore. `sbox-ns compatibility --json` performs the target
+binary's non-mutating schema/config preflight; it does not run migrations.
+`db migrate` applies pending migrations; the server also migrates on start.
+Neither rewrites the history of a certified newer schema. Take a backup before
+upgrading; releases list minimum upgrade versions, so old installs may need an
+intermediate release (see [self-hosting.md](self-hosting.md#updates)).
 
 Schema version 3 adds project/slug endpoint and project/key-identifier API-key
 indexes, plus surrogate primary keys for request logs and storage errors.
@@ -122,9 +125,20 @@ Events sharing a project and millisecond are now kept separately. Existing log
 rows are preserved by the migration. Version 2 remains the earlier
 legacy-player-projection opt-in migration.
 
+Schema 4 is additive: request logs gain library-version/client-context columns,
+storage errors gain request library/context and nullable package/game revisions,
+and daily client-version aggregates store request counts and mergeable distinct
+player sketches. It preserves schema 3's data contract. Migration compatibility
+certificates are stored in `schema_compatibility` beside the unchanged
+`schema_version` table. Historical migrations are conservatively breaking; new
+migrations must explicitly choose `additive` only when old read/write assumptions
+remain valid. See [compatibility.md](compatibility.md).
+
 Before applying or testing migrations against an existing database, run
-`sbox-ns db backup`. Migrations are forward-only; rollback requires restoring
-the pre-migration backup with the matching older binary.
+`sbox-ns db backup`. Migrations are forward-only. `rollback --keep-data` can
+return to a compatibility-aware binary certified for the current schema without
+restoring data. Across a breaking gap—or to a pre-compatibility binary—ordinary
+rollback restores the pre-update backup and loses writes since that backup.
 
 Endpoint record writes and deletes commit in one store transaction on both
 backends. A failure rolls back the complete endpoint flush instead of issuing

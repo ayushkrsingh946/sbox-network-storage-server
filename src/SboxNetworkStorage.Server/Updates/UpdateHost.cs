@@ -18,6 +18,9 @@ public interface IUpdateHost
     /// <summary>Runs <c>&lt;binary&gt; db migrate</c> for one instance and returns its exit code.</summary>
     Task<int> MigrateAsync(string binary, ServerInstance instance, CancellationToken ct);
 
+    /// <summary>Runs the target binary's non-mutating compatibility preflight against this instance's schema/config.</summary>
+    Task<int> CheckCompatibilityAsync(string targetBinary, string installedBinary, ServerInstance instance, CancellationToken ct);
+
     /// <summary>Runs <c>&lt;binary&gt; db backup --output &lt;path&gt;</c> for one instance and returns its exit code.</summary>
     Task<int> BackupAsync(string binary, ServerInstance instance, string outputPath, CancellationToken ct);
 
@@ -50,6 +53,24 @@ public sealed class SystemUpdateHost : IUpdateHost
 
     public Task<int> MigrateAsync(string binary, ServerInstance instance, CancellationToken ct)
         => RunAsServiceUserAsync(binary, instance, ["db", "migrate"], ct);
+
+    public async Task<int> CheckCompatibilityAsync(string targetBinary, string installedBinary, ServerInstance instance, CancellationToken ct)
+    {
+        // The root-only update state and download folders are not traversable by the service user.
+        // Execute a read-only copy in the trusted installed-binary directory instead.
+        var folder = Path.GetDirectoryName(Path.GetFullPath(installedBinary))!;
+        FolderTrust.Host.Require(folder, "compatibility probe directory");
+        FolderTrust.RejectSymbolicLink(targetBinary, "compatibility target");
+        var probe = Path.Combine(folder, $".sbox-ns-compat-{Guid.NewGuid():N}");
+        try
+        {
+            File.Copy(targetBinary, probe, overwrite: false);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(probe, UnixFileMode.UserRead | UnixFileMode.UserExecute
+                | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            return await RunAsServiceUserAsync(probe, instance, ["compatibility", "--json"], ct);
+        }
+        finally { if (File.Exists(probe)) File.Delete(probe); }
+    }
 
     public Task<int> BackupAsync(string binary, ServerInstance instance, string outputPath, CancellationToken ct)
         => RunAsServiceUserAsync(binary, instance, ["db", "backup", "--output", outputPath], ct);

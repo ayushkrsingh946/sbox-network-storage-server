@@ -9,8 +9,8 @@ public abstract partial class RelationalNetworkStorageStore
     /// <summary>Forward-only migrations, numbered contiguously from 1.</summary>
     protected abstract IReadOnlyList<SchemaMigration> Migrations { get; }
 
-    /// <summary>True when the <c>schema_version</c> table exists (without creating anything).</summary>
-    protected abstract Task<bool> SchemaVersionTableExistsAsync(DbConnection connection, CancellationToken ct);
+    /// <summary>Tests a known schema metadata table without creating anything.</summary>
+    protected abstract Task<bool> SchemaTableExistsAsync(DbConnection connection, string tableName, CancellationToken ct);
 
     /// <summary>Runs before the migration transaction starts (e.g. create the PostgreSQL schema).</summary>
     protected virtual Task PrepareForMigrationAsync(DbConnection connection, CancellationToken ct) => Task.CompletedTask;
@@ -36,7 +36,7 @@ public abstract partial class RelationalNetworkStorageStore
     public async Task<int> GetSchemaVersionAsync(CancellationToken ct)
     {
         await using var connection = await OpenConnectionAsync(ct);
-        if (!await SchemaVersionTableExistsAsync(connection, ct)) return 0;
+        if (!await SchemaTableExistsAsync(connection, "schema_version", ct)) return 0;
         await using var command = Command(connection, _sql.ReadSchemaVersion, []);
         return Convert.ToInt32(await command.ExecuteScalarAsync(ct), System.Globalization.CultureInfo.InvariantCulture);
     }
@@ -44,10 +44,39 @@ public abstract partial class RelationalNetworkStorageStore
     /// <inheritdoc />
     public async Task EnsureSchemaCompatibleAsync(CancellationToken ct)
     {
+        var compatibility = await GetSchemaCompatibilityAsync(ct);
+        if (compatibility.MigrationRequired) throw new SchemaMigrationRequiredException(compatibility.DatabaseVersion, SupportedSchemaVersion);
+        if (!compatibility.Compatible) throw new SchemaVersionTooNewException(compatibility.DatabaseVersion, SupportedSchemaVersion);
+    }
+
+    public async Task<SchemaCompatibility> GetSchemaCompatibilityAsync(CancellationToken ct)
+    {
         var current = await GetSchemaVersionAsync(ct);
-        var supported = SupportedSchemaVersion;
-        if (current > supported) throw new SchemaVersionTooNewException(current, supported);
-        if (current < supported) throw new SchemaMigrationRequiredException(current, supported);
+        await using var connection = await OpenConnectionAsync(ct);
+        var floor = await ReadCompatibilityFloorAsync(connection, current, null, ct);
+        return new SchemaCompatibility(current, SupportedSchemaVersion, floor);
+    }
+
+    private async Task<int?> ReadCompatibilityFloorAsync(DbConnection connection, int current, DbTransaction? transaction, CancellationToken ct)
+    {
+        if (!await SchemaTableExistsAsync(connection, "schema_compatibility", ct)) return null;
+        await using var command = Command(connection,
+            $"SELECT v.version, c.min_binary_schema FROM {TablePrefix}schema_version v LEFT JOIN {TablePrefix}schema_compatibility c ON c.version = v.version ORDER BY v.version",
+            [], transaction);
+        await using var rows = await command.ExecuteReaderAsync(ct);
+        var expected = 1;
+        var floor = 0;
+        while (await rows.ReadAsync(ct))
+        {
+            var version = rows.GetInt32(0);
+            if (version != expected++ || rows.IsDBNull(1)) return null;
+            var nextFloor = rows.GetInt32(1);
+            var knownFloor = Migrations.Where(m => m.Version <= version && m.Compatibility == SchemaMigrationCompatibility.Breaking)
+                .Select(m => m.Version).DefaultIfEmpty(0).Max();
+            if (nextFloor < floor || nextFloor < knownFloor || nextFloor > version) return null;
+            floor = nextFloor;
+        }
+        return expected - 1 == current ? floor : null;
     }
 
     /// <inheritdoc />
@@ -84,7 +113,23 @@ public abstract partial class RelationalNetworkStorageStore
         await using (var read = Command(connection, _sql.ReadSchemaVersion, [], transaction))
             current = Convert.ToInt32(await read.ExecuteScalarAsync(ct), System.Globalization.CultureInfo.InvariantCulture);
 
-        if (current > supported) throw new SchemaVersionTooNewException(current, supported);
+        if (current > supported)
+        {
+            var floor = await ReadCompatibilityFloorAsync(connection, current, transaction, ct);
+            if (floor is null || floor > supported) throw new SchemaVersionTooNewException(current, supported);
+            await transaction.CommitAsync(ct);
+            return new SchemaMigrationResult(current, current, []);
+        }
+
+        await using (var createCompatibility = Command(connection,
+            $"CREATE TABLE IF NOT EXISTS {TablePrefix}schema_compatibility (version INTEGER NOT NULL PRIMARY KEY, min_binary_schema INTEGER NOT NULL)", [], transaction))
+            await createCompatibility.ExecuteNonQueryAsync(ct);
+        var minimumBinarySchema = 0;
+        foreach (var historical in migrations.Where(m => m.Version <= current))
+        {
+            if (historical.Compatibility == SchemaMigrationCompatibility.Breaking) minimumBinarySchema = historical.Version;
+            await RecordCompatibilityAsync(connection, transaction, historical.Version, minimumBinarySchema, ct);
+        }
 
         var applied = new List<int>();
         foreach (var migration in migrations.Where(m => m.Version > current))
@@ -95,6 +140,8 @@ public abstract partial class RelationalNetworkStorageStore
             await using (var record = Command(connection, _sql.InsertSchemaVersion,
                 [Int32("version", migration.Version), Int64("applied_at_unix_ms", UnixMs()), Text("description", migration.Description)], transaction))
                 await record.ExecuteNonQueryAsync(ct);
+            if (migration.Compatibility == SchemaMigrationCompatibility.Breaking) minimumBinarySchema = migration.Version;
+            await RecordCompatibilityAsync(connection, transaction, migration.Version, minimumBinarySchema, ct);
             applied.Add(migration.Version);
         }
 
@@ -104,5 +151,13 @@ public abstract partial class RelationalNetworkStorageStore
         else
             Logger.LogInformation("{Provider} schema migrated from version {From} to {To}", ProviderName, current, supported);
         return new SchemaMigrationResult(current, Math.Max(current, supported), applied);
+    }
+
+    private async Task RecordCompatibilityAsync(DbConnection connection, DbTransaction transaction, int version, int floor, CancellationToken ct)
+    {
+        await using var record = Command(connection,
+            $"INSERT INTO {TablePrefix}schema_compatibility (version, min_binary_schema) VALUES (@version, @floor) ON CONFLICT (version) DO NOTHING",
+            [Int32("version", version), Int32("floor", floor)], transaction);
+        await record.ExecuteNonQueryAsync(ct);
     }
 }

@@ -119,6 +119,51 @@ public sealed class AutoUpdaterTests : IDisposable
     }
 
     [Fact]
+    public async Task Keep_data_rollback_preserves_writes_accepted_after_the_update_on_all_instances()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        foreach (var instance in instances) Execute(instance, "INSERT INTO marker VALUES ('after-update');");
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.Calls.Clear();
+        Assert.Empty(await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None, keepData: true));
+        Assert.Equal("1.0.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.Contains("after-update", Rows(instance)));
+        Assert.DoesNotContain(host.Calls, call => call.StartsWith("revert-layout", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Keep_data_incompatibility_refuses_before_stopping_or_swapping()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.RejectCompatibility = true;
+        host.Calls.Clear();
+        var errors = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None, keepData: true);
+        Assert.Contains(errors, error => error.Contains("without changes", StringComparison.Ordinal));
+        Assert.Empty(host.Calls);
+        Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.Contains("migrated", Rows(instance)));
+    }
+
+    [Fact]
+    public async Task Downgrade_requires_explicit_manual_approval_and_target_compatibility()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this) { RejectCompatibility = true };
+        var updater = Updater(host, broken: null);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => updater.InstallAsync("1.1.0", "1.0.0", _staged, _binary, instances, "auto", CancellationToken.None, true));
+        await Assert.ThrowsAnyAsync<Exception>(() => updater.InstallAsync("1.1.0", "1.0.0", _staged, _binary, instances, "manual", CancellationToken.None, true));
+        Assert.Empty(host.Calls);
+        Assert.Equal("1.0.0", File.ReadAllText(_binary));
+    }
+
+    [Fact]
     public async Task Rollback_keeps_the_new_binary_when_the_layout_cannot_be_reverted()
     {
         var instances = CreateInstances();
@@ -274,6 +319,9 @@ public sealed class AutoUpdaterTests : IDisposable
         public string? FailStopAfterMigrationOf { get; init; }
 
         public bool FailLayoutRevert { get; set; }
+        public bool RejectCompatibility { get; set; }
+        public Task<int> CheckCompatibilityAsync(string targetBinary, string installedBinary, ServerInstance instance, CancellationToken ct)
+            => Task.FromResult(RejectCompatibility ? 1 : 0);
 
         private bool _migrationAttempted;
 

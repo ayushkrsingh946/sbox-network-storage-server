@@ -1,6 +1,7 @@
 using SboxNetworkStorage.Application.Errors;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Contracts.Errors;
+using SboxNetworkStorage.Server.Compatibility;
 
 namespace SboxNetworkStorage.Server.Activity;
 
@@ -12,23 +13,28 @@ namespace SboxNetworkStorage.Server.Activity;
 public sealed class RuntimeErrorRecordingSink(
     IExceptionAlertSink exceptionSink,
     INetworkStorageErrorAlertSink storageSink,
-    RuntimeActivityLog log) : IExceptionAlertSink, INetworkStorageErrorAlertSink
+    RuntimeActivityLog log,
+    IHttpContextAccessor contextAccessor) : IExceptionAlertSink, INetworkStorageErrorAlertSink
 {
     public Task NotifyAsync(CapturedErrorDto capturedError, CancellationToken cancellationToken)
     {
         if (!string.IsNullOrEmpty(capturedError.ProjectId))
         {
+            var client = contextAccessor.HttpContext is { } context ? ClientIdentity.Get(context) : null;
             log.RecordError(capturedError.ProjectId, capturedError.Classification, capturedError.Message, capturedError.StackTrace,
                 capturedError.Source, $"{capturedError.Method} {capturedError.Path}",
-                capturedError.StatusCode >= StatusCodes.Status500InternalServerError ? "error" : "warning");
+                capturedError.StatusCode >= StatusCodes.Status500InternalServerError ? "error" : "warning",
+                client?.LibraryVersion ?? "legacy", client?.ClientType ?? "unknown", client?.LibraryRevision, client?.GameRevision);
         }
         return exceptionSink.NotifyAsync(capturedError, cancellationToken);
     }
 
     public Task NotifyAsync(NetworkStorageError error, CancellationToken cancellationToken)
     {
+        var client = contextAccessor.HttpContext is { } context ? ClientIdentity.Get(context) : null;
         log.RecordError(error.ProjectId, error.Code, error.Message, null, "storage " + error.Operation,
-            $"{error.CollectionId}/{error.RecordKey}", "error");
+            $"{error.CollectionId}/{error.RecordKey}", "error",
+            client?.LibraryVersion ?? "legacy", client?.ClientType ?? "unknown", client?.LibraryRevision, client?.GameRevision);
         return storageSink.NotifyAsync(error, cancellationToken);
     }
 }

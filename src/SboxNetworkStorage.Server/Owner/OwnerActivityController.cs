@@ -34,6 +34,8 @@ public sealed class OwnerActivityController(INetworkStorageProjectService projec
         ["requests"] = "Requests", ["reads"] = "Reads", ["writes"] = "Writes", ["endpoint_calls"] = "Endpoint calls",
         ["errors"] = "Errors", ["bytes_in"] = "Bytes in", ["bytes_out"] = "Bytes out", ["compute_units"] = "Compute units",
         ["day"] = "Day", ["endpoint_slug"] = "Endpoint", ["calls"] = "Calls", ["duration_ms_sum"] = "Total duration (ms)",
+        ["library_version"] = "Library", ["client_type"] = "Context", ["library_revision"] = "Package revision",
+        ["game_revision"] = "Game revision",
     };
 
     [HttpGet("/dashboard/projects/{projectId}/activity/{tab}")]
@@ -58,12 +60,13 @@ public sealed class OwnerActivityController(INetworkStorageProjectService projec
             case "logs":
                 tables.Add(Table("Runtime requests · latest 200", await store.ListStorageRequestLogAsync(projectId, 200, ct),
                     $"No requests recorded in the last {RuntimeActivityLog.Retention.Days} days. Requests from the game, including rejected ones, appear here within a few seconds.",
-                    "created_at_unix_ms", "method", "path", "status_code", "duration_ms"));
+                    "created_at_unix_ms", "method", "path", "status_code", "duration_ms", "library_version", "client_type"));
                 tables.Add(Table("Owner audit trail · latest 200", await store.ListAuditLogsAsync(projectId, 200, ct), "No dashboard or CLI changes recorded yet.", "created_at_unix_ms", "action", "user_id", "log_id"));
                 break;
             case "errors":
                 tables.Add(Table("Errors · latest 200", await store.ListStorageErrorsAsync(projectId, 200, ct),
-                    $"No errors recorded in the last {RuntimeActivityLog.Retention.Days} days.", "created_at_unix_ms", "severity", "error_id", "message", "source", "request_path"));
+                    $"No errors recorded in the last {RuntimeActivityLog.Retention.Days} days.", "created_at_unix_ms", "severity", "error_id", "message", "source", "request_path",
+                    "library_version", "client_type", "library_revision", "game_revision"));
                 break;
             case "usage":
                 var monthly = await store.ReadProjectUsageMonthlyAsync(projectId, month, ct);

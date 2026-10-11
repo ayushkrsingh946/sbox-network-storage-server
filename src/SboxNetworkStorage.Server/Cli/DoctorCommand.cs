@@ -54,15 +54,11 @@ public static class DoctorCommand
             {
                 var ping = await admin.PingAsync(CancellationToken.None);
                 Report(Outcome.Pass, "database", $"{admin.ProviderName} at {admin.RedactedTarget} ({ping.ServerVersion}, {ping.RoundTrip.TotalMilliseconds:F0} ms)");
-                var version = await admin.GetSchemaVersionAsync(CancellationToken.None);
-                Report(
-                    version == admin.SupportedSchemaVersion ? Outcome.Pass : version < admin.SupportedSchemaVersion ? Outcome.Warn : Outcome.Fail,
-                    "schema",
-                    version == admin.SupportedSchemaVersion
-                        ? $"version {version}"
-                        : version < admin.SupportedSchemaVersion
-                            ? $"version {version}, {admin.SupportedSchemaVersion} pending (applied on next start or `sbox-ns db migrate`)"
-                            : $"version {version} is newer than this binary supports ({admin.SupportedSchemaVersion}); upgrade sbox-ns");
+                var compatibility = await admin.GetSchemaCompatibilityAsync(CancellationToken.None);
+                Report(compatibility.MigrationRequired ? Outcome.Warn : compatibility.Compatible ? Outcome.Pass : Outcome.Fail, "schema",
+                    compatibility.MigrationRequired ? $"version {compatibility.DatabaseVersion}, {admin.SupportedSchemaVersion} pending (applied on next start or `sbox-ns db migrate`)"
+                    : compatibility.Compatible ? $"version {compatibility.DatabaseVersion}, compatible; binary {compatibility.SupportedVersion}, certified floor {compatibility.MinimumBinarySchema?.ToString() ?? "unknown"}"
+                    : $"version {compatibility.DatabaseVersion} is incompatible with this binary ({compatibility.SupportedVersion}); upgrade sbox-ns");
             }
             catch (Exception ex)
             {

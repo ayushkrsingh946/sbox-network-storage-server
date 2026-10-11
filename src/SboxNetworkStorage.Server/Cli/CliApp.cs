@@ -65,6 +65,7 @@ public static class CliApp
         Database
           db test                       Connect to the configured database
           db status                     Show the schema version
+          compatibility [--json]        Non-mutating schema/config check for this binary (rollback preflight)
           db migrate                    Apply pending schema migrations
           db backup [--output FILE]     Back up the database
           db restore <FILE>             Restore a backup (stop the server first)
@@ -88,6 +89,7 @@ public static class CliApp
         Projects and API keys
           project create <name>         Create a project
           project list                  List projects
+          project clients <projectId> [--days 1–90] [--json]   Library × game revision traffic and policy impact
           project delete <projectId>    Delete a project
           key create <projectId> --type public|secret [--label LABEL]
           key list <projectId>
@@ -105,11 +107,13 @@ public static class CliApp
 
         Updates (unattended only when updates.auto_install = true)
           update [--check] [--version X.Y.Z]   Check for or install a release
+          update --version X.Y.Z --allow-downgrade [--all-instances]   Pinned downgrade, only if target certifies compatibility
           update --auto [--all-instances]      Unattended update for updates.channel inside updates.window; every
                                         instance is health-checked and all are rolled back on any failure
                                         (exit 0 done/nothing to do, 1 rolled back, 2 config, 3 rollback incomplete,
                                         4 feed unavailable)
           rollback [--all-instances]    Restore the binary and database(s) from before the last update
+          rollback --keep-data [--all-instances]   Preserve new writes; refuse incompatible target before changing anything
 
         Install layout (Linux, as root; docs/self-hosting.md "Config and state folders")
           layout migrate                Move runtime files (generated secrets, tunnel and DNS state) out of the config
@@ -154,6 +158,7 @@ public static class CliApp
                 "telemetry" => await TelemetryCommands.RunAsync(context),
                 "config" => ConfigCommands.Run(context),
                 "db" => await DatabaseCommands.RunAsync(context),
+                "compatibility" => await DatabaseCommands.CheckCompatibilityAsync(context),
                 "export" => await ExportCommands.ExportAsync(context),
                 "import" => await ExportCommands.ImportAsync(context),
                 "admin" => await AdminCommands.RunAsync(context),

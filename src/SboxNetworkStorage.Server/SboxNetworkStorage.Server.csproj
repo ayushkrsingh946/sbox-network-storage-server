@@ -7,6 +7,7 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <LibraryCompatibilityMatrix Condition="'$(LibraryCompatibilityMatrix)' == ''">$(MSBuildProjectDirectory)/../../compat/library-matrix.json</LibraryCompatibilityMatrix>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishReadyToRun>true</PublishReadyToRun>
@@ -38,6 +39,7 @@
     <EmbeddedResource Include="wwwroot/js/owner-manage.js" LogicalName="SboxNetworkStorage.Server.Owner.manage.js" />
     <EmbeddedResource Include="Owner/Examples/*.yml" LogicalName="SboxNetworkStorage.Server.Owner.Examples.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Updates/release-signing-keys.pub" LogicalName="SboxNetworkStorage.Server.Updates.release-signing-keys.pub" />
+    <EmbeddedResource Include="$(LibraryCompatibilityMatrix)" LogicalName="SboxNetworkStorage.Server.Compatibility.library-matrix.json" />
     <EmbeddedResource Include="../../install/*.service;../../install/*.timer" LogicalName="SboxNetworkStorage.Server.Systemd.%(Filename)%(Extension)" />
     <!-- Guides served as MCP resources. A glob, like the units above, so builds without docs/ (the container image) still succeed. -->
     <EmbeddedResource Include="../../docs/*.md" LogicalName="SboxNetworkStorage.Server.Docs.%(Filename)%(Extension)" />

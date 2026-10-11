@@ -14,7 +14,7 @@ public static class ProjectCommands
 
     public static async Task<int> RunProjectAsync(CliContext context)
     {
-        var sub = context.RequirePositional(1, "create|list|delete");
+        var sub = context.RequirePositional(1, "create|list|clients|delete");
         await using var services = await OpenAsync(context);
         await using var scope = services.CreateAsyncScope();
         var projects = scope.ServiceProvider.GetRequiredService<INetworkStorageProjectService>();
@@ -79,6 +79,25 @@ public static class ProjectCommands
                     Console.WriteLine($"{project.Id,-30} {(project.Enabled ? "yes" : "no"),-8} {(project.RequireSboxAuth ?? true ? "required" : "off"),-11} {project.Name}");
                 }
 
+                return CliApp.Ok;
+            }
+            case "clients":
+            {
+                var projectId = context.RequirePositional(2, "projectId");
+                await RequireProjectAsync(workspace, projectId, ct);
+                if (!int.TryParse(context.Args.Option("days") ?? "30", out var days) || days is < 1 or > 90)
+                    throw new CliException("--days must be 1–90", CliApp.Usage);
+                var access = await projects.ResolveProjectAccessAsync(Owner, projectId, ct);
+                var report = await services.GetRequiredService<SboxNetworkStorage.Server.Compatibility.ClientVersionsQuery>()
+                    .ReadAsync(projectId, days, access?.Project.LibraryMinimum, ct);
+                if (context.Args.Flag("json")) Console.WriteLine(JsonSerializer.Serialize(report, JsonOutput));
+                else
+                {
+                    Console.WriteLine($"{report.Requests} requests; ≈{report.EstimatedPlayers} distinct players; {report.OutdatedPercent:0.0}% outdated; {report.AffectedPercent:0.0}% affected. Last {days} days.");
+                    foreach (var row in report.Versions)
+                        Console.WriteLine($"{row.LibraryVersion} / package {row.LibraryRevision?.ToString() ?? "unknown"} / game {row.GameRevision?.ToString() ?? "unknown"} / {row.ClientType}: {row.Requests} requests, ≈{row.EstimatedPlayers} players, {row.Status} {row.Sunset}, last seen {row.LastSeen:O}");
+                    Console.WriteLine("Self-reported versions; batched once/minute. Player estimates: ~3.25% error; raw IDs are not stored.");
+                }
                 return CliApp.Ok;
             }
             case "delete":

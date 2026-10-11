@@ -225,6 +225,12 @@ and update your server base URL.
 > established. This server's owner console supports resource authoring and
 > self-hosted project portability; editor source sync remains supported.
 
+Backend and library releases are independent: older/unidentified game libraries
+remain accepted by default. [Compatibility rules](docs/compatibility.md) require
+six months' replacement support and 90 days' removal notice; **Project → Clients**
+shows observed library-version traffic and opt-in minimum impact. Preserved-data rollback
+is available only to compatibility-aware binaries with a certified schema/config.
+
 
 ### Client reachability
 
@@ -271,6 +277,7 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns quickstart <name> [--public-url URL] [--json]` | Configure a new server and create or reuse a project and keys |
 | `sbox-ns config path\|show\|get <key>\|set <key> <value>\|validate\|edit` | Locate, inspect and edit configuration |
 | `sbox-ns db test\|status\|migrate` | Database connectivity, status and migrations |
+| `sbox-ns compatibility --json` | Non-mutating target-binary schema/config preflight |
 | `sbox-ns db backup [--output FILE]` / `db restore <FILE>` | Back up and restore (SQLite file copy; PostgreSQL via `pg_dump`/`pg_restore`) |
 | `sbox-ns export [--out FILE] [--no-secrets]` / `import <FILE> [--config]` | Portable, driver-neutral server backup and restore ([guide](docs/export.md)) |
 | `sbox-ns admin login-link [--public-url URL]` | Create a short-lived, single-use owner sign-in or setup link |
@@ -279,12 +286,13 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns register --email ADDRESS` / `register --remove` | Opt in to confirmed security/update email notices or remove the subscription |
 | `sbox-ns telemetry status\|enable\|disable\|preview` | Inspect, opt in to, opt out of, or preview the anonymous usage statistics (off by default) |
 | `sbox-ns project create <name>\|list\|delete <projectId>` | Manage projects |
+| `sbox-ns project clients <projectId> [--days 30] [--json]` | Local client-version compatibility traffic and approximate player report |
 | `sbox-ns key create <projectId> --type public\|secret [--label L]` | Create an API key |
 | `sbox-ns key list <projectId>` / `key revoke <projectId> <key>` | List and revoke API keys |
 | `sbox-ns service install\|uninstall\|start\|stop\|restart\|status` | Run as a systemd unit (Linux), launchd job (macOS) or Windows service |
 | `sbox-ns logs [-f]` | Show or follow server logs |
-| `sbox-ns update [--check] [--version vX.Y.Z]` | Check for or install a release |
-| `sbox-ns rollback` | Return to the previous release |
+| `sbox-ns update [--check] [--version vX.Y.Z] [--allow-downgrade]` | Check/install a release; downgrades must be explicitly pinned and certified |
+| `sbox-ns rollback [--all-instances] [--keep-data]` | Previous binary; retain current data only when the actual target is certified |
 | `sbox-ns layout migrate [--revert]` | Linux, root: move runtime files (secrets, tunnel/DNS state) out of the config folder into `<data dir>/state`, or back |
 | `sbox-ns version` | Print version information |
 | `sbox-ns doctor` | Diagnose configuration, database, ports and update status |

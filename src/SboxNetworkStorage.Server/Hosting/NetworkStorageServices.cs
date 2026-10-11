@@ -20,6 +20,7 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Infrastructure;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Storage;
+using SboxNetworkStorage.Server.Compatibility;
 
 namespace SboxNetworkStorage.Server.Hosting;
 
@@ -45,6 +46,13 @@ public static class NetworkStorageServices
         services.AddMemoryCache();
 
         services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<LibraryCompatibility>();
+        services.AddSingleton<LibraryPolicyCache>();
+        services.AddSingleton<ClientVersionTracker>();
+        services.AddSingleton<IClientVersionStore>(sp => (IClientVersionStore)sp.GetRequiredService<SboxNetworkStorage.Storage.Relational.INetworkStorageStoreAdmin>());
+        services.AddSingleton<ClientVersionsQuery>();
+        services.AddSingleton<ClientVersionWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<ClientVersionWriter>());
 
         // Errors are logged locally; the bounded in-memory archive backs correlation lookups.
         services.AddSingleton<IErrorArchive, InMemoryErrorArchive>();

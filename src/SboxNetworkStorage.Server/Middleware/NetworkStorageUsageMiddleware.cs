@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Server.Activity;
+using SboxNetworkStorage.Server.Compatibility;
 
 namespace SboxNetworkStorage.Server.Middleware;
 
@@ -27,7 +28,8 @@ public sealed class NetworkStorageUsageMiddleware(
     RequestDelegate next,
     NetworkStorageUsageTracker tracker,
     RuntimeActivityLog activity,
-    ILogger<NetworkStorageUsageMiddleware> logger)
+    ILogger<NetworkStorageUsageMiddleware> logger,
+    ClientVersionTracker clients)
 {
     // Segment-boundary prefixes: "/api/storage" does NOT match "/api/storage-browse".
     private static readonly PathString[] s_prefixes =
@@ -86,10 +88,13 @@ public sealed class NetworkStorageUsageMiddleware(
 
             var logProjectId = annotation?.ProjectId
                 ?? (status >= StatusCodes.Status400BadRequest ? context.GetRouteValue("projectId") as string : null);
+            var identity = ClientIdentity.Get(context);
             if (logProjectId is not null)
-                activity.RecordRequest(logProjectId, context.Request.Method, context.Request.Path.Value ?? "/", status, durationMs);
+                activity.RecordRequest(logProjectId, context.Request.Method, context.Request.Path.Value ?? "/", status, durationMs,
+                    identity.LibraryVersion, identity.ClientType);
 
             if (annotation is null || status == StatusCodes.Status401Unauthorized) return;
+            clients.Record(annotation.ProjectId, identity, ClientIdentity.PlayerId(context));
 
             tracker.Track(
                 annotation.ProjectId,

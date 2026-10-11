@@ -26,6 +26,8 @@ public static class AutoUpdateCommand
 
     public static async Task<int> RunAsync(CliContext context)
     {
+        if (context.Args.Flag("allow-downgrade"))
+            throw new CliException("unattended updates never downgrade; use update --version X.Y.Z --allow-downgrade", CliApp.Usage);
         if (Environment.GetEnvironmentVariable(InsecureSkipSignatureVariable) == "1")
         {
             throw new CliException($"{InsecureSkipSignatureVariable} is set; unattended updates never skip signature verification. Nothing was changed.", CliApp.Usage);
@@ -152,16 +154,16 @@ public static class AutoUpdateCommand
             throw new CliException($"rollback binary is missing ({state.PreviousBinaryPath})");
         }
 
-        foreach (var (instance, record) in records.Where(r => r.Record.BackupPath is not null && !File.Exists(r.Record.BackupPath)))
+        foreach (var (instance, record) in records.Where(r => !context.Args.Flag("keep-data") && r.Record.BackupPath is not null && !File.Exists(r.Record.BackupPath)))
         {
             throw new CliException($"{instance.Name}: backup {record.BackupPath} is missing");
         }
 
         Console.WriteLine($"Rolling back {first.ToVersion} -> {first.FromVersion} on {string.Join(", ", records.Select(r => r.Instance.Name))}");
-        UpdateCommands.ConfirmDataLoss(context);
+        if (!context.Args.Flag("keep-data")) UpdateCommands.ConfirmDataLoss(context);
         using var updateLock = UpdateCommands.AcquireUpdateLock(binary);
         using var health = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        var problems = await new AutoUpdater(new SystemUpdateHost(), state, health, Console.WriteLine).RollbackRecordedAsync(records, binary, CancellationToken.None);
+        var problems = await new AutoUpdater(new SystemUpdateHost(), state, health, Console.WriteLine).RollbackRecordedAsync(records, binary, CancellationToken.None, context.Args.Flag("keep-data"));
         if (problems.Count > 0)
         {
             Console.Error.WriteLine($"error: rollback incomplete: {string.Join("; ", problems)}");
@@ -173,7 +175,7 @@ public static class AutoUpdateCommand
     }
 
     /// <summary>Every instance on this host with <c>--all-instances</c>, otherwise the one selected by <c>--config-dir</c>/<c>--data-dir</c>.</summary>
-    private static IReadOnlyList<ServerInstance> ResolveInstances(CliContext context)
+    internal static IReadOnlyList<ServerInstance> ResolveInstances(CliContext context)
     {
         if (!context.Args.Flag("all-instances"))
         {

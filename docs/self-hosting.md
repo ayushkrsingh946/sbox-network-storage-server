@@ -736,11 +736,29 @@ sbox-ns update --check            # show the latest version and release notes li
 sbox-ns update                    # install the latest release
 sbox-ns update --version v0.4.0   # install a specific release
 sbox-ns rollback                  # return to the previous binary
+sbox-ns rollback --keep-data      # only to a certified compatibility-aware target
+sbox-ns update --version v0.x.y --allow-downgrade # explicit pinned downgrade
 ```
 
 Take a backup (`sbox-ns db backup`) before updating to a release that needs a
 database migration. Releases list a minimum version they can be upgraded
 from; older installs must step through an intermediate release.
+
+Backend and library releases are independent. The default compatibility policy
+accepts older/unidentified libraries; a backend update does not enable a project
+minimum. See [compatibility.md](compatibility.md) for the six-month support /
+90-day deprecation rules, tested version pairs and **Project → Clients** impact
+preview before any opt-in runtime restriction.
+
+`rollback --keep-data` retains the current database and runtime layout instead
+of restoring a backup. The actual target binary must certify the current
+schema/config for every instance, before service stop/swap and again while
+stopped. A missing certificate, breaking gap or pre-compatibility target is
+refused without replacing the binary. Use ordinary backup-restoring rollback
+if that is the required recovery path, accepting loss of writes since backup.
+A downgrade requires both a pinned `--version` and `--allow-downgrade`;
+automatic updates never downgrade. Targets released before this compatibility
+change cannot certify preserved-data rollback. Keep backups regardless.
 
 Docker installs update by pulling a new image and recreating the container
 with the same volumes:
@@ -828,8 +846,11 @@ checks they report the old version, and records `failed` with the reason in
 each instance's `last-update.json` in the update state folder (shown by
 `sbox-ns doctor`). After a successful run, `sbox-ns rollback --all-instances`
 undoes it. If a service cannot be stopped during recovery, no database or binary is
-restored underneath it; the run exits 3 and preserves the backup files for
-operator recovery.
+restored underneath it; the run exits 3 and preserves the backup files for operator recovery.
+
+For an explicitly requested preserved-data rollback, use
+`sbox-ns rollback --all-instances --keep-data`: every instance sharing the binary
+must be certified for the target. It does not restore backups or revert layout.
 
 | Exit code of `update --auto` | Meaning |
 | --- | --- |
@@ -845,13 +866,13 @@ with `sbox-ns config set updates.auto_install false` (or
 
 **What can still go wrong.**
 
-- Migrations are forward-only. A rollback restores the database backup taken
-  just before the update, so it only works with that backup in place: keep
-  enough disk space for one backup per instance.
-- Data written after an update is lost when the update is rolled back: with
-  `sbox-ns rollback`, everything since the update; with an automatic rollback,
-  whatever players wrote to instances already restarted on the new version
-  during the health checks (at most a few minutes).
+- Migrations are forward-only. Ordinary rollback and automatic failure recovery
+  restore the pre-update database backup; keep enough disk space per instance.
+- Data written after an update is lost with ordinary `sbox-ns rollback` and
+  automatic backup-restoring recovery (including writes accepted during health
+  checks). Explicit `rollback --keep-data` preserves those writes only when
+  the target certifies schema/config compatibility; it is not a game-behavior
+  guarantee and cannot target pre-compatibility binaries.
 - A release can pass the health check and still misbehave for your game.
   Stay on `stable`, and pick a window when few players are online: every
   instance is unavailable while it updates (usually well under a minute).

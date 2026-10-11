@@ -149,12 +149,13 @@ internal static class StoreColumns
     [
         new("created_at_unix_ms", Long), new("error_id", Text), new("message", Text), new("stack_trace", Text),
         new("source", Text), new("request_path", Text), new("severity", Text),
+        new("library_version", Text), new("client_type", Text), new("library_revision", LongOrNull), new("game_revision", LongOrNull),
     ];
 
     public static readonly Column[] StorageRequestLog =
     [
         new("created_at_unix_ms", Long), new("method", Text), new("path", Text), new("status_code", Int),
-        new("duration_ms", Int), new("api_key_identifier", Text),
+        new("duration_ms", Int), new("api_key_identifier", Text), new("library_version", Text), new("client_type", Text),
     ];
 
     public static readonly Column[] UsageMonthly =

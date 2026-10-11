@@ -561,6 +561,7 @@ public sealed class LayoutMigratorTests : IDisposable
         }
 
         public Task<int> MigrateAsync(string binary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> CheckCompatibilityAsync(string targetBinary, string installedBinary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<int> BackupAsync(string binary, ServerInstance instance, string outputPath, CancellationToken ct) => throw new NotSupportedException();
 

@@ -14,7 +14,22 @@ internal static class SqliteMigrations
         new(1, "Network Storage tables, usage counters, workspace objects", V1),
         new(2, "Existing projects keep the built-in player projections", V2),
         new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", V3),
+        new(4, "Library request identity and daily client-version aggregates", V4, SchemaMigrationCompatibility.Additive),
     ];
+
+    private static string V4(string p) => $"""
+        ALTER TABLE {p}storage_request_log ADD COLUMN library_version TEXT NOT NULL DEFAULT 'legacy';
+        ALTER TABLE {p}storage_request_log ADD COLUMN client_type TEXT NOT NULL DEFAULT 'unknown';
+        ALTER TABLE {p}storage_errors ADD COLUMN library_version TEXT NOT NULL DEFAULT 'legacy';
+        ALTER TABLE {p}storage_errors ADD COLUMN client_type TEXT NOT NULL DEFAULT 'unknown';
+        ALTER TABLE {p}storage_errors ADD COLUMN library_revision INTEGER;
+        ALTER TABLE {p}storage_errors ADD COLUMN game_revision INTEGER;
+        CREATE TABLE {p}client_versions_daily (
+            project_id TEXT NOT NULL, day INTEGER NOT NULL, group_key TEXT NOT NULL,
+            library_version TEXT NOT NULL, library_revision INTEGER, client_type TEXT NOT NULL, game_revision INTEGER,
+            requests INTEGER NOT NULL, last_seen_unix_ms INTEGER NOT NULL, player_sketch TEXT NOT NULL,
+            PRIMARY KEY (project_id, day, group_key)) STRICT, WITHOUT ROWID;
+        """;
 
     // The log tables are rebuilt as rowid tables: event_id is the surrogate key, so events that share a
     // project and millisecond are all kept. Existing rows are copied in their previous (project, time) order.

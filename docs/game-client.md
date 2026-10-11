@@ -37,6 +37,7 @@ natively without a database write:
   "database": "sqlite",
   "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel"],
   "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
+  "compat": { "library": { "minimum": null, "recommended": null, "latest": null, "legacy": "supported", "deprecated": [], "blocked": [], "tested": [] }, "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json" },
   "update": null
 }
 ```
@@ -45,6 +46,14 @@ natively without a database write:
 `sbox-ns tunnel` connector. `update` carries the latest release notice when
 an update check has run, else null. `sbox-ns doctor` also polls this route
 to check the listener.
+
+The additive `compat` advertisement and optional `x-ns-library-*` identity/status
+headers are described in [compatibility.md](compatibility.md). Unidentified older
+libraries remain accepted by default; recommendations/deprecations alone never
+reject a working game. Explicit owner minimums and advisory-linked blocks return
+HTTP 426 with `{ "ok": false, "error": { "code": "LIBRARY_UNSUPPORTED",
+"message": "..." } }` (or `LIBRARY_BLOCKED`); the existing library understands
+this structured envelope, but the engine may hide 4xx bodies.
 
 ## Revision init handshake
 

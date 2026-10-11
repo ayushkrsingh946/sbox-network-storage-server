@@ -11,6 +11,7 @@ public static class RuntimeActivityServices
     /// </summary>
     public static IServiceCollection AddRuntimeActivityLog(this IServiceCollection services)
     {
+        services.AddHttpContextAccessor();
         services.AddSingleton<RuntimeActivityLog>();
         services.AddSingleton<RuntimeActivityWriterService>();
         services.AddHostedService(sp => sp.GetRequiredService<RuntimeActivityWriterService>());
@@ -22,7 +23,8 @@ public static class RuntimeActivityServices
         services.AddSingleton(sp => new RuntimeErrorRecordingSink(
             Resolve<IExceptionAlertSink>(sp, exceptionSink),
             Resolve<INetworkStorageErrorAlertSink>(sp, storageSink),
-            sp.GetRequiredService<RuntimeActivityLog>()));
+            sp.GetRequiredService<RuntimeActivityLog>(),
+            sp.GetRequiredService<IHttpContextAccessor>()));
         services.AddSingleton<IExceptionAlertSink>(sp => sp.GetRequiredService<RuntimeErrorRecordingSink>());
         services.AddSingleton<INetworkStorageErrorAlertSink>(sp => sp.GetRequiredService<RuntimeErrorRecordingSink>());
         return services;

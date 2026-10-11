@@ -35,6 +35,13 @@ public sealed class PackageSyncHandler(
     private static readonly string[] PackageSyncRequiredScopes =
         ["endpoints", "queries", "collections", "workflows", "game_values", "rate_limits", "settings"];
 
+    internal static bool HasWritePermissions(StorageApiKeyAuthResult auth)
+    {
+        foreach (var scope in PackageSyncRequiredScopes)
+            if (!ApiKeyPermissionPolicy.HasPermission(auth, scope, "rw")) return false;
+        return true;
+    }
+
     public async Task<IResult> HandleAsync(HttpContext context, string projectId, CancellationToken cancellationToken)
     {
         var apiKey = context.Request.Headers.TryGetValue("x-api-key", out var keyHeader) ? keyHeader.ToString() : null;
@@ -61,11 +68,8 @@ public sealed class PackageSyncHandler(
         // aggregating every managed resource category. A secret key alone is not
         // sufficient: require read/write on all management scopes, matching the
         // ManagementMutationHandler mapping for "package-sync".
-        foreach (var scope in PackageSyncRequiredScopes)
-        {
-            if (!ApiKeyPermissionPolicy.HasPermission(auth, scope, "rw"))
-                return PackageSyncError(context, 403, "FORBIDDEN", "This key does not have permission for this operation.");
-        }
+        if (!HasWritePermissions(auth))
+            return PackageSyncError(context, 403, "FORBIDDEN", "This key does not have permission for this operation.");
 
         var bodyText = await new StreamReader(context.Request.Body).ReadToEndAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(bodyText))

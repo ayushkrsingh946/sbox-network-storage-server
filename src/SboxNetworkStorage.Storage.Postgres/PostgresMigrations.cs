@@ -15,7 +15,22 @@ internal static class PostgresMigrations
         new(1, "Network Storage tables, usage counters, workspace objects", V1),
         new(2, "Existing projects keep the built-in player projections", V2),
         new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", V3),
+        new(4, "Library request identity and daily client-version aggregates", V4, SchemaMigrationCompatibility.Additive),
     ];
+
+    private static string V4(string p) => $"""
+        ALTER TABLE {p}storage_request_log ADD COLUMN library_version text NOT NULL DEFAULT 'legacy';
+        ALTER TABLE {p}storage_request_log ADD COLUMN client_type text NOT NULL DEFAULT 'unknown';
+        ALTER TABLE {p}storage_errors ADD COLUMN library_version text NOT NULL DEFAULT 'legacy';
+        ALTER TABLE {p}storage_errors ADD COLUMN client_type text NOT NULL DEFAULT 'unknown';
+        ALTER TABLE {p}storage_errors ADD COLUMN library_revision bigint;
+        ALTER TABLE {p}storage_errors ADD COLUMN game_revision bigint;
+        CREATE TABLE {p}client_versions_daily (
+            project_id text COLLATE "C" NOT NULL, day integer NOT NULL, group_key text COLLATE "C" NOT NULL,
+            library_version text NOT NULL, library_revision bigint, client_type text NOT NULL, game_revision bigint,
+            requests bigint NOT NULL, last_seen_unix_ms bigint NOT NULL, player_sketch text NOT NULL,
+            PRIMARY KEY (project_id, day, group_key));
+        """;
 
     // Identity values are generated for existing rows too. Project/time indexes retain chronological reads.
     private static string V3(string p) => $"""

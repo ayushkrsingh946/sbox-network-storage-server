@@ -192,6 +192,23 @@ It only answers revision-init with whether the client's game revision is
 outdated ([revision handshake](game-client.md#revision-init-handshake)). Any
 blocking, banner or popup happens in the client library.
 
+### Library compatibility
+
+Choose **Clients** from the project overview. The local, 90-day client-version
+report shows self-reported library/package and game revisions, requests,
+approximate distinct players and compatibility status. Preview a minimum
+before changing it; saving an explicit minimum requires acknowledgement,
+owner authentication and an antiforgery token, and is audited. Older and
+unidentified runtime clients are blocked only after that opt-in (or a narrow
+advisory-linked block); a server update never enables it. Clear the minimum to
+restore default acceptance. Players need a republished game, not a backend
+update, to receive a new library. Pull/Test Live remain available.
+
+The optional affected-traffic alert threshold uses the existing Discord/SMTP
+channels. Reports are batched once per minute and player counts are approximate,
+not security attestation. See [compatibility.md](compatibility.md) for the
+limits, statuses, release evidence and deprecation guarantees.
+
 ## Data browser
 
 On a project page, choose **Browse data**, or open
@@ -341,6 +358,9 @@ exceptions on a project route, endpoint failures and conflicts, storage
 failures and unconfirmed client saves. Each row shows the error code, message
 and source, plus up to 4,000 characters of the stack trace when there is one.
 Messages and stack traces can contain player data.
+Request-backed errors also show the library version, client context, package
+revision and game revision. Background errors have legacy/unknown context and
+blank revisions; identity is self-reported, not an authentication claim.
 
 Both tabs explain common statuses and codes (`UNAUTHORIZED`,
 `SBOX_AUTH_FAILED`, `ENDPOINT_ONLY`, `RECORD_DELETE_DISABLED`, `FORBIDDEN`

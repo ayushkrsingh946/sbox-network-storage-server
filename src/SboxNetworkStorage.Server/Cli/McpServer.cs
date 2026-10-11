@@ -91,6 +91,9 @@ public sealed class McpServer
                 return args;
             }),
         new("project_list", "List projects on this server (JSON).", Schema(), _ => ["project", "list", "--json"]),
+        new("project_clients", "Read authenticated client library/game revision distribution and compatibility impact (JSON, 30 days).",
+            Schema(("projectId", "string", "Project id (proj_...).", true)),
+            a => ["project", "clients", RequireString(a, "projectId"), "--json"]),
         new("project_create", "Create a project. Prefer quickstart unless separate keys are managed manually.",
             Schema(("name", "string", "Project name.", true)),
             a => ["project", "create", RequireString(a, "name")]),

@@ -113,11 +113,11 @@ public class EmptyNetworkStorageStore : INetworkStorageStore
     public virtual Task<IReadOnlyList<JsonElement>> ListPagesAsync(string projectId, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task DeletePageAsync(string projectId, string pageSlug, CancellationToken ct) => throw new NotImplementedException();
 
-    public virtual Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct, string libraryVersion = "legacy", string clientType = "unknown", long? libraryRevision = null, long? gameRevision = null) => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListStorageErrorsAsync(string projectId, int limit, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task PurgeStorageErrorsAsync(string projectId, long beforeUnixMs, CancellationToken ct) => throw new NotImplementedException();
 
-    public virtual Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct) => throw new NotImplementedException();
+    public virtual Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct, string libraryVersion = "legacy", string clientType = "unknown") => throw new NotImplementedException();
     public virtual Task<IReadOnlyList<JsonElement>> ListStorageRequestLogAsync(string projectId, int limit, CancellationToken ct) => throw new NotImplementedException();
     public virtual Task PurgeStorageRequestLogAsync(string projectId, long beforeUnixMs, CancellationToken ct) => throw new NotImplementedException();
 

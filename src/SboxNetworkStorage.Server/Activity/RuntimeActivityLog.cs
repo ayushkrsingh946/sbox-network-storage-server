@@ -5,11 +5,13 @@ namespace SboxNetworkStorage.Server.Activity;
 /// <summary>One row for the project's Logs (<c>storage_request_log</c>) or Errors (<c>storage_errors</c>) tab.</summary>
 public abstract record RuntimeActivityEntry(string ProjectId, long CreatedAtUnixMs);
 
-public sealed record RuntimeRequestEntry(string ProjectId, long CreatedAtUnixMs, string Method, string Path, int StatusCode, int DurationMs)
+public sealed record RuntimeRequestEntry(string ProjectId, long CreatedAtUnixMs, string Method, string Path, int StatusCode, int DurationMs,
+    string LibraryVersion = "legacy", string ClientType = "unknown")
     : RuntimeActivityEntry(ProjectId, CreatedAtUnixMs);
 
 public sealed record RuntimeErrorEntry(string ProjectId, long CreatedAtUnixMs, string ErrorId, string Message, string? StackTrace,
-    string Source, string? RequestPath, string Severity) : RuntimeActivityEntry(ProjectId, CreatedAtUnixMs);
+    string Source, string? RequestPath, string Severity, string LibraryVersion = "legacy", string ClientType = "unknown",
+    long? LibraryRevision = null, long? GameRevision = null) : RuntimeActivityEntry(ProjectId, CreatedAtUnixMs);
 
 /// <summary>
 /// Bounded buffer between request threads and <see cref="RuntimeActivityWriterService"/>. Producers never wait.
@@ -52,19 +54,21 @@ public sealed class RuntimeActivityLog
     /// <summary>Entries not recorded because a budget was used up or the buffer was full, since start.</summary>
     public long DroppedCount => Interlocked.Read(ref _dropped);
 
-    public void RecordRequest(string projectId, string method, string path, int statusCode, double durationMs)
+    public void RecordRequest(string projectId, string method, string path, int statusCode, double durationMs,
+        string libraryVersion = "legacy", string clientType = "unknown")
     {
         if (!TryReserve(projectId, statusCode >= StatusCodes.Status400BadRequest ? Budget.Failed : Budget.Succeeded, out var now)) return;
         _channel.Writer.TryWrite(new RuntimeRequestEntry(projectId, now, method, Truncate(path, MaxPathLength), statusCode,
-            (int)Math.Clamp(Math.Round(durationMs), 0, int.MaxValue)));
+            (int)Math.Clamp(Math.Round(durationMs), 0, int.MaxValue), libraryVersion, clientType));
     }
 
-    public void RecordError(string projectId, string errorId, string message, string? stackTrace, string source, string? requestPath, string severity)
+    public void RecordError(string projectId, string errorId, string message, string? stackTrace, string source, string? requestPath, string severity,
+        string libraryVersion = "legacy", string clientType = "unknown", long? libraryRevision = null, long? gameRevision = null)
     {
         if (!TryReserve(projectId, Budget.Error, out var now)) return;
         _channel.Writer.TryWrite(new RuntimeErrorEntry(projectId, now, Truncate(errorId, 128), Truncate(message, MaxMessageLength),
             stackTrace is null ? null : Truncate(stackTrace, MaxStackTraceLength), Truncate(source, 128),
-            requestPath is null ? null : Truncate(requestPath, MaxPathLength), severity));
+            requestPath is null ? null : Truncate(requestPath, MaxPathLength), severity, libraryVersion, clientType, libraryRevision, gameRevision));
     }
 
     /// <summary>Stops accepting entries; the reader still delivers what is buffered.</summary>

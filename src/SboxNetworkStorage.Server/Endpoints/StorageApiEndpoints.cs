@@ -630,6 +630,7 @@ public static partial class StorageApiEndpoints
             await context.Response.WriteAsJsonAsync(new { error = "INVALID_JSON" }, JsonOptions);
             return;
         }
+        SboxNetworkStorage.Server.Compatibility.ClientIdentity.ReadBody(context, body);
 
         var raw = body.GetRawText();
         if (raw.Length > 32_768)

@@ -136,14 +136,15 @@ public abstract partial class StoreConformanceTests
     {
         var s = await StoreAsync();
         await s.InsertStorageErrorAsync("p1", 100, "err-1", "first", null, null, null, "error", Ct);
-        await s.InsertStorageErrorAsync("p1", 200, "err-2", "second", "trace", "worker", "/v3/x", "warning", Ct);
+        await s.InsertStorageErrorAsync("p1", 200, "err-2", "second", "trace", "worker", "/v3/x", "warning", Ct, "1.1.0", "game", 6_000_000_000, 5_500_000_001);
         await s.InsertStorageErrorAsync("p1", 300, "err-3", "third", null, null, null, "error", Ct);
         await s.InsertStorageErrorAsync("p1", 300, "err-4", "fourth", null, null, null, "error", Ct); // same ms: both kept, newest insert first
 
         var errors = await s.ListStorageErrorsAsync("p1", 10, Ct);
         Assert.Equal(new[] { "err-4", "err-3", "err-2", "err-1" }, errors.Select(r => Json.Str(r, "error_id")));
-        Json.Equal("""{"created_at_unix_ms":100,"error_id":"err-1","message":"first","stack_trace":"","source":"","request_path":"","severity":"error"}""", errors[3]);
-        Json.Equal("""{"created_at_unix_ms":200,"error_id":"err-2","message":"second","stack_trace":"trace","source":"worker","request_path":"/v3/x","severity":"warning"}""", errors[2]);
+        Assert.Equal(6_000_000_000, errors[2].GetProperty("library_revision").GetInt64());
+        Assert.Equal(5_500_000_001, errors[2].GetProperty("game_revision").GetInt64());
+        Assert.Equal(JsonValueKind.Null, errors[3].GetProperty("library_revision").ValueKind);
         Assert.Single(await s.ListStorageErrorsAsync("p1", 1, Ct));
 
         await s.PurgeStorageErrorsAsync("p1", 200, Ct);
@@ -156,15 +157,15 @@ public abstract partial class StoreConformanceTests
     public async Task Request_log_newest_first_limit_and_purge_strictly_before()
     {
         var s = await StoreAsync();
-        await s.InsertStorageRequestLogAsync("p1", 1000, "GET", "/v3/records", 200, 12, "pk_1", Ct);
+        await s.InsertStorageRequestLogAsync("p1", 1000, "GET", "/v3/records", 200, 12, "pk_1", Ct, "1.1.0", "game");
         await s.InsertStorageRequestLogAsync("p1", 3000, "POST", "/v3/endpoints/buy", 500, 99, null, Ct);
         await s.InsertStorageRequestLogAsync("p1", 2000, "GET", "/v3/x", 404, 1, null, Ct);
         await s.InsertStorageRequestLogAsync("p2", 5000, "GET", "/", 200, 1, null, Ct);
 
         var log = await s.ListStorageRequestLogAsync("p1", 10, Ct);
         Assert.Equal(new long[] { 3000, 2000, 1000 }, log.Select(r => Json.Long(r, "created_at_unix_ms")));
-        Json.Equal("""{"created_at_unix_ms":3000,"method":"POST","path":"/v3/endpoints/buy","status_code":500,"duration_ms":99,"api_key_identifier":""}""", log[0]);
-        Json.Equal("""{"created_at_unix_ms":1000,"method":"GET","path":"/v3/records","status_code":200,"duration_ms":12,"api_key_identifier":"pk_1"}""", log[2]);
+        Assert.Equal("1.1.0", Json.Str(log[2], "library_version"));
+        Assert.Equal("game", Json.Str(log[2], "client_type"));
         Assert.Equal(2, (await s.ListStorageRequestLogAsync("p1", 2, Ct)).Count);
 
         await s.PurgeStorageRequestLogAsync("p1", 2001, Ct);

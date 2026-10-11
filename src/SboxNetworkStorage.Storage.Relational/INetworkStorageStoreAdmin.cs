@@ -21,15 +21,18 @@ public interface INetworkStorageStoreAdmin
     /// <summary>Current schema version recorded in the database; 0 when the database has never been migrated.</summary>
     Task<int> GetSchemaVersionAsync(CancellationToken ct);
 
+    /// <summary>Non-mutating compatibility check, including certified forward-compatible schema gaps.</summary>
+    Task<SchemaCompatibility> GetSchemaCompatibilityAsync(CancellationToken ct);
+
     /// <summary>
-    /// Applies every pending forward-only migration inside one transaction.
-    /// Throws <see cref="SchemaVersionTooNewException"/> when the database is newer than this binary.
+    /// Applies pending migrations, or leaves a certified newer schema untouched.
+    /// Rejects newer schemas without complete compatibility metadata.
     /// </summary>
     Task<SchemaMigrationResult> MigrateAsync(CancellationToken ct);
 
     /// <summary>
-    /// Verifies the database schema matches this binary exactly. Throws
-    /// <see cref="SchemaVersionTooNewException"/> or <see cref="SchemaMigrationRequiredException"/>.
+    /// Verifies that every required migration exists and newer migrations are certified compatible.
+    /// Throws <see cref="SchemaVersionTooNewException"/> or <see cref="SchemaMigrationRequiredException"/>.
     /// </summary>
     Task EnsureSchemaCompatibleAsync(CancellationToken ct);
 
@@ -49,8 +52,18 @@ public sealed record StoreUsageCounts(long Projects, long Players, long ActivePl
 /// <summary>Outcome of <see cref="INetworkStorageStoreAdmin.MigrateAsync"/>.</summary>
 public sealed record SchemaMigrationResult(int FromVersion, int ToVersion, IReadOnlyList<int> AppliedVersions);
 
-/// <summary>One forward-only migration. <see cref="BuildSql"/> receives the table prefix (e.g. <c>"network_storage".</c>).</summary>
-public sealed record SchemaMigration(int Version, string Description, Func<string, string> BuildSql);
+/// <summary>Unclassified migrations are breaking. Released SQL is immutable; additive requires explicit certification.</summary>
+public sealed record SchemaMigration(int Version, string Description, Func<string, string> BuildSql,
+    SchemaMigrationCompatibility Compatibility = SchemaMigrationCompatibility.Breaking);
+
+public enum SchemaMigrationCompatibility { Breaking, Additive }
+
+public sealed record SchemaCompatibility(int DatabaseVersion, int SupportedVersion, int? MinimumBinarySchema)
+{
+    public bool MigrationRequired => DatabaseVersion < SupportedVersion;
+    public bool Compatible => DatabaseVersion == SupportedVersion
+        || DatabaseVersion > SupportedVersion && MinimumBinarySchema is { } floor && floor <= SupportedVersion;
+}
 
 /// <summary>The database schema was written by a newer sbox-ns than the running binary.</summary>
 public sealed class SchemaVersionTooNewException : InvalidOperationException

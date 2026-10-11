@@ -29,8 +29,14 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
     public TimeSpan HealthPollInterval { get; init; } = TimeSpan.FromSeconds(2);
 
     public async Task<InstallResult> InstallAsync(string fromVersion, string toVersion, string stagedBinary, string binary,
-        IReadOnlyList<ServerInstance> instances, string mode, CancellationToken ct)
+        IReadOnlyList<ServerInstance> instances, string mode, CancellationToken ct, bool allowDowngrade = false)
     {
+        if (Cli.UpdateCommands.IsDowngrade(fromVersion, toVersion))
+        {
+            if (!allowDowngrade || mode != "manual") throw new InvalidOperationException("Automatic or unapproved downgrades are refused.");
+            foreach (var instance in instances)
+                Require(await host.CheckCompatibilityAsync(stagedBinary, binary, instance, ct), $"target compatibility for {instance.Name}; nothing changed");
+        }
         state.Ensure();
         var active = new List<ServerInstance>();
         foreach (var instance in instances)
@@ -51,6 +57,10 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
                 log($"Stopping {instance.Unit}");
                 Require(await host.StopAsync(instance.Unit, ct), $"stop {instance.Unit}");
             }
+            if (toVersion != fromVersion && SemanticVersion.TryParse(toVersion, out var targetVersion)
+                && SemanticVersion.TryParse(fromVersion, out var sourceVersion) && targetVersion.CompareTo(sourceVersion) < 0)
+                foreach (var instance in instances)
+                    Require(await host.CheckCompatibilityAsync(stagedBinary, binary, instance, ct), $"stopped target compatibility for {instance.Name}");
 
             // Back up after stopping, so no accepted write can be lost by a restore.
             foreach (var instance in instances)
@@ -111,10 +121,18 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
     /// is used as the source; the paths stored in the records are never followed.
     /// </summary>
     public async Task<IReadOnlyList<string>> RollbackRecordedAsync(IReadOnlyList<(ServerInstance Instance, UpdateRecord Record)> recorded,
-        string binary, CancellationToken ct)
+        string binary, CancellationToken ct, bool keepData = false)
     {
         state.Require();
         var first = recorded[0].Record;
+        if (keepData)
+        {
+            foreach (var (instance, _) in recorded)
+            {
+                if (await host.CheckCompatibilityAsync(state.PreviousBinaryPath, binary, instance, ct) != 0)
+                    return [$"{instance.Name}: target cannot certify schema/config compatibility; --keep-data refused without changes"];
+            }
+        }
         var active = new List<ServerInstance>();
         foreach (var (instance, _) in recorded)
         {
@@ -125,7 +143,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
         }
 
         var problems = await RollbackAsync(first.FromVersion, binary, state.PreviousBinaryPath, binaryReplaced: true, active,
-            recorded.Select(r => (r.Instance, r.Record.BackupPath)).ToList(), revertLayout: true);
+            recorded.Select(r => (r.Instance, r.Record.BackupPath)).ToList(), revertLayout: !keepData, keepData: keepData);
         if (problems.Count == 0)
         {
             foreach (var (instance, _) in recorded)
@@ -138,7 +156,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
     }
 
     private async Task<List<string>> RollbackAsync(string fromVersion, string binary, string previous, bool binaryReplaced,
-        IReadOnlyList<ServerInstance> active, IReadOnlyList<(ServerInstance Instance, string? Path)> backups, bool revertLayout)
+        IReadOnlyList<ServerInstance> active, IReadOnlyList<(ServerInstance Instance, string? Path)> backups, bool revertLayout, bool keepData = false)
     {
         var problems = new List<string>();
         async Task TryAsync(string step, Func<Task> action)
@@ -165,6 +183,18 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
         {
             return problems;
         }
+        if (keepData)
+        {
+            foreach (var (instance, _) in backups)
+                await TryAsync($"compatibility {instance.Name}", async () => Require(
+                    await host.CheckCompatibilityAsync(previous, binary, instance, CancellationToken.None), $"target compatibility for {instance.Name}"));
+            if (problems.Count > 0)
+            {
+                foreach (var instance in active)
+                    await TryAsync($"restart unchanged {instance.Unit}", async () => Require(await host.StartAsync(instance.Unit, CancellationToken.None), $"start {instance.Unit}"));
+                return problems;
+            }
+        }
 
         // A binary older than the state layout expects its secrets in the config folder. Without them it would
         // generate new ones, so a failed revert stops here with the old binary still in place.
@@ -188,7 +218,7 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
             });
         }
 
-        foreach (var (instance, backup) in backups)
+        foreach (var (instance, backup) in backups.Where(_ => !keepData))
         {
             await TryAsync($"restore {instance.Name} database", async () =>
             {

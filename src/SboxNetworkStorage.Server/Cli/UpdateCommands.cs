@@ -48,6 +48,9 @@ public static class UpdateCommands
             Console.WriteLine("You are up to date.");
             return CliApp.Ok;
         }
+        var downgrade = IsDowngrade(BuildInfo.Version, release.Version);
+        if (downgrade && (!context.Args.Flag("allow-downgrade") || requested is null))
+            throw new CliException("downgrades require --version X.Y.Z --allow-downgrade; the target must certify schema/config compatibility", CliApp.Usage);
 
         RequireUpgradable(release);
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
@@ -56,12 +59,24 @@ public static class UpdateCommands
         var state = UpdateState.ForHost();
         state.Ensure();
         var host = new SystemUpdateHost();
-        var instance = ServerInstances.ForConfig(config);
+        var instances = AutoUpdateCommand.ResolveInstances(context);
+        var instance = instances[0];
         var work = Directory.CreateTempSubdirectory("sbox-ns-update-");
         try
         {
             var newBinary = await StageReleaseAsync(http, feed, release.Version, binary, work.FullName);
 
+            if (instances.Count > 1)
+            {
+                using var health = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                var result = await new AutoUpdater(host, state, health, Console.WriteLine)
+                    .InstallAsync(BuildInfo.Version, release.Version, newBinary, binary, instances, "manual", CancellationToken.None, downgrade);
+                if (result.Outcome != InstallOutcome.Succeeded)
+                    throw new CliException($"Update failed ({result.Outcome}): {result.Reason}");
+                return CliApp.Ok;
+            }
+            if (downgrade)
+                RequireSuccess(await host.CheckCompatibilityAsync(newBinary, binary, instance, CancellationToken.None), "target compatibility check; nothing was changed");
             var serviceInstalled = ServiceCommands.IsInstalled();
             if (serviceInstalled)
             {
@@ -73,6 +88,8 @@ public static class UpdateCommands
             var replacementAttempted = false;
             try
             {
+                if (downgrade)
+                    RequireSuccess(await host.CheckCompatibilityAsync(newBinary, binary, instance, CancellationToken.None), "quiesced target compatibility check");
                 // Quiesce writes before the snapshot so recovery cannot discard
                 // writes accepted between the backup and stopping the service.
                 backup = DatabaseBackup.DefaultBackupPath(config, $"pre-{release.Version}");
@@ -124,6 +141,7 @@ public static class UpdateCommands
         }
 
         var config = context.LoadValidConfig();
+        _ = AutoUpdateCommand.ResolveInstances(context); // Refuse a one-instance rollback when other instances share the binary.
         var state = UpdateState.ForHost();
         var instance = ServerInstances.ForConfig(config);
         var record = state.Read(instance.Name) ?? throw new CliException("no update to roll back (nothing recorded by `sbox-ns update`)");
@@ -134,14 +152,23 @@ public static class UpdateCommands
         // root-only state folder and never follows a path stored in the record.
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         RequireStandaloneExecutable(binary);
-        if (!File.Exists(state.PreviousBinaryPath) || record.BackupPath is null || !File.Exists(record.BackupPath))
-        {
+        var keepData = context.Args.Flag("keep-data");
+        if (!File.Exists(state.PreviousBinaryPath) || !keepData && (record.BackupPath is null || !File.Exists(record.BackupPath)))
             throw new CliException($"rollback files are missing ({state.PreviousBinaryPath}, {record.BackupPath ?? "no backup"})");
-        }
 
-        Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion} and restoring {record.BackupPath}");
-        ConfirmDataLoss(context);
         using var updateLock = AcquireUpdateLock(binary);
+        var host = new SystemUpdateHost();
+        if (keepData)
+        {
+            RequireSuccess(await host.CheckCompatibilityAsync(state.PreviousBinaryPath, binary, instance, CancellationToken.None),
+                "target schema/config compatibility; --keep-data refused, installed binary/data unchanged");
+            Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion} without restoring the database.");
+        }
+        else
+        {
+            Console.WriteLine($"Rolling back {record.ToVersion} -> {record.FromVersion} and restoring {record.BackupPath}");
+            ConfirmDataLoss(context);
+        }
 
         var serviceInstalled = ServiceCommands.IsInstalled();
         if (serviceInstalled)
@@ -150,18 +177,21 @@ public static class UpdateCommands
         }
 
         // The binary being restored may predate the state folder and expect its secrets in the config folder.
-        var host = new SystemUpdateHost();
         try
         {
-            RequireSuccess(await host.RevertLayoutAsync(binary, [instance], CancellationToken.None), "layout revert");
+            if (keepData)
+                RequireSuccess(await host.CheckCompatibilityAsync(state.PreviousBinaryPath, binary, instance, CancellationToken.None), "quiesced target compatibility check");
+            else
+                RequireSuccess(await host.RevertLayoutAsync(binary, [instance], CancellationToken.None), "layout revert");
         }
-        catch (LayoutMigrationException ex)
+        catch
         {
-            throw new CliException($"cannot move the runtime files back into the config folder: {ex.Message}. The previous binary was not restored.");
+            if (serviceInstalled) await RequireServiceControlAsync("start");
+            throw;
         }
 
         BinarySwap.Replace(state.PreviousBinaryPath, binary);
-        RequireSuccess(await host.RestoreAsync(binary, instance, record.BackupPath, CancellationToken.None), "database restore");
+        if (!keepData) RequireSuccess(await host.RestoreAsync(binary, instance, record.BackupPath!, CancellationToken.None), "database restore");
         state.Delete(instance.Name);
         if (serviceInstalled)
         {
@@ -220,6 +250,9 @@ public static class UpdateCommands
             throw new CliException($"{release.Version} cannot be installed directly over {BuildInfo.Version}. Install {minimum} first: sbox-ns update --version {minimum}");
         }
     }
+
+    internal static bool IsDowngrade(string installed, string target)
+        => SemanticVersion.TryParse(installed, out var current) && SemanticVersion.TryParse(target, out var next) && next.CompareTo(current) < 0;
 
     /// <summary>Held for the whole update so a manual and an unattended update never swap the binary at once.</summary>
     internal static FileStream AcquireUpdateLock(string binary)

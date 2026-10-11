@@ -8,11 +8,20 @@ Thanks for helping improve sbox Network Storage Server.
 - The server must stay compatible with the published s&box client library
   ([sbox-cool/sbox-network-storage](https://github.com/sbox-cool/sbox-network-storage)).
   Changes to request or response shapes need a matching client discussion.
+  Follow the [compatibility and deprecation rules](docs/compatibility.md): retain
+  old syntax for at least six months after its replacement ships, publish at
+  least 90 days' notice, and link counterpart issues/PRs in both repositories.
+  Certify each pairing once per
+  [certification rules](docs/compatibility.md#certification-certify-once-re-test-on-fundamental-change);
+  fundamental wire/semantic/storage changes invalidate affected certifications
+  and require new evidence. Library methods and endpoint support are LTS: no
+  silent rename, removal or narrowing.
 - Security problems go through [SECURITY.md](SECURITY.md), not public issues.
 
 ## Build and test
 
-Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
+Requires the SDK pinned in [`global.json`](global.json) (.NET 10) and Python 3
+for compatibility-matrix/release-evidence validation.
 
 ```sh
 dotnet build SboxNetworkStorage.sln

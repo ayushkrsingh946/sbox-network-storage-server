@@ -532,12 +532,12 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
         => K(projectId, Num(createdAtUnixMs), Num(Interlocked.Increment(ref _logSequence)).PadLeft(20, '0'));
 
     // ── storage_errors ──
-    public Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct)
+    public Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct, string libraryVersion = "legacy", string clientType = "unknown", long? libraryRevision = null, long? gameRevision = null)
     {
         lock (_stateGate)
         {
         Id(projectId);
-        StorageErrors[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, error_id = errorId, message, stack_trace = stackTrace ?? string.Empty, source = source ?? string.Empty, request_path = requestPath ?? string.Empty, severity });
+        StorageErrors[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, error_id = errorId, message, stack_trace = stackTrace ?? string.Empty, source = source ?? string.Empty, request_path = requestPath ?? string.Empty, severity, library_version = libraryVersion, client_type = clientType, library_revision = libraryRevision, game_revision = gameRevision });
         return Task.CompletedTask;
         }
     }
@@ -547,12 +547,12 @@ public partial class InMemoryNetworkStorageStore : INetworkStorageStore, IProjec
     { lock (_stateGate) { Id(projectId); RemoveWhere(StorageErrors, P(projectId), r => Long(r, "created_at_unix_ms") < beforeUnixMs); return Task.CompletedTask; } }
 
     // ── storage_request_log ───────────────────
-    public Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct)
+    public Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct, string libraryVersion = "legacy", string clientType = "unknown")
     {
         lock (_stateGate)
         {
         Id(projectId);
-        StorageRequestLog[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, method, path, status_code = statusCode, duration_ms = durationMs, api_key_identifier = apiKeyIdentifier ?? string.Empty });
+        StorageRequestLog[LogKey(projectId, createdAtUnixMs)] = Row(new { created_at_unix_ms = createdAtUnixMs, method, path, status_code = statusCode, duration_ms = durationMs, api_key_identifier = apiKeyIdentifier ?? string.Empty, library_version = libraryVersion, client_type = clientType });
         return Task.CompletedTask;
         }
     }

@@ -68,6 +68,7 @@ public sealed class RevisionInitHandler(
                 return RevisionInitError(context, 400, "INVALID_JSON", "Request body must be valid JSON.");
             }
         }
+        SboxNetworkStorage.Server.Compatibility.ClientIdentity.ReadBody(context, body);
 
         // Client revision: body field first (client library sends revisionId),
         // then the x-ns-revision-id header. Absent revision is not an error;

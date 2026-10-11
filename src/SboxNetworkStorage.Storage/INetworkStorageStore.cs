@@ -176,12 +176,12 @@ public interface INetworkStorageStore
     Task DeletePageAsync(string projectId, string pageSlug, CancellationToken ct);
 
     // ── storage_errors ────────────────────────────────────────────────
-    Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct);
+    Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct, string libraryVersion = "legacy", string clientType = "unknown", long? libraryRevision = null, long? gameRevision = null);
     Task<IReadOnlyList<JsonElement>> ListStorageErrorsAsync(string projectId, int limit, CancellationToken ct);
     Task PurgeStorageErrorsAsync(string projectId, long beforeUnixMs, CancellationToken ct);
 
     // ── storage_request_log ───────────────────────────────────────────
-    Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct);
+    Task InsertStorageRequestLogAsync(string projectId, long createdAtUnixMs, string method, string path, int statusCode, int durationMs, string? apiKeyIdentifier, CancellationToken ct, string libraryVersion = "legacy", string clientType = "unknown");
     Task<IReadOnlyList<JsonElement>> ListStorageRequestLogAsync(string projectId, int limit, CancellationToken ct);
     Task PurgeStorageRequestLogAsync(string projectId, long beforeUnixMs, CancellationToken ct);
 

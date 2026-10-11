@@ -546,6 +546,8 @@ public static class NetworkStorageGatewayEndpoints
             try { body = await context.Request.ReadFromJsonAsync<JsonElement>(context.RequestAborted); }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException) { /* ignore bad body */ }
         }
+        if (body is { } identityBody)
+            SboxNetworkStorage.Server.Compatibility.ClientIdentity.ReadBody(context, identityBody);
 
         var result = await handler.ExecuteAsync(projectId, auth, steamId, body, context.RequestAborted);
 
