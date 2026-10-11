@@ -4,6 +4,7 @@ using System.Text;
 
 namespace SboxNetworkStorage.Cli.Tests;
 
+[Collection("Console")]
 public sealed class InstallerTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("sbox-ns-installer-").FullName;

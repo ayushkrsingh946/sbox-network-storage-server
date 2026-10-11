@@ -11,6 +11,7 @@ namespace SboxNetworkStorage.Cli.Tests;
 /// <c>layout migrate [--revert]</c> on real folders. The host (root, systemd, account lookups, chown) is faked,
 /// so nothing needs privileges; modes are applied for real.
 /// </summary>
+[Collection("Console")]
 public sealed class LayoutMigratorTests : IDisposable
 {
     private static readonly UnixOwner Service = new(1000, 1000);
