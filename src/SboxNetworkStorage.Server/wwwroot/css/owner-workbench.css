@@ -66,3 +66,43 @@ td.actions { white-space: nowrap; }
 @media (forced-colors: active) { .source-editor textarea.code-editor { color: CanvasText; -webkit-text-fill-color: CanvasText; } .source-highlight { display: none; } }
 @media (max-width: 1250px) { .integration-guide { position: static; } }
 @media (max-width: 760px) { .source-actions > button, .table-sort { min-height: 44px; } }
+/* Stat strip: one bordered panel with hairline dividers, never separate cards. */
+.stat-strip { display: grid; gap: 1px; margin: 0 0 .25rem; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--border); overflow: hidden; }
+.stat-strip.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stat-strip.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stat-strip.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stat-strip > div { background: var(--card); padding: .65rem .9rem; min-width: 0; }
+.stat-strip dt { font-size: .76rem; color: var(--muted); }
+.stat-strip dd { margin: .15rem 0 0; font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-strip dd.zero, .stat-strip dd.muted-value { color: var(--muted); font-weight: 400; }
+.stat-strip-caption { margin: .4rem 0 1rem; font-size: .8rem; }
+/* Definition outline: left-aligned summary shared by detail and quick preview. */
+.outline h3 { font-size: .9rem; margin: 1.1rem 0 .35rem; }
+.outline h3:first-child { margin-top: 0; }
+.outline > p { font-size: .88rem; }
+ol.pipeline { margin: .35rem 0 0; padding-left: 1.4rem; }
+ol.pipeline > li { padding: .4rem 0; border-bottom: 1px solid var(--border); }
+ol.pipeline > li > * + * { margin-left: .5rem; }
+.pipeline-target { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
+table.outline-table { margin-top: .35rem; }
+dl.outline-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .3rem .9rem; margin: .35rem 0 0; font-size: .88rem; }
+dl.outline-facts dt { color: var(--muted); }
+dl.outline-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+/* Resource list toolbar and table tune-ups. */
+.resource-toolbar { display: flex; align-items: center; gap: .75rem; margin-bottom: .75rem; }
+.resource-toolbar input[type="search"] { flex: 1 1 auto; max-width: 28rem; margin-top: 0; }
+.resource-count { margin: 0 0 0 auto; white-space: nowrap; }
+.resource-name > a { font-weight: 700; }
+.resource-id { display: block; margin-top: .15rem; }
+.resource-id code { color: var(--muted); }
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num.zero { color: var(--muted); }
+td.resource-row-actions { text-align: right; }
+.resource-row-actions.actions { justify-content: flex-end; flex-wrap: nowrap; }
+/* The sort helper stays for screen readers; the toolbar already explains the table. */
+.table-sort-help { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Quick preview dialog reads at 720px and scrolls inside on small screens. */
+dialog#quick-preview { width: min(720px, calc(100vw - 2rem)); }
+#quick-preview .copy-row { display: flex; align-items: flex-start; gap: .5rem; }
+#quick-preview .copy-row pre { flex: 1; min-width: 0; }
+@media (max-width: 760px) { .stat-strip.cols-3, .stat-strip.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

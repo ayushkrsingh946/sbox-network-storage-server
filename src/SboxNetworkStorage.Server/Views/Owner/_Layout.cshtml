@@ -33,8 +33,12 @@
             var trail = segments.Skip(3).ToArray();
             for (var i = 0; i < trail.Length; i++)
             {
-                var label = sectionLabels.TryGetValue(trail[i], out var known) && known.Length > 0 ? known : trail[i].Replace('-', ' ');
-                if (label.Length > 0) label = char.ToUpperInvariant(label[0]) + label[1..];
+                // Resource and record ids render verbatim. Only section and kind labels are title-cased.
+                var isId = i >= 2 && trail.Length > 0 && (trail[0] == "resources" || trail[0] == "data");
+                string label;
+                if (isId) { label = trail[i]; }
+                else if (sectionLabels.TryGetValue(trail[i], out var known) && known.Length > 0) { label = known; }
+                else { label = trail[i].Replace('-', ' '); if (label.Length > 0) label = char.ToUpperInvariant(label[0]) + label[1..]; }
                 var last = i == trail.Length - 1;
                 crumbs.Add((label, last ? null : projectUrl + "/" + string.Join('/', trail.Take(i + 1).Select(Uri.EscapeDataString))));
             }

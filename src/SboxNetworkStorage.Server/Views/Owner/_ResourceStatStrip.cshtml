@@ -1,0 +1,44 @@
+@using System.Globalization
+@using SboxNetworkStorage.Server.Owner
+@model (string Kind, OwnerResourceRow? Row)
+@{
+    string ErrorRate(OwnerResourceRow row)
+        => ((double)row.Errors / row.Calls).ToString("P1", CultureInfo.InvariantCulture);
+    string AvgMs(OwnerResourceRow row)
+        => ((double)row.DurationMsSum / row.Calls).ToString("F1", CultureInfo.InvariantCulture) + " ms";
+}
+@if (Model.Row is { } row && Model.Kind != "game-values")
+{
+    var columns = Model.Kind switch { "endpoint" => 4, "query" => 3, _ => 2 };
+    <section aria-label="Resource statistics">
+        <dl class="stat-strip cols-@columns">
+            @if (Model.Kind == "endpoint")
+            {
+                <div><dt>Calls this month</dt><dd class="@(row.Calls == 0 ? "zero" : "")">@row.Calls</dd></div>
+                <div><dt>Errors</dt><dd class="@(row.Errors == 0 ? "zero" : "")">@row.Errors</dd></div>
+                <div><dt>Error rate</dt><dd class="muted-value">@(row.Calls == 0 ? "No calls yet" : ErrorRate(row))</dd></div>
+                <div><dt>Avg response</dt><dd class="muted-value">@(row.Calls == 0 ? "No calls yet" : AvgMs(row))</dd></div>
+            }
+            else if (Model.Kind == "query")
+            {
+                <div><dt>Last run</dt><dd class="@(row.LastRun is null ? "muted-value" : "")">@(row.LastRun ?? "No runs yet")</dd></div>
+                <div><dt>Duration</dt><dd class="@(row.DurationMs is null ? "muted-value" : "")">@(row.DurationMs is null ? "No runs yet" : row.DurationMs.Value.ToString(CultureInfo.InvariantCulture) + " ms")</dd></div>
+                <div><dt>Records</dt><dd class="@(row.RecordsReturned is null || row.RecordsReturned == 0 ? "muted-value" : "")">@(row.RecordsReturned?.ToString(CultureInfo.InvariantCulture) ?? "No runs yet")</dd></div>
+            }
+            else if (Model.Kind == "collection")
+            {
+                <div><dt>Records</dt><dd class="@(row.Records is null || row.Records == 0 ? "muted-value" : "")">@(row.Records?.ToString(CultureInfo.InvariantCulture) ?? "Unknown")</dd></div>
+                <div><dt>Fields</dt><dd class="@(row.Fields == 0 ? "zero" : "")">@row.Fields</dd></div>
+            }
+            else if (Model.Kind == "workflow")
+            {
+                <div><dt>Steps</dt><dd class="@(row.WorkflowSteps == 0 ? "zero" : "")">@row.WorkflowSteps</dd></div>
+                <div><dt>Parameters</dt><dd class="@(row.Parameters == "None" ? "muted-value" : "")">@(row.Parameters ?? "None")</dd></div>
+            }
+        </dl>
+        @if (Model.Kind == "endpoint")
+        {
+            <p class="muted stat-strip-caption">This month, UTC.</p>
+        }
+    </section>
+}
