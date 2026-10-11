@@ -3,6 +3,7 @@ using SboxNetworkStorage.Server.Configuration;
 
 namespace SboxNetworkStorage.Cli.Tests;
 
+[Collection("Console")]
 public sealed class ConfigCommandsTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("sbox-ns-config-").FullName;
