@@ -25,13 +25,49 @@ project is only the value for local builds.
 1. Move the `CHANGELOG.md` **Unreleased** entries under a new `## [0.x.z] - YYYY-MM-DD` heading.
 2. Set `.github/release-meta.json` when the release is a security update (`security`), needs a
    migration (`migrationRequired`) or cannot be installed over very old versions (`minUpgradableFrom`).
-3. Run the **Install matrix** workflow on the commit (Actions > Install matrix > Run workflow)
+3. If the release adds a migration, check its `additive`/`breaking` tag in both drivers
+   (`docs/database.md`, "Rollback-safe migrations"). Run `scripts/rollback-notes.sh` on the
+   release commit and add its output to the release notes: the line
+   "Rolls back without data loss to: 0.x.y, …" lists the earlier releases that
+   `sbox-ns rollback --keep-data` can return to without restoring a backup.
+4. Run the **Install matrix** workflow on the commit (Actions > Install matrix > Run workflow)
    and wait for it to pass. It replaces the manual VM checklist; see below.
-4. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
-5. The release workflow runs the tests, the HTTP smoke gate and the stable-reference parity
+5. Confirm the compatibility evidence, then tag. `compat/library-matrix.json` must have a `pass`
+   row for this server version (or release commit) and the matrix's `recommended` library, or the
+   release must be marked `ci-only`. See [Release evidence](#release-evidence).
+6. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
+7. The release workflow runs the tests, the HTTP smoke gate and the stable-reference parity
    diff, then builds, signs and publishes. A failing gate stops the release.
-6. Check the published assets: `SHA256SUMS`, `SHA256SUMS.p256.sig`, the SBOMs and the
+8. Check the published assets: `SHA256SUMS`, `SHA256SUMS.p256.sig`, the SBOMs and the
    provenance attestations. `docs/self-hosting.md` describes how operators verify them.
+
+## Release evidence
+
+Every release can say which library, on which engine build, it was tested with. The source is
+the `tested` list in [`compat/library-matrix.json`](../compat/library-matrix.json); editor runs
+add their rows as described in [editor-test-plan.md](editor-test-plan.md#recording-the-result).
+
+1. Generate the release-notes table and put it in the GitHub Release notes:
+
+   ```sh
+   pwsh scripts/compat-tested-with.ps1 -Version 0.x.z -Commit <release commit sha> > tested-with.md
+   ```
+
+   On Windows, `powershell -File scripts/compat-tested-with.ps1 -Version 0.x.z` works too. It
+   lists the rows for that server version (and rows recorded against the commit) with library,
+   revision, engine, OS, server kind, database, result and evidence links.
+2. Release gate: the matrix needs a `pass` row for the `recommended` library on this release.
+   `-Gate` makes the script exit with code 2 when it is missing. The alternative is an explicit
+   **`ci-only`** release: pass `-CiOnly`, and the notes then say that no editor run was recorded and
+   the server was verified by CI only. Choose it on purpose; the notes always call it out.
+3. Changing the matrix itself (`minimum`, `recommended`, `deprecated`, `blocked`) is a server
+   change like any other. Proposed support window (owner to confirm): a library version stays
+   supported for at least 6 months after its successor ships, and moving `minimum` needs at least
+   90 days at `deprecated`, a **minor** server version bump, and usage numbers showing how much
+   live traffic it affects. `blocked` is the only immediate path and is for security or data-loss
+   problems.
+4. A library release adds its row to `libraries` (with `minServer`) in the same PR as, or right
+   after, the library's own GitHub Release.
 
 ## Install matrix
 

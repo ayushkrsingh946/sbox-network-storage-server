@@ -127,7 +127,7 @@ public sealed class RuntimeActivityWriterService(
                 {
                     case RuntimeRequestEntry request:
                         await transaction.Store.InsertStorageRequestLogAsync(request.ProjectId, request.CreatedAtUnixMs, request.Method,
-                            request.Path, request.StatusCode, request.DurationMs, null, CancellationToken.None);
+                            request.Path, request.StatusCode, request.DurationMs, null, CancellationToken.None, request.Client);
                         break;
                     case RuntimeErrorEntry error:
                         await transaction.Store.InsertStorageErrorAsync(error.ProjectId, error.CreatedAtUnixMs, error.ErrorId, error.Message,

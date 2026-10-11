@@ -280,7 +280,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
     {
         var testContext = await TestContextAsync(request.TargetsNext, ownerUserId, projectId, request.CancellationToken);
         return await NetworkStorageManagementAutoTestRunner.RunAsync(
-            request, projectId, ownerUserId, authDecision, _store, testContext.Executor, testContext.Overlay);
+            request, projectId, ownerUserId, authDecision, _store, testContext.Executor, testContext.Overlay, testContext.Values);
     }
 
     // ── Production write helpers ──

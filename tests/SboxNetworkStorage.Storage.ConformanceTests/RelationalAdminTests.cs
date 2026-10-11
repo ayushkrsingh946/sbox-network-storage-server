@@ -18,6 +18,14 @@ public abstract class RelationalAdminTests : IAsyncLifetime
     /// <summary>Writes a schema_version row directly, simulating a newer binary having migrated the database.</summary>
     protected abstract Task InsertSchemaVersionRowAsync(int version);
 
+    /// <summary>Writes a schema_version row as a newer sbox-ns would: with its tag and <c>min_binary_schema</c>.</summary>
+    protected abstract Task InsertSchemaVersionRowAsync(int version, string compat, int minBinarySchema);
+
+    /// <summary>Removes the <c>compat</c>/<c>min_binary_schema</c> columns, simulating a database migrated by a binary that predates them.</summary>
+    protected abstract Task DropFloorColumnsAsync();
+
+    protected abstract Task<IReadOnlyList<(int Version, string? Compat, int? MinBinarySchema)>> ReadSchemaRowsAsync();
+
     protected abstract Task CleanupAsync();
 
     protected RelationalNetworkStorageStore Store => _store ??= CreateStore();
@@ -81,6 +89,83 @@ public abstract class RelationalAdminTests : IAsyncLifetime
     }
 
     [SkippableFact]
+    public async Task Additive_only_gap_starts_and_is_left_untouched()
+    {
+        await Store.MigrateAsync(Ct);
+        var floor = SchemaCompatibility.FloorAt(Store.KnownMigrations, Store.SupportedSchemaVersion);
+        await InsertSchemaVersionRowAsync(Store.SupportedSchemaVersion + 1, "additive", floor);
+        await InsertSchemaVersionRowAsync(Store.SupportedSchemaVersion + 2, "additive", floor);
+
+        await Store.EnsureSchemaCompatibleAsync(Ct);
+        var state = await Store.GetSchemaStateAsync(Ct);
+        Assert.Equal(new SchemaState(Store.SupportedSchemaVersion + 2, floor), state);
+        Assert.True(state.IsNewerButCompatibleWith(Store.SupportedSchemaVersion));
+        Assert.False(state.IsTooNewFor(Store.SupportedSchemaVersion));
+
+        var result = await Store.MigrateAsync(Ct);
+        Assert.Empty(result.AppliedVersions);
+        Assert.Equal(Store.SupportedSchemaVersion + 2, result.FromVersion);
+        Assert.Equal(Store.SupportedSchemaVersion + 2, await Store.GetSchemaVersionAsync(Ct));
+    }
+
+    [SkippableFact]
+    public async Task Breaking_gap_is_refused_with_the_existing_message()
+    {
+        await Store.MigrateAsync(Ct);
+        var newer = Store.SupportedSchemaVersion + 1;
+        await InsertSchemaVersionRowAsync(newer, "breaking", newer);
+
+        var guard = await Assert.ThrowsAsync<SchemaVersionTooNewException>(() => Store.EnsureSchemaCompatibleAsync(Ct));
+        Assert.Equal(newer, guard.DatabaseVersion);
+        Assert.Equal(newer, guard.MinBinarySchema);
+        Assert.Contains($"The database schema is at version {newer}, but this sbox-ns build supports schema version {Store.SupportedSchemaVersion} at most.", guard.Message);
+        Assert.Contains("restore a backup taken before the upgrade to roll back", guard.Message);
+        await Assert.ThrowsAsync<SchemaVersionTooNewException>(() => Store.MigrateAsync(Ct));
+    }
+
+    [SkippableFact]
+    public async Task A_breaking_migration_in_the_gap_wins_over_later_additive_ones()
+    {
+        await Store.MigrateAsync(Ct);
+        var floor = SchemaCompatibility.FloorAt(Store.KnownMigrations, Store.SupportedSchemaVersion);
+        var breaking = Store.SupportedSchemaVersion + 1;
+        await InsertSchemaVersionRowAsync(breaking, "breaking", breaking);
+        await InsertSchemaVersionRowAsync(breaking + 1, "additive", breaking);
+
+        Assert.Equal(new SchemaState(breaking + 1, breaking), await Store.GetSchemaStateAsync(Ct));
+        Assert.NotEqual(floor, breaking);
+        await Assert.ThrowsAsync<SchemaVersionTooNewException>(() => Store.EnsureSchemaCompatibleAsync(Ct));
+    }
+
+    [SkippableFact]
+    public async Task Migrate_records_the_tag_and_floor_of_every_version()
+    {
+        await Store.MigrateAsync(Ct);
+        var rows = await ReadSchemaRowsAsync();
+        Assert.Equal(
+            Store.KnownMigrations.Select(m => (m.Version, (string?)m.Compat.ToString().ToLowerInvariant(), (int?)SchemaCompatibility.FloorAt(Store.KnownMigrations, m.Version))),
+            rows);
+    }
+
+    [SkippableFact]
+    public async Task Database_migrated_before_the_floor_column_existed_is_read_and_backfilled()
+    {
+        await Store.MigrateAsync(Ct);
+        await DropFloorColumnsAsync();
+        var expected = new SchemaState(Store.SupportedSchemaVersion, SchemaCompatibility.FloorAt(Store.KnownMigrations, Store.SupportedSchemaVersion));
+
+        // Reading never writes: the floor is derived from the migrations this binary ships.
+        Assert.Equal(expected, await Store.GetSchemaStateAsync(Ct));
+        await Store.EnsureSchemaCompatibleAsync(Ct);
+
+        var result = await Store.MigrateAsync(Ct);
+        Assert.Empty(result.AppliedVersions);
+        Assert.All(await ReadSchemaRowsAsync(), row => { Assert.NotNull(row.Compat); Assert.NotNull(row.MinBinarySchema); });
+        Assert.Equal(expected, await Store.GetSchemaStateAsync(Ct));
+    }
+
+
+    [SkippableFact]
     public async Task Ping_reports_server_version()
     {
         var ping = await Store.PingAsync(Ct);
@@ -118,10 +203,34 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
     protected override async Task InsertSchemaVersionRowAsync(int version)
     {
+        await ExecuteAsync($"INSERT INTO schema_version (version, applied_at_unix_ms, description) VALUES ({version}, 0, 'future')");
+    }
+
+    protected override Task InsertSchemaVersionRowAsync(int version, string compat, int minBinarySchema)
+        => ExecuteAsync($"INSERT INTO schema_version (version, applied_at_unix_ms, description, compat, min_binary_schema) VALUES ({version}, 0, 'future', '{compat}', {minBinarySchema})");
+
+    protected override Task DropFloorColumnsAsync()
+        => ExecuteAsync("ALTER TABLE schema_version DROP COLUMN compat; ALTER TABLE schema_version DROP COLUMN min_binary_schema;");
+
+    protected override async Task<IReadOnlyList<(int Version, string? Compat, int? MinBinarySchema)>> ReadSchemaRowsAsync()
+    {
         await using var connection = new SqliteConnection($"Data Source={_path};Pooling=False");
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
-        command.CommandText = $"INSERT INTO schema_version (version, applied_at_unix_ms, description) VALUES ({version}, 0, 'future')";
+        command.CommandText = "SELECT version, compat, min_binary_schema FROM schema_version ORDER BY version";
+        await using var reader = await command.ExecuteReaderAsync();
+        var rows = new List<(int, string?, int?)>();
+        while (await reader.ReadAsync())
+            rows.Add((reader.GetInt32(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetInt32(2)));
+        return rows;
+    }
+
+    private async Task ExecuteAsync(string sql)
+    {
+        await using var connection = new SqliteConnection($"Data Source={_path};Pooling=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
         await command.ExecuteNonQueryAsync();
     }
 
@@ -141,7 +250,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4], migration.AppliedVersions);
         var old = (await Store.ReadProjectAsync("old1", Ct))!.Value;
         Assert.True(old.GetProperty("legacyPlayerProjections").GetBoolean());
         Assert.Equal("Old", old.GetProperty("name").GetString());
@@ -183,16 +292,47 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4], migration.AppliedVersions);
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Assert.Equal(new[] { "/b", "/a" }, log.Select(r => Json.Str(r, "path")));
-        Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk"}""", log[1]);
+        Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
         Assert.Single(await Store.ListStorageRequestLogAsync("p2", 10, Ct));
         Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error"}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
 
         await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/d", 200, 1, null, Ct); // same millisecond as a migrated row
         Assert.Equal(3, (await Store.ListStorageRequestLogAsync("p1", 10, Ct)).Count);
     }
+    [Fact]
+    public async Task Migration_v4_adds_the_request_client_columns_without_rebuilding_or_changing_existing_rows()
+    {
+        await Store.MigrateAsync(Ct);
+        await RevertToVersion1Async("""
+            INSERT INTO storage_request_log (project_id, created_at_unix_ms, method, path, status_code, duration_ms, api_key_identifier) VALUES ('p1', 100, 'GET', '/old', 200, 3, 'pk');
+            """);
+        await Store.MigrateAsync(Ct);
+        await using (var connection = new SqliteConnection($"Data Source={_path};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            // v4 on its own: take the three columns away again and mark only v4 as unapplied.
+            command.CommandText = """
+                ALTER TABLE storage_request_log DROP COLUMN library_version;
+                ALTER TABLE storage_request_log DROP COLUMN client_type;
+                ALTER TABLE storage_request_log DROP COLUMN engine_version;
+                DELETE FROM schema_version WHERE version = 4;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var migration = await Store.MigrateAsync(Ct);
+
+        Assert.Equal([4], migration.AppliedVersions);
+        await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/new", 200, 1, null, Ct, new RequestClientInfo("1.1.0", "game", "26.10.02"));
+        var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
+        Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/old","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
+        Json.Equal("""{"created_at_unix_ms":200,"method":"GET","path":"/new","status_code":200,"duration_ms":1,"api_key_identifier":"","library_version":"1.1.0","client_type":"game","engine_version":"26.10.02"}""", log[0]);
+    }
+
     [Fact]
     public async Task Database_uses_wal_journal_and_target_is_the_file_path()
     {
@@ -232,6 +372,24 @@ public sealed class PostgresAdminTests : RelationalAdminTests
 
     protected override Task InsertSchemaVersionRowAsync(int version)
         => TestDatabases.ExecutePostgresAsync($"INSERT INTO \"{_schema}\".schema_version (version, applied_at_unix_ms, description) VALUES ({version}, 0, 'future')");
+
+    protected override Task InsertSchemaVersionRowAsync(int version, string compat, int minBinarySchema)
+        => TestDatabases.ExecutePostgresAsync($"INSERT INTO \"{_schema}\".schema_version (version, applied_at_unix_ms, description, compat, min_binary_schema) VALUES ({version}, 0, 'future', '{compat}', {minBinarySchema})");
+
+    protected override Task DropFloorColumnsAsync()
+        => TestDatabases.ExecutePostgresAsync($"ALTER TABLE \"{_schema}\".schema_version DROP COLUMN compat, DROP COLUMN min_binary_schema");
+
+    protected override async Task<IReadOnlyList<(int Version, string? Compat, int? MinBinarySchema)>> ReadSchemaRowsAsync()
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(TestDatabases.PostgresConnectionString);
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand($"SELECT version, compat, min_binary_schema FROM \"{_schema}\".schema_version ORDER BY version", connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        var rows = new List<(int, string?, int?)>();
+        while (await reader.ReadAsync())
+            rows.Add((reader.GetInt32(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetInt32(2)));
+        return rows;
+    }
 
     protected override Task CleanupAsync()
         => TestDatabases.PostgresConnectionString is null ? Task.CompletedTask : TestDatabases.DropPostgresSchemaAsync(_schema);
@@ -299,3 +457,37 @@ public sealed class PostgresAdminTests : RelationalAdminTests
     }
 }
 
+
+/// <summary>The additive/breaking tags are part of the code and must agree between the drivers.</summary>
+public sealed class MigrationTagTests
+{
+    [Fact]
+    public void Both_drivers_share_numbering_and_tags_and_the_baseline_is_breaking()
+    {
+        Assert.Equal(
+            SqliteMigrations.All.Select(m => (m.Version, m.Compat)),
+            PostgresMigrations.All.Select(m => (m.Version, m.Compat)));
+        Assert.Equal(SchemaChange.Breaking, SqliteMigrations.All[0].Compat);
+        Assert.Equal(1, SchemaCompatibility.FloorAt(SqliteMigrations.All, SqliteMigrations.All.Count));
+        Assert.Equal([SchemaChange.Breaking, SchemaChange.Additive, SchemaChange.Additive], SqliteMigrations.All.Take(3).Select(m => m.Compat));
+    }
+
+    [Fact]
+    public void Floor_is_the_highest_breaking_version_at_or_below_the_given_one()
+    {
+        SchemaMigration M(int v, SchemaChange c) => new(v, "x", c, _ => "");
+        var history = new[] { M(1, SchemaChange.Breaking), M(2, SchemaChange.Additive), M(3, SchemaChange.Breaking), M(4, SchemaChange.Additive) };
+        Assert.Equal([1, 1, 3, 3], new[] { 1, 2, 3, 4 }.Select(v => SchemaCompatibility.FloorAt(history, v)));
+        Assert.Equal(0, SchemaCompatibility.FloorAt([M(1, SchemaChange.Additive)], 1));
+    }
+
+    [Fact]
+    public void A_row_without_a_recorded_floor_uses_the_known_tag_and_unknown_versions_count_as_breaking()
+    {
+        var known = SqliteMigrations.All;
+        var derived = SchemaCompatibility.Resolve(known.Select(m => (m.Version, (int?)null)), known);
+        Assert.Equal(new SchemaState(known.Count, 1), derived);
+        var future = SchemaCompatibility.Resolve([.. known.Select(m => (m.Version, (int?)null)), (known.Count + 5, (int?)null)], known);
+        Assert.Equal(new SchemaState(known.Count + 5, known.Count + 5), future);
+    }
+}

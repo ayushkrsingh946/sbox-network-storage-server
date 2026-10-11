@@ -6,6 +6,7 @@ using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Cli.Tests;
 
@@ -115,6 +116,25 @@ public sealed class AutoUpdaterTests : IDisposable
         // Runtime files go back to the config folders before the older binary is restored and started.
         Assert.Equal(["stop sbox-ns@alpha", "stop sbox-ns@beta", "revert-layout alpha,beta", "start sbox-ns@alpha", "start sbox-ns@beta"], host.Calls);
         Assert.All(instances, instance => Assert.Equal(["before"], Rows(instance)));
+        Assert.All(instances, instance => Assert.Null(_state.Read(instance.Name)));
+    }
+
+    [Fact]
+    public async Task Rollback_keep_data_restores_only_the_binary_and_leaves_every_database_as_it_is()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.Calls.Clear();
+
+        Assert.Empty(await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None, keepData: true));
+
+        Assert.Equal("1.0.0", File.ReadAllText(_binary));
+        Assert.Equal(["stop sbox-ns@alpha", "stop sbox-ns@beta", "revert-layout alpha,beta", "start sbox-ns@alpha", "start sbox-ns@beta"], host.Calls);
+        // The marker written by the update's migration would be gone had the pre-update backup been restored.
+        Assert.All(instances, instance => Assert.Equal(["before", "migrated"], Rows(instance)));
         Assert.All(instances, instance => Assert.Null(_state.Read(instance.Name)));
     }
 
@@ -322,6 +342,14 @@ public sealed class AutoUpdaterTests : IDisposable
             Calls.Add($"revert-layout {string.Join(",", instances.Select(i => i.Name))}");
             return Task.FromResult(FailLayoutRevert ? 1 : 0);
         }
+
+        public SchemaState? SchemaState { get; set; } = new(3, 1);
+
+        public BinarySchemaInfo? SchemaInfo { get; set; } = new("1.0.0", 3);
+
+        public Task<SchemaState?> ReadSchemaStateAsync(string binary, ServerInstance instance, CancellationToken ct) => Task.FromResult(SchemaState);
+
+        public Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct) => Task.FromResult(SchemaInfo);
     }
 
     /// <summary>/health reports the version written in the fake binary; the broken instance never reports 1.1.0.</summary>

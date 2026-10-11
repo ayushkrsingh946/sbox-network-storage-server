@@ -283,8 +283,8 @@ Every key with its default: [docs/configuration.md](docs/configuration.md).
 | `sbox-ns key list <projectId>` / `key revoke <projectId> <key>` | List and revoke API keys |
 | `sbox-ns service install\|uninstall\|start\|stop\|restart\|status` | Run as a systemd unit (Linux), launchd job (macOS) or Windows service |
 | `sbox-ns logs [-f]` | Show or follow server logs |
-| `sbox-ns update [--check] [--version vX.Y.Z]` | Check for or install a release |
-| `sbox-ns rollback` | Return to the previous release |
+| `sbox-ns update [--check] [--version vX.Y.Z [--allow-downgrade]]` | Check for or install a release; an older one only with `--allow-downgrade` and only when its schema floor allows it |
+| `sbox-ns rollback [--keep-data]` | Return to the previous release (restores the pre-update backup; `--keep-data` keeps the database when every migration since is additive) |
 | `sbox-ns layout migrate [--revert]` | Linux, root: move runtime files (secrets, tunnel/DNS state) out of the config folder into `<data dir>/state`, or back |
 | `sbox-ns version` | Print version information |
 | `sbox-ns doctor` | Diagnose configuration, database, ports and update status |

@@ -135,7 +135,7 @@ internal sealed class StoreSql
         ListStorageErrors = Select("storage_errors", C.StorageError, "project_id = @project_id", "created_at_unix_ms DESC, event_id DESC", limit: true);
         PurgeStorageErrors = $"DELETE FROM {T("storage_errors")} WHERE project_id = @project_id AND created_at_unix_ms < @before_unix_ms";
 
-        InsertStorageRequestLog = Insert("storage_request_log", ["project_id", "created_at_unix_ms", "method", "path", "status_code", "duration_ms", "api_key_identifier"]);
+        InsertStorageRequestLog = Insert("storage_request_log", ["project_id", "created_at_unix_ms", "method", "path", "status_code", "duration_ms", "api_key_identifier", "library_version", "client_type", "engine_version"]);
         ListStorageRequestLog = Select("storage_request_log", C.StorageRequestLog, "project_id = @project_id", "created_at_unix_ms DESC, event_id DESC", limit: true);
         PurgeStorageRequestLog = $"DELETE FROM {T("storage_request_log")} WHERE project_id = @project_id AND created_at_unix_ms < @before_unix_ms";
 
@@ -153,9 +153,15 @@ internal sealed class StoreSql
         ListAllWorkspaceObjects = $"SELECT path, size_bytes, updated_at_unix_ms FROM {T("workspace_objects")} ORDER BY path";
         ListWorkspaceObjectsInRange = $"SELECT path, size_bytes, updated_at_unix_ms FROM {T("workspace_objects")} WHERE path >= @range_start AND path < @range_end ORDER BY path";
 
-        CreateSchemaVersionTable = $"CREATE TABLE IF NOT EXISTS {T("schema_version")} (version INTEGER NOT NULL PRIMARY KEY, applied_at_unix_ms BIGINT NOT NULL, description TEXT NOT NULL)";
+        CreateSchemaVersionTable = $"CREATE TABLE IF NOT EXISTS {T("schema_version")} (version INTEGER NOT NULL PRIMARY KEY, applied_at_unix_ms BIGINT NOT NULL, description TEXT NOT NULL, compat TEXT, min_binary_schema INTEGER)";
+        AddSchemaVersionCompatColumn = $"ALTER TABLE {T("schema_version")} ADD COLUMN compat TEXT";
+        AddSchemaVersionFloorColumn = $"ALTER TABLE {T("schema_version")} ADD COLUMN min_binary_schema INTEGER";
         ReadSchemaVersion = $"SELECT COALESCE(MAX(version), 0) FROM {T("schema_version")}";
-        InsertSchemaVersion = $"INSERT INTO {T("schema_version")} (version, applied_at_unix_ms, description) VALUES (@version, @applied_at_unix_ms, @description)";
+        ReadSchemaRows = $"SELECT version, min_binary_schema FROM {T("schema_version")}";
+        ReadSchemaVersions = $"SELECT version FROM {T("schema_version")}";
+        CountSchemaRowsWithoutFloor = $"SELECT COUNT(*) FROM {T("schema_version")} WHERE min_binary_schema IS NULL AND version <= @version";
+        BackfillSchemaFloor = $"UPDATE {T("schema_version")} SET compat = @compat, min_binary_schema = @min_binary_schema WHERE version = @version AND min_binary_schema IS NULL";
+        InsertSchemaVersion = $"INSERT INTO {T("schema_version")} (version, applied_at_unix_ms, description, compat, min_binary_schema) VALUES (@version, @applied_at_unix_ms, @description, @compat, @min_binary_schema)";
         CountUsage = $"SELECT (SELECT COUNT(DISTINCT project_id) FROM {T("project_members")}), COUNT(DISTINCT steam_id), "
             + $"COUNT(DISTINCT CASE WHEN last_seen_unix_ms >= @active_since THEN steam_id END) FROM {T("player_profiles")} "
             + $"WHERE project_id IN (SELECT project_id FROM {T("project_members")})";
@@ -264,6 +270,12 @@ internal sealed class StoreSql
     public string ListAllWorkspaceObjects { get; }
     public string ListWorkspaceObjectsInRange { get; }
     public string CreateSchemaVersionTable { get; }
+    public string AddSchemaVersionCompatColumn { get; }
+    public string AddSchemaVersionFloorColumn { get; }
+    public string ReadSchemaRows { get; }
+    public string ReadSchemaVersions { get; }
+    public string CountSchemaRowsWithoutFloor { get; }
+    public string BackfillSchemaFloor { get; }
     public string ReadSchemaVersion { get; }
     public string InsertSchemaVersion { get; }
     public string CountUsage { get; }

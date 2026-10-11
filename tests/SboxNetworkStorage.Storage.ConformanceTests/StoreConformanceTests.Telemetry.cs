@@ -163,13 +163,27 @@ public abstract partial class StoreConformanceTests
 
         var log = await s.ListStorageRequestLogAsync("p1", 10, Ct);
         Assert.Equal(new long[] { 3000, 2000, 1000 }, log.Select(r => Json.Long(r, "created_at_unix_ms")));
-        Json.Equal("""{"created_at_unix_ms":3000,"method":"POST","path":"/v3/endpoints/buy","status_code":500,"duration_ms":99,"api_key_identifier":""}""", log[0]);
-        Json.Equal("""{"created_at_unix_ms":1000,"method":"GET","path":"/v3/records","status_code":200,"duration_ms":12,"api_key_identifier":"pk_1"}""", log[2]);
+        Json.Equal("""{"created_at_unix_ms":3000,"method":"POST","path":"/v3/endpoints/buy","status_code":500,"duration_ms":99,"api_key_identifier":"","library_version":null,"client_type":null,"engine_version":null}""", log[0]);
+        Json.Equal("""{"created_at_unix_ms":1000,"method":"GET","path":"/v3/records","status_code":200,"duration_ms":12,"api_key_identifier":"pk_1","library_version":null,"client_type":null,"engine_version":null}""", log[2]);
         Assert.Equal(2, (await s.ListStorageRequestLogAsync("p1", 2, Ct)).Count);
 
         await s.PurgeStorageRequestLogAsync("p1", 2001, Ct);
         Assert.Equal(new long[] { 3000 }, (await s.ListStorageRequestLogAsync("p1", 10, Ct)).Select(r => Json.Long(r, "created_at_unix_ms")));
         Assert.Single(await s.ListStorageRequestLogAsync("p2", 10, Ct));
+    }
+
+    [SkippableFact]
+    public async Task Request_log_stores_the_callers_library_version_client_type_and_engine()
+    {
+        var s = await StoreAsync();
+        await s.InsertStorageRequestLogAsync("p1", 1000, "GET", "/v3/values/p1", 200, 4, null, Ct, new RequestClientInfo("1.1.0", "editor", "26.10.02"));
+        await s.InsertStorageRequestLogAsync("p1", 2000, "GET", "/v3/values/p1", 200, 4, null, Ct, new RequestClientInfo("legacy", null, null));
+        await s.InsertStorageRequestLogAsync("p1", 3000, "GET", "/v3/values/p1", 200, 4, null, Ct);
+
+        var log = await s.ListStorageRequestLogAsync("p1", 10, Ct);
+        Json.Equal("""{"created_at_unix_ms":1000,"method":"GET","path":"/v3/values/p1","status_code":200,"duration_ms":4,"api_key_identifier":"","library_version":"1.1.0","client_type":"editor","engine_version":"26.10.02"}""", log[2]);
+        Json.Equal("""{"created_at_unix_ms":2000,"method":"GET","path":"/v3/values/p1","status_code":200,"duration_ms":4,"api_key_identifier":"","library_version":"legacy","client_type":null,"engine_version":null}""", log[1]);
+        Json.Equal("""{"created_at_unix_ms":3000,"method":"GET","path":"/v3/values/p1","status_code":200,"duration_ms":4,"api_key_identifier":"","library_version":null,"client_type":null,"engine_version":null}""", log[0]);
     }
 
     [SkippableFact]

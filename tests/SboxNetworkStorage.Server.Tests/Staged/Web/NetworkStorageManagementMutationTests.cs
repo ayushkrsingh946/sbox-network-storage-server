@@ -850,6 +850,46 @@ public abstract class NetworkStorageManagementMutationTests<TFactory> : IClassFi
         Assert.Equal("POST", json.GetProperty("method").GetString());
     }
 
+    [SkippableFact]
+    public async Task AutoTest_ResolvesGameValuesLikeTestEndpoint()
+    {
+        var definition = new Dictionary<string, object?>
+        {
+            ["steps"] = new List<object?>(),
+            ["response"] = new Dictionary<string, object?>
+            {
+                ["status"] = 200d,
+                ["body"] = new Dictionary<string, object?> { ["granted"] = "{{values.rules.xp_per_level}}" },
+            },
+        };
+        var store = new InMemoryNetworkStorageStore();
+        await store.UpsertEndpointAsync(
+            "proj-1", "ping", "ping", "POST", true, JsonSerializer.SerializeToElement(definition), null, 1, CancellationToken.None);
+        var handler = new ManagementMutationHandler(
+            new FakeKeyResolver("sk-valid", "proj-1"),
+            new FakeWorkspace("proj-1"),
+            store,
+            TimeProvider.System,
+            new EndpointExecutor(new AutoTestDataSource(definition)),
+            valuesProvider: new FixedValuesProvider(new Dictionary<string, object?>
+            {
+                ["rules"] = new Dictionary<string, object?> { ["xp_per_level"] = 100d },
+            }));
+
+        var result = await handler.ExecuteAsync(
+            BuildRequest("POST", "proj-1", apiKey: "sk-valid", routeSuffix: "auto-test", body: """{"slug":"ping"}"""));
+
+        var json = JsonSerializer.SerializeToElement(result.Body);
+        Assert.True(json.GetProperty("passed").GetBoolean());
+        Assert.Equal(100, json.GetProperty("result").GetProperty("body").GetProperty("granted").GetDouble());
+    }
+
+    private sealed class FixedValuesProvider(Dictionary<string, object?> values) : IQueryValuesContextProvider
+    {
+        public Task<IReadOnlyDictionary<string, object?>> GetValuesAsync(string projectId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, object?>>(values);
+    }
+
     private sealed class AutoTestDataSource(Dictionary<string, object?> definition) : IEndpointDataSource
     {
         public Task<Dictionary<string, object?>?> ReadEndpointDefinitionAsync(

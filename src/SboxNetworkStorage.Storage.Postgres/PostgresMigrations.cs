@@ -8,14 +8,26 @@ namespace SboxNetworkStorage.Storage.Postgres;
 /// columns use <c>COLLATE "C"</c> so ordering is bytewise, exactly like
 /// The store clustering order on <c>text</c>.
 /// </summary>
-internal static class PostgresMigrations
+public static class PostgresMigrations
 {
+    // Every migration carries a SchemaChange tag (docs/database.md "Rollback-safe migrations"). Additive means the previous
+    // binary's statements keep working on the result; Breaking means they may not. v1 is the baseline and always breaking.
+    // v3 rebuilds the two log tables with a surrogate key but keeps every column and name, and the previous binary only
+    // uses named-column INSERTs and (project_id, created_at) filters on them, so it is additive.
     public static readonly IReadOnlyList<SchemaMigration> All =
     [
-        new(1, "Network Storage tables, usage counters, workspace objects", V1),
-        new(2, "Existing projects keep the built-in player projections", V2),
-        new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", V3),
+        new(1, "Network Storage tables, usage counters, workspace objects", SchemaChange.Breaking, V1),
+        new(2, "Existing projects keep the built-in player projections", SchemaChange.Additive, V2),
+        new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", SchemaChange.Additive, V3),
+        new(4, "Request log records the caller's library version, client type and engine build", SchemaChange.Additive, V4),
     ];
+
+    // Additive: three nullable columns. Existing rows keep NULL, which the Logs tab shows as unknown.
+    private static string V4(string p) => $"""
+        ALTER TABLE {p}storage_request_log ADD COLUMN library_version text;
+        ALTER TABLE {p}storage_request_log ADD COLUMN client_type text;
+        ALTER TABLE {p}storage_request_log ADD COLUMN engine_version text;
+        """;
 
     // Identity values are generated for existing rows too. Project/time indexes retain chronological reads.
     private static string V3(string p) => $"""

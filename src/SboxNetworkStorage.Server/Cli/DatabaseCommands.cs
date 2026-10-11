@@ -46,16 +46,33 @@ public static class DatabaseCommands
             }
             case "status":
             {
-                var version = await admin.GetSchemaVersionAsync(CancellationToken.None);
+                var state = await admin.GetSchemaStateAsync(CancellationToken.None);
+                var version = state.Version;
+                var supported = admin.SupportedSchemaVersion;
+                if (context.Args.Flag("json"))
+                {
+                    // Read by the update/rollback checks (SchemaRollback.TryParseState); the verdict is the caller's.
+                    Console.WriteLine(new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["provider"] = admin.ProviderName,
+                        ["schemaVersion"] = version,
+                        ["minBinarySchema"] = state.MinBinarySchema,
+                        ["supportedSchemaVersion"] = supported,
+                    }.ToJsonString());
+                    return CliApp.Ok;
+                }
+
                 Console.WriteLine($"Database:        {admin.ProviderName} at {admin.RedactedTarget}");
-                Console.WriteLine($"Schema version:  {version} (this build supports {admin.SupportedSchemaVersion})");
+                Console.WriteLine($"Schema version:  {version} (this build supports {supported})");
+                Console.WriteLine($"Compat floor:    {state.MinBinarySchema} (min_binary_schema: the oldest schema version a binary must support to run on this database)");
                 Console.WriteLine(version switch
                 {
-                    _ when version == admin.SupportedSchemaVersion => "Status:          up to date",
-                    _ when version < admin.SupportedSchemaVersion => "Status:          migration pending (sbox-ns db migrate, or start the server)",
+                    _ when version == supported => "Status:          up to date",
+                    _ when version < supported => "Status:          migration pending (sbox-ns db migrate, or start the server)",
+                    _ when state.IsNewerButCompatibleWith(supported) => "Status:          database is newer than this binary, but only through additive migrations; this binary can run on it",
                     _ => "Status:          database is newer than this binary; upgrade sbox-ns"
                 });
-                return version > admin.SupportedSchemaVersion ? CliApp.Failure : CliApp.Ok;
+                return state.IsTooNewFor(supported) ? CliApp.Failure : CliApp.Ok;
             }
             case "migrate":
             {
