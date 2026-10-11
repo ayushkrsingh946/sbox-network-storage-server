@@ -1,8 +1,14 @@
 @model SboxNetworkStorage.Server.Owner.OwnerConfirm.ConfirmModel
 @{
     Layout = "~/Views/Owner/_Layout.cshtml";
-    var cancel = Context.Request.Headers.Referer.ToString();
-    if (cancel.Length == 0 || !Uri.IsWellFormedUriString(cancel, UriKind.Absolute)) { cancel = "/dashboard"; }
+    // Cancel returns to the page the form was on. Only a same-host http(s) Referer is trusted, and only its path is used.
+    var cancel = "/dashboard";
+    if (Uri.TryCreate(Context.Request.Headers.Referer.ToString(), UriKind.Absolute, out var from)
+        && (from.Scheme == Uri.UriSchemeHttp || from.Scheme == Uri.UriSchemeHttps)
+        && string.Equals(from.Authority, Context.Request.Host.Value, StringComparison.OrdinalIgnoreCase))
+    {
+        cancel = from.PathAndQuery;
+    }
 }
 <section class="card">
     <h1>@Model.Title</h1>

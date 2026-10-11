@@ -201,6 +201,32 @@ public sealed class OwnerProjectHubTests
         Assert.Contains("Game client", WebUtility.HtmlDecode(await owner.GetStringAsync(url)));
     }
 
+    [Theory]
+    [InlineData("javascript:alert(1)", "/dashboard")]
+    [InlineData("https://evil.example/phish", "/dashboard")]
+    [InlineData("http://localhost/dashboard/projects/p1?x=1", "/dashboard/projects/p1?x=1")]
+    public async Task ConfirmPageCancelLinkOnlyFollowsASameHostReferer(string referer, string expected)
+    {
+        using var factory = new SqliteHostFactory();
+        await CreateOwnerAsync(factory);
+        using var owner = await LoggedInClientAsync(factory);
+        var project = await factory.CreateProjectAsync("Hub cancel");
+        var url = $"/dashboard/projects/{project.ProjectId}";
+        var page = await owner.GetStringAsync(url);
+        var key = Regex.Match(WebUtility.HtmlDecode(page), "keys/revoke[\\s\\S]*?name=\"key\" type=\"hidden\" value=\"([^\"]+)\"").Groups[1].Value;
+        Assert.NotEqual("", key);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url + "/keys/revoke")
+        {
+            Content = Form(("key", key), ("confirmTitle", "Revoke"), ("__RequestVerificationToken", Csrf(page))),
+        };
+        request.Headers.TryAddWithoutValidation("Referer", referer);
+        using var response = await owner.SendAsync(request);
+
+        var body = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+        Assert.Contains($"class=\"button secondary\" href=\"{expected}\"", body);
+    }
+
     [Fact]
     public async Task RevokeWithConfirmedRevokesAndFlashes()
     {
