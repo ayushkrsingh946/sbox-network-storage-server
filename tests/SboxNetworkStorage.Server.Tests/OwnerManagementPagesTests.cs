@@ -223,8 +223,10 @@ public sealed class OwnerManagementPagesTests
         Assert.Contains("var data = await NetworkStorage.GetDocument( \"wallet\", doc );", direct);
         Assert.Contains("await NetworkStorage.SaveDocument( \"wallet\", doc, new { coins = 5, title = \"\" } );", direct);
 
-        // A new definition has nothing to call yet.
-        Assert.DoesNotContain("Use from the game", await owner.GetStringAsync($"{url}/resources/endpoint"));
+        // A new definition has nothing to call yet: the guide marks it as an unsaved draft and links no Try it run.
+        var draft = WebUtility.HtmlDecode(await owner.GetStringAsync($"{url}/resources/endpoint"));
+        Assert.Contains("This draft is not saved yet", draft);
+        Assert.DoesNotContain("/tests?endpoint=", draft);
 
         // Links from the data browser open Try it as that player; anything that is not a Steam ID is ignored.
         Assert.Contains("name=\"steamId\" value=\"76561198000000777\"", await owner.GetStringAsync($"{url}/tests?steamId=76561198000000777"));
