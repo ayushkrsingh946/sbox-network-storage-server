@@ -26,6 +26,11 @@ public static class AutoUpdateCommand
 
     public static async Task<int> RunAsync(CliContext context)
     {
+        if (context.Args.Flag("allow-downgrade"))
+        {
+            throw new CliException("unattended updates never downgrade; use `sbox-ns update --version X.Y.Z --allow-downgrade` instead.", CliApp.Usage);
+        }
+
         if (Environment.GetEnvironmentVariable(InsecureSkipSignatureVariable) == "1")
         {
             throw new CliException($"{InsecureSkipSignatureVariable} is set; unattended updates never skip signature verification. Nothing was changed.", CliApp.Usage);
@@ -89,6 +94,14 @@ public static class AutoUpdateCommand
         }
 
         Console.WriteLine($"Updating: {decision.Reason}.");
+        if (UpdateCommands.IsDowngrade(BuildInfo.Version, release.Version))
+        {
+            // Defense in depth: the release policy already refuses anything that is not newer,
+            // but an unattended run must never install a target it cannot prove is an upgrade.
+            Console.WriteLine($"Nothing to do: {release.Version} is not newer than {BuildInfo.Version}; unattended updates never downgrade.");
+            return CliApp.Ok;
+        }
+
         UpdateCommands.RequireUpgradable(release);
         var binary = Environment.ProcessPath ?? throw new CliException("cannot determine the sbox-ns executable path");
         UpdateCommands.RequireStandaloneExecutable(binary);

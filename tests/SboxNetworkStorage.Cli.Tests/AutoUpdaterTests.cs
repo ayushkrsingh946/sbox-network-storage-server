@@ -128,14 +128,86 @@ public sealed class AutoUpdaterTests : IDisposable
         await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
         var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
         host.Calls.Clear();
+        host.CompatCalls.Clear();
 
         Assert.Empty(await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None, keepData: true));
 
         Assert.Equal("1.0.0", File.ReadAllText(_binary));
         Assert.Equal(["stop sbox-ns@alpha", "stop sbox-ns@beta", "revert-layout alpha,beta", "start sbox-ns@alpha", "start sbox-ns@beta"], host.Calls);
-        // The marker written by the update's migration would be gone had the pre-update backup been restored.
+        // The target probe ran before the stop and again while stopped, for every instance; no database was restored.
+        Assert.Equal(instances.Count * 2, host.CompatCalls.Count);
         Assert.All(instances, instance => Assert.Equal(["before", "migrated"], Rows(instance)));
         Assert.All(instances, instance => Assert.Null(_state.Read(instance.Name)));
+    }
+
+    [Theory]
+    [InlineData("1.0.0", "1.1.0", false)]
+    [InlineData("1.0.0", "v1.1.0", false)]
+    [InlineData("1.1.0", "1.0.0", true)]
+    [InlineData("1.1.0", "1.1.0-rc.1", true)]
+    [InlineData("1.0.0", "1.0.0", true)]
+    [InlineData("1.0.0", "not-a-version", true)]
+    [InlineData("not-a-version", "1.1.0", true)]
+    public void Downgrade_detection_fails_closed(string installed, string target, bool downgrade)
+        => Assert.Equal(downgrade, UpdateCommands.IsDowngrade(installed, target));
+
+    [Fact]
+    public async Task Older_or_unparseable_target_is_refused_unattended_before_stopping()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this);
+        var updater = Updater(host, broken: null);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => updater.InstallAsync("1.1.0", "1.0.0", _staged, _binary, instances, "auto", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => updater.InstallAsync("1.0.0", "not-a-version", _staged, _binary, instances, "auto", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => updater.InstallAsync("1.0.0", "not-a-version", _staged, _binary, instances, "manual", CancellationToken.None));
+
+        Assert.Empty(host.Calls);
+        Assert.Empty(host.CompatCalls);
+        Assert.Equal("1.0.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.Equal(["before"], Rows(instance)));
+    }
+
+    [Fact]
+    public async Task Manual_downgrade_checks_target_compatibility_before_and_after_the_stop()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this) { RejectCompatibility = true };
+        var updater = Updater(host, broken: null);
+
+        // The probe refuses: nothing stops, nothing swaps.
+        await Assert.ThrowsAsync<InvalidOperationException>(() => updater.InstallAsync("1.1.0", "1.0.0", _staged, _binary, instances, "manual", CancellationToken.None, allowDowngrade: true));
+        Assert.Empty(host.Calls);
+        Assert.Equal("1.0.0", File.ReadAllText(_binary));
+
+        // The probe passes: the install runs, re-checking while stopped.
+        host.RejectCompatibility = false;
+        host.CompatCalls.Clear();
+        File.WriteAllText(_staged, "1.0.0");
+        var result = await updater.InstallAsync("1.1.0", "1.0.0", _staged, _binary, instances, "manual", CancellationToken.None, allowDowngrade: true);
+        Assert.Equal(InstallOutcome.Succeeded, result.Outcome);
+        Assert.Equal("1.0.0", File.ReadAllText(_binary));
+        Assert.Equal(instances.Count * 2, host.CompatCalls.Count);
+    }
+
+    [Fact]
+    public async Task Keep_data_rollback_refuses_an_incompatible_target_before_stopping()
+    {
+        var instances = CreateInstances();
+        var host = new FakeHost(this) { RejectCompatibility = true };
+        var updater = Updater(host, broken: null);
+        await updater.InstallAsync("1.0.0", "1.1.0", _staged, _binary, instances, "auto", CancellationToken.None);
+        var records = instances.Select(i => (i, _state.Read(i.Name)!)).ToList();
+        host.Calls.Clear();
+        host.CompatCalls.Clear();
+
+        var errors = await updater.RollbackRecordedAsync(records, _binary, CancellationToken.None, keepData: true);
+
+        Assert.Contains(errors, error => error.Contains("nothing was changed", StringComparison.Ordinal));
+        Assert.Empty(host.Calls);
+        Assert.Equal("1.1.0", File.ReadAllText(_binary));
+        Assert.All(instances, instance => Assert.Contains("migrated", Rows(instance)));
+        Assert.All(instances, instance => Assert.NotNull(_state.Read(instance.Name)));
     }
 
     [Fact]
@@ -350,6 +422,16 @@ public sealed class AutoUpdaterTests : IDisposable
         public Task<SchemaState?> ReadSchemaStateAsync(string binary, ServerInstance instance, CancellationToken ct) => Task.FromResult(SchemaState);
 
         public Task<BinarySchemaInfo?> ProbeSchemaInfoAsync(string binary, CancellationToken ct) => Task.FromResult(SchemaInfo);
+
+        public bool RejectCompatibility { get; set; }
+
+        public List<string> CompatCalls { get; } = [];
+
+        public Task<int> CheckCompatibilityAsync(string targetBinary, string installedBinary, ServerInstance instance, CancellationToken ct)
+        {
+            CompatCalls.Add($"compat {instance.Name}");
+            return Task.FromResult(RejectCompatibility ? 1 : 0);
+        }
     }
 
     /// <summary>/health reports the version written in the fake binary; the broken instance never reports 1.1.0.</summary>

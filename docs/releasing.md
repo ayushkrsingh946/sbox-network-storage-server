@@ -29,7 +29,10 @@ project is only the value for local builds.
    (`docs/database.md`, "Rollback-safe migrations"). Run `scripts/rollback-notes.sh` on the
    release commit and add its output to the release notes: the line
    "Rolls back without data loss to: 0.x.y, …" lists the earlier releases that
-   `sbox-ns rollback --keep-data` can return to without restoring a backup.
+   `sbox-ns rollback --keep-data` can return to without restoring a backup. The same tags
+   drive the runtime checks: `rollback --keep-data` and pinned downgrades proceed only when
+   the target binary's supported schema covers the database's `min_binary_schema` floor,
+   confirmed both by the installed binary and by the target's own `sbox-ns compatibility` probe.
 4. Run the **Install matrix** workflow on the commit (Actions > Install matrix > Run workflow)
    and wait for it to pass. It replaces the manual VM checklist; see below.
 5. Confirm the compatibility evidence, then tag. `compat/library-matrix.json` must have a `pass`
@@ -56,16 +59,34 @@ add their rows as described in [editor-test-plan.md](editor-test-plan.md#recordi
    On Windows, `powershell -File scripts/compat-tested-with.ps1 -Version 0.x.z` works too. It
    lists the rows for that server version (and rows recorded against the commit) with library,
    revision, engine, OS, server kind, database, result and evidence links.
-2. Release gate: the matrix needs a `pass` row for the `recommended` library on this release.
-   `-Gate` makes the script exit with code 2 when it is missing. The alternative is an explicit
-   **`ci-only`** release: pass `-CiOnly`, and the notes then say that no editor run was recorded and
-   the server was verified by CI only. Choose it on purpose; the notes always call it out.
+   `scripts/compat-tested-with.ps1` is a notes renderer only. Its `-Gate` switch is a
+   convenience subset of the evidence-row check below (a `pass` row for the `recommended`
+   library, unless `-CiOnly`); it is not the release gate.
+2. Release gate: the authoritative gate is `scripts/compat-release.py`:
+
+   ```sh
+   python3 scripts/compat-release.py --matrix /path/to/release-evidence.json \
+     --server 0.x.y --commit TESTED_SOURCE_COMMIT \
+     --baseline /path/to/previous-release-matrix.json \
+     --policy-source compat/library-matrix.json \
+     --rollback-report /path/to/target-compatibility.json
+   ```
+
+   It validates the matrix shape, the version ranges, the deprecation sunsets, the
+   exact-commit evidence rows, that detached evidence changes only `tested` rows, that
+   announced sunsets are never shortened, and the rollback reports. The release needs a
+   matching-commit `pass` for the `recommended` library (or an explicit `--allow-ci-only`
+   with a matching `ci-only` row, called out in the notes). A failing gate stops the release.
 3. Changing the matrix itself (`minimum`, `recommended`, `deprecated`, `blocked`) is a server
-   change like any other. Proposed support window (owner to confirm): a library version stays
-   supported for at least 6 months after its successor ships, and moving `minimum` needs at least
-   90 days at `deprecated`, a **minor** server version bump, and usage numbers showing how much
+   change like any other. Support a replaced library version (or API form) for **at least six
+   calendar months after its successor ships**, with **at least 90 days of published removal
+   notice**. The later date wins. Announced sunsets cannot be shortened. Moving `minimum`
+   additionally needs a **minor** server version bump and usage numbers showing how much
    live traffic it affects. `blocked` is the only immediate path and is for security or data-loss
-   problems.
+   problems. The gate enforces the window: a deprecated library entry superseded by a newer
+   supported entry must sunset no earlier than six months after the successor's recorded
+   `released` date, and, when the entry records an `announced` date, no earlier than 90 days
+   after it.
 4. A library release adds its row to `libraries` (with `minServer`) in the same PR as, or right
    after, the library's own GitHub Release.
 

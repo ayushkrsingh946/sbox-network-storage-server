@@ -94,11 +94,13 @@ public static class ServerHost
         app.UseMiddleware<HstsMiddleware>();
         app.UseMiddleware<CorrelationIdMiddleware>();
         app.UseMiddleware<ExceptionHandlingMiddleware>();
+        app.UseMiddleware<ClientIdentityMiddleware>();
         app.UseMiddleware<RequestTimingMiddleware>();
         app.UseRouting();
         app.UseMiddleware<RequestBodyLimitMiddleware>();
         app.UseOwnerManagement();
         app.UseMiddleware<NetworkStorageUsageMiddleware>();
+        app.UseMiddleware<LibraryPolicyMiddleware>();
         app.UseResponseCompression();
 
         app.MapServerInfo();

@@ -136,14 +136,14 @@ public abstract partial class StoreConformanceTests
     {
         var s = await StoreAsync();
         await s.InsertStorageErrorAsync("p1", 100, "err-1", "first", null, null, null, "error", Ct);
-        await s.InsertStorageErrorAsync("p1", 200, "err-2", "second", "trace", "worker", "/v3/x", "warning", Ct);
+        await s.InsertStorageErrorAsync("p1", 200, "err-2", "second", "trace", "worker", "/v3/x", "warning", Ct, new RequestClientInfo("1.1.0", "game", "26.10.02", 6_000_000_000, 5_500_000_001));
         await s.InsertStorageErrorAsync("p1", 300, "err-3", "third", null, null, null, "error", Ct);
         await s.InsertStorageErrorAsync("p1", 300, "err-4", "fourth", null, null, null, "error", Ct); // same ms: both kept, newest insert first
 
         var errors = await s.ListStorageErrorsAsync("p1", 10, Ct);
         Assert.Equal(new[] { "err-4", "err-3", "err-2", "err-1" }, errors.Select(r => Json.Str(r, "error_id")));
-        Json.Equal("""{"created_at_unix_ms":100,"error_id":"err-1","message":"first","stack_trace":"","source":"","request_path":"","severity":"error"}""", errors[3]);
-        Json.Equal("""{"created_at_unix_ms":200,"error_id":"err-2","message":"second","stack_trace":"trace","source":"worker","request_path":"/v3/x","severity":"warning"}""", errors[2]);
+        Json.Equal("""{"created_at_unix_ms":100,"error_id":"err-1","message":"first","stack_trace":"","source":"","request_path":"","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", errors[3]);
+        Json.Equal("""{"created_at_unix_ms":200,"error_id":"err-2","message":"second","stack_trace":"trace","source":"worker","request_path":"/v3/x","severity":"warning","library_version":"1.1.0","client_type":"game","engine_version":"26.10.02","library_revision":6000000000,"game_revision":5500000001}""", errors[2]);
         Assert.Single(await s.ListStorageErrorsAsync("p1", 1, Ct));
 
         await s.PurgeStorageErrorsAsync("p1", 200, Ct);

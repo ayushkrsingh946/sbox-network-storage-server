@@ -134,6 +134,32 @@ operating system and database combination you ran, in the PR that records the ru
       public ports 80 and 443, then the editor connects through the HTTPS name.
 - [ ] Same with the tunnel option on a host without open ports.
 
+## G. Independent library/backend releases
+
+- [ ] An older published game with no new identity headers still works after a
+      backend update; replay the same save/load/endpoint flow before and after.
+- [ ] New runtime and Sync Tool builds report library version/package revision
+      separately from game revision. Observe server/version-status headers and
+      **Project → Clients**; repeated calls from one player do not become
+      multiple distinct players.
+- [ ] `outdated`/`deprecated` shows an update recommendation without breaking
+      old runtime calls. Library Manager/editor update instructions are tested
+      in the [library tracker](https://github.com/sbox-cool/sbox-network-storage/issues/6).
+- [ ] Preview a project minimum, verify the affected share, and confirm saving
+      without acknowledgement is refused. An explicitly enabled minimum returns
+      `LIBRARY_UNSUPPORTED`; clearing it restores acceptance. Advisory blocks
+      return `LIBRARY_BLOCKED`. Pull, Test Live and revision-init remain usable.
+- [ ] Record which database provider pairing passed (SQLite and PostgreSQL are
+      separate pairings). Do not infer a result for a library/engine/provider
+      that was not exercised.
+
+Certify once per pairing: a `pass` row covers exactly the exercised server
+commit, library/revision, engine and providers. Reuse that certification until
+a fundamental change (request/response, error, auth, save/endpoint semantics,
+defaults, endpoint or public-method add/remove/rename, identity/capability,
+policy or migration assumption) forces re-testing; see
+[certification](compatibility.md#certification-certify-once-re-test-on-fundamental-change).
+
 ## Library repo checks
 
 - [ ] `UnitTests/` and `Tests/test_source_compiler.py` pass on a machine with the

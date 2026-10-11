@@ -131,7 +131,7 @@ public sealed class RuntimeActivityWriterService(
                         break;
                     case RuntimeErrorEntry error:
                         await transaction.Store.InsertStorageErrorAsync(error.ProjectId, error.CreatedAtUnixMs, error.ErrorId, error.Message,
-                            error.StackTrace, error.Source, error.RequestPath, error.Severity, CancellationToken.None);
+                            error.StackTrace, error.Source, error.RequestPath, error.Severity, CancellationToken.None, error.Client);
                         break;
                 }
             }

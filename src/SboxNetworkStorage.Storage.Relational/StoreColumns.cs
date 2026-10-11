@@ -149,6 +149,8 @@ internal static class StoreColumns
     [
         new("created_at_unix_ms", Long), new("error_id", Text), new("message", Text), new("stack_trace", Text),
         new("source", Text), new("request_path", Text), new("severity", Text),
+        new("library_version", Text), new("client_type", Text), new("engine_version", Text),
+        new("library_revision", LongOrNull), new("game_revision", LongOrNull),
     ];
 
     public static readonly Column[] StorageRequestLog =

@@ -257,6 +257,44 @@ public sealed class LibraryCompatOverlayTests
     }
 
     [Fact]
+    public void ANewerMatrixIsRejectedNotGuessedAt()
+    {
+        var newer = LibraryMatrixEvaluationTests.Fixture.Replace("\"schemaVersion\": 1", "\"schemaVersion\": 2");
+        var ex = Assert.Throws<InvalidDataException>(() => LibraryMatrix.Parse(newer));
+        Assert.Contains("newer than this server supports", ex.Message);
+    }
+
+    [Fact]
+    public void AMatrixWithoutASchemaVersionIsRejected()
+    {
+        var missing = LibraryMatrixEvaluationTests.Fixture.Replace("\"schemaVersion\": 1,", "");
+        Assert.DoesNotContain("schemaVersion", missing);
+        var ex = Assert.Throws<InvalidDataException>(() => LibraryMatrix.Parse(missing));
+        Assert.Contains("missing schemaVersion", ex.Message);
+    }
+
+    [Fact]
+    public void ANewerOverlayIsIgnoredWhole()
+    {
+        var merged = Base.Merge(new LibraryCompatOverlay(
+            Blocked: [new MatrixRule("1.3.0", null, "Data loss on save", "GHSA-1111-2222-3333")],
+            SchemaVersion: 2));
+
+        Assert.Same(Base, merged);
+        Assert.Equal(LibraryStatus.Supported, merged.Evaluate(LibraryMatrixEvaluationTests.Id("1.3.0")).Status);
+        Assert.False(merged.OverlayApplied);
+    }
+
+    [Fact]
+    public void AnAppliedOverlayFlagsTheServerInfoBlock()
+    {
+        var merged = Base.Merge(new LibraryCompatOverlay(Blocked: [new MatrixRule("1.3.0", null, "x", null)]));
+
+        Assert.True(merged.OverlayApplied);
+        Assert.False(Base.OverlayApplied);
+    }
+
+    [Fact]
     public void AnOverlayCannotRemoveABlockOrAnUnsupportedEntry()
     {
         var merged = Base.Merge(new LibraryCompatOverlay(Blocked: [], Deprecated: []));
@@ -406,6 +444,7 @@ public sealed class EmbeddedLibraryMatrixTests
         var matrix = LibraryMatrix.LoadEmbedded();
 
         Assert.Equal("1.1.0", matrix.Minimum);
+        Assert.Equal(LibraryMatrix.SupportedSchemaVersion, matrix.SchemaVersion);
         Assert.Equal("1.1.0", matrix.Recommended);
         Assert.Equal("1.1.0", matrix.Latest);
         Assert.Equal(LibraryStatus.Supported, matrix.LegacyStatus);

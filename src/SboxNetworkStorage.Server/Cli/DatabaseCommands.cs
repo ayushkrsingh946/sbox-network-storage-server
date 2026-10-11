@@ -1,3 +1,6 @@
+using System.Text.Json.Nodes;
+using SboxNetworkStorage.Server.Configuration;
+using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Storage.Relational;
 
@@ -85,5 +88,43 @@ public static class DatabaseCommands
             default:
                 throw new CliException($"unknown db command '{sub}'", CliApp.Usage);
         }
+    }
+
+    /// <summary>
+    /// Non-mutating preflight for this binary against the configured database: exits 0 when this
+    /// binary can run on it (equal schema, an older schema it migrates forward, or a newer schema
+    /// reachable only through additive migrations). Rollback and downgrade checks run the target
+    /// binary's copy of this command, so the target's own migration knowledge is used. Binaries that
+    /// predate this command fail with an unknown command instead, which the gate treats as incompatible.
+    /// </summary>
+    public static async Task<int> CheckCompatibilityAsync(CliContext context)
+    {
+        var config = context.LoadValidConfig();
+        await using var services = CliServices.Build(config);
+        var admin = services.GetRequiredService<INetworkStorageStoreAdmin>();
+        var state = await admin.GetSchemaStateAsync(CancellationToken.None);
+        var supported = admin.SupportedSchemaVersion;
+        var compatible = !state.IsTooNewFor(supported);
+        var migrationRequired = state.Version < supported;
+        if (context.Args.Flag("json"))
+        {
+            // Field names follow db status --json (camelCase). protocol versions this payload;
+            // layoutGeneration is StateLayout.CurrentVersion, for future rollbacks to gate on.
+            Console.WriteLine(new JsonObject
+            {
+                ["protocol"] = 1,
+                ["version"] = BuildInfo.Version,
+                ["schemaVersion"] = state.Version,
+                ["supportedSchemaVersion"] = supported,
+                ["minBinarySchema"] = state.MinBinarySchema,
+                ["compatible"] = compatible,
+                ["migrationRequired"] = migrationRequired,
+                ["layoutGeneration"] = StateLayout.CurrentVersion,
+            }.ToJsonString());
+            return compatible ? CliApp.Ok : CliApp.Failure;
+        }
+
+        Console.WriteLine($"Schema {state.Version}; this binary supports {supported} (floor {state.MinBinarySchema}); layout generation {StateLayout.CurrentVersion}; compatible: {compatible}.");
+        return compatible ? CliApp.Ok : CliApp.Failure;
     }
 }

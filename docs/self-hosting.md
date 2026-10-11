@@ -781,17 +781,27 @@ It is available when every migration applied since the previous release is
 database records `min_binary_schema`, the highest `breaking` version applied. A binary
 runs on a newer database when the schema it supports is at least that floor. Before
 touching anything, `--keep-data` reads the database state and asks the previous binary
-which schema it supports (`sbox-ns schema-info --json`). If the previous binary cannot
-run on the database, the command changes nothing and prints why, for example:
+which schema it supports (`sbox-ns schema-info --json`), and runs the previous binary's own
+non-mutating check (`sbox-ns compatibility --json`) against every instance's database. Either
+side refusing stops everything before the service is stopped, and the check runs again while
+stopped. If the previous binary cannot run on the database, the command changes nothing
+and prints why, for example:
 
 ```text
 error: cannot do this without losing data: migration v4 ("drop column x") is breaking: a binary must support schema 4 or newer to run on this database, but 0.5.1 supports 3 (database schema 4). `sbox-ns rollback` (without --keep-data) restores the database backup taken before the update and loses everything written since.
 ```
 
 then `sbox-ns rollback` is today's restore path. `sbox-ns update --version X.Y.Z
---allow-downgrade` applies the same check to the release it downloads, before the
-service is stopped; without `--allow-downgrade` an older `--version` is refused.
+--allow-downgrade` applies the same two-sided check to the release it downloads, before the
+service is stopped and again while stopped. Anything that is not provably newer than the
+installed version takes this downgrade path: an unparseable version, an equal version from a
+different build, or an older one all need a pinned `--version` with `--allow-downgrade`;
+unattended updates never install such a target. Without `--allow-downgrade` an older
+`--version` is refused.
 With `--all-instances`, `--keep-data` requires every instance's database to pass.
+Both rollback modes move the runtime files back into the config folder first (layout revert),
+because the previous binary may predate the state layout; only the database restore is
+skipped with `--keep-data`.
 `sbox-ns doctor` and `sbox-ns db status` show the same floor: a database that is newer
 than the binary through additive migrations only is reported as usable, and the
 server starts on it. A database with a breaking migration beyond the binary is
@@ -870,7 +880,9 @@ restores every database backup taken in that run, starts the instances again,
 checks they report the old version, and records `failed` with the reason in
 each instance's `last-update.json` in the update state folder (shown by
 `sbox-ns doctor`). After a successful run, `sbox-ns rollback --all-instances`
-undoes it. If a service cannot be stopped during recovery, no database or binary is
+undoes it; with `--keep-data` it keeps every database (only when each one passes the
+gate) but still reverts the layout and never restores backups. If a service cannot be stopped
+during recovery, no database or binary is
 restored underneath it; the run exits 3 and preserves the backup files for
 operator recovery.
 

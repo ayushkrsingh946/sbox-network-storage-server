@@ -28,7 +28,8 @@ public sealed class NetworkStorageUsageMiddleware(
     RequestDelegate next,
     NetworkStorageUsageTracker tracker,
     RuntimeActivityLog activity,
-    ILogger<NetworkStorageUsageMiddleware> logger)
+    ILogger<NetworkStorageUsageMiddleware> logger,
+    ClientVersionTracker clients)
 {
     // Segment-boundary prefixes: "/api/storage" does NOT match "/api/storage-browse".
     private static readonly PathString[] s_prefixes =
@@ -92,7 +93,7 @@ public sealed class NetworkStorageUsageMiddleware(
                     ClientIdentityContext.Get(context));
 
             if (annotation is null || status == StatusCodes.Status401Unauthorized) return;
-
+            clients.Record(annotation.ProjectId, ClientIdentityContext.Get(context), ClientIdentityContext.PlayerId(context));
             tracker.Track(
                 annotation.ProjectId,
                 annotation.Kind,

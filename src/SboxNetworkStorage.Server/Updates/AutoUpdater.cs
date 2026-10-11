@@ -29,8 +29,18 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
     public TimeSpan HealthPollInterval { get; init; } = TimeSpan.FromSeconds(2);
 
     public async Task<InstallResult> InstallAsync(string fromVersion, string toVersion, string stagedBinary, string binary,
-        IReadOnlyList<ServerInstance> instances, string mode, CancellationToken ct)
+        IReadOnlyList<ServerInstance> instances, string mode, CancellationToken ct, bool allowDowngrade = false)
     {
+        if (Cli.UpdateCommands.IsDowngrade(fromVersion, toVersion))
+        {
+            // Fail closed: anything that is not provably an upgrade takes the manual downgrade path.
+            // The single data-preserving gate (floor rule plus the target's own probe) decides before
+            // anything is stopped; unattended runs never get here with allowDowngrade.
+            if (!allowDowngrade || mode != "manual") throw new InvalidOperationException("Automatic or unapproved downgrades are refused.");
+            var pre = await SchemaRollback.CheckDataPreservingAsync(host, binary, stagedBinary, instances, ct);
+            if (!pre.Safe) throw new InvalidOperationException($"{pre.Reason}; nothing was changed.");
+        }
+
         state.Ensure();
         var active = new List<ServerInstance>();
         foreach (var instance in instances)
@@ -50,6 +60,13 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
             {
                 log($"Stopping {instance.Unit}");
                 Require(await host.StopAsync(instance.Unit, ct), $"stop {instance.Unit}");
+            }
+
+            if (Cli.UpdateCommands.IsDowngrade(fromVersion, toVersion))
+            {
+                // Re-checked while stopped, before the backup and the swap.
+                var quiesced = await SchemaRollback.CheckDataPreservingAsync(host, binary, stagedBinary, instances, ct);
+                if (!quiesced.Safe) throw new UpdateStepException($"quiesced compatibility check failed: {quiesced.Reason}; nothing was installed or swapped.");
             }
 
             // Back up after stopping, so no accepted write can be lost by a restore.
@@ -109,14 +126,22 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
     /// binary once and every instance's backup, then starts the instances that were running.
     /// Only the fixed <paramref name="binary"/> is replaced and only <see cref="UpdateState.PreviousBinaryPath"/>
     /// is used as the source; the paths stored in the records are never followed. With <paramref name="keepData"/> the
-    /// databases are left exactly as they are (the caller has already verified the previous binary can run on them);
-    /// the layout revert and the health check still run.
+    /// databases are left exactly as they are (the single data-preserving gate re-verifies the previous binary
+    /// before anything stops, and again while stopped); the layout revert and the health check still run.
     /// </summary>
     public async Task<IReadOnlyList<string>> RollbackRecordedAsync(IReadOnlyList<(ServerInstance Instance, UpdateRecord Record)> recorded,
         string binary, CancellationToken ct, bool keepData = false)
     {
         state.Require();
         var first = recorded[0].Record;
+        if (keepData)
+        {
+            // Refused before anything stops: the previous binary must run on every database as it is.
+            var pre = await SchemaRollback.CheckDataPreservingAsync(host, binary, state.PreviousBinaryPath,
+                recorded.Select(r => r.Instance).ToList(), ct);
+            if (!pre.Safe) return [$"{pre.Reason}; --keep-data refused without changes"];
+        }
+
         var active = new List<ServerInstance>();
         foreach (var (instance, _) in recorded)
         {
@@ -166,6 +191,21 @@ public sealed class AutoUpdater(IUpdateHost host, UpdateState state, HttpClient 
         if (problems.Count > 0)
         {
             return problems;
+        }
+
+        // A keep-data rollback never restores databases, so re-verify the target while stopped:
+        // a refusal restarts the untouched services and changes nothing else.
+        if (!restoreDatabases)
+        {
+            foreach (var (instance, _) in backups)
+                await TryAsync($"compatibility {instance.Name}", async () => Require(
+                    await host.CheckCompatibilityAsync(previous, binary, instance, CancellationToken.None), $"target compatibility for {instance.Name}"));
+            if (problems.Count > 0)
+            {
+                foreach (var instance in active)
+                    await TryAsync($"restart unchanged {instance.Unit}", async () => Require(await host.StartAsync(instance.Unit, CancellationToken.None), $"start {instance.Unit}"));
+                return problems;
+            }
         }
 
         // A binary older than the state layout expects its secrets in the config folder. Without them it would

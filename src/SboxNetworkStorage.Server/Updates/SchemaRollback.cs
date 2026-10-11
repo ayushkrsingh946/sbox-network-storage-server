@@ -1,5 +1,6 @@
 using System.Text.Json;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Storage.Postgres;
 using SboxNetworkStorage.Storage.Relational;
 using SboxNetworkStorage.Storage.Sqlite;
 
@@ -91,8 +92,18 @@ public static class SchemaRollback
     /// Checks every instance's database against the target binary. Returns the first unsafe decision, or a safe one
     /// summarising the databases. Each database is read by the installed binary as the instance's service user.
     /// </summary>
-    public static async Task<RollbackDecision> CheckAsync(IUpdateHost host, string installedBinary, BinarySchemaInfo? target,
+    public static Task<RollbackDecision> CheckAsync(IUpdateHost host, string installedBinary, BinarySchemaInfo? target,
         IReadOnlyList<ServerInstance> instances, IReadOnlyList<SchemaMigration> known, CancellationToken ct)
+        => CheckAsync(host, installedBinary, target, instances, _ => known, ct);
+
+    /// <summary>
+    /// Checks every instance's database against the target binary. Returns the first unsafe decision, or a safe one
+    /// summarising the databases. Each database is read by the installed binary as the instance's service user.
+    /// <paramref name="knownFor"/> resolves the migration list per instance, so mixed SQLite/PostgreSQL hosts
+    /// name the right migrations in their reasons.
+    /// </summary>
+    public static async Task<RollbackDecision> CheckAsync(IUpdateHost host, string installedBinary, BinarySchemaInfo? target,
+        IReadOnlyList<ServerInstance> instances, Func<ServerInstance, IReadOnlyList<SchemaMigration>> knownFor, CancellationToken ct)
     {
         var reasons = new List<string>();
         foreach (var instance in instances)
@@ -103,7 +114,7 @@ public static class SchemaRollback
                 return new RollbackDecision(false, $"{instance.Name}: could not read the database schema state");
             }
 
-            var decision = Evaluate(state, target, known);
+            var decision = Evaluate(state, target, knownFor(instance));
             if (!decision.Safe)
             {
                 return decision with { Reason = instances.Count > 1 ? $"{instance.Name}: {decision.Reason}" : decision.Reason };
@@ -113,6 +124,46 @@ public static class SchemaRollback
         }
 
         return new RollbackDecision(true, string.Join("; ", reasons));
+    }
+
+    /// <summary>
+    /// The migration list the floor-rule reasons are read from: the instance's configured provider,
+    /// never a hardcoded driver. Only the human-readable part of the verdict uses it; the decision
+    /// itself comes from the database's recorded <c>min_binary_schema</c>.
+    /// </summary>
+    public static IReadOnlyList<SchemaMigration> KnownMigrationsFor(ServerInstance instance)
+        => string.Equals(instance.Config.GetString("database.provider"), "postgres", StringComparison.OrdinalIgnoreCase)
+            ? PostgresMigrations.All
+            : SqliteMigrations.All;
+
+    /// <summary>
+    /// The single data-preserving gate behind <c>rollback --keep-data</c> and downgrades.
+    /// The floor rule decides (the target's supported schema against each database's
+    /// <c>min_binary_schema</c>), and the target binary itself is asked through its non-mutating
+    /// <c>compatibility</c> probe, so the target's own migration knowledge is used. Either side
+    /// refusing stops everything before anything is stopped or swapped.
+    /// </summary>
+    public static async Task<RollbackDecision> CheckDataPreservingAsync(IUpdateHost host, string installedBinary, string targetBinary,
+        IReadOnlyList<ServerInstance> instances, CancellationToken ct)
+    {
+        var target = await host.ProbeSchemaInfoAsync(targetBinary, ct);
+        var floor = await CheckAsync(host, installedBinary, target, instances, KnownMigrationsFor, ct);
+        if (!floor.Safe)
+        {
+            return floor;
+        }
+
+        foreach (var instance in instances)
+        {
+            if (await host.CheckCompatibilityAsync(targetBinary, installedBinary, instance, ct) != 0)
+            {
+                var prefix = instances.Count > 1 ? $"{instance.Name}: " : string.Empty;
+                return new RollbackDecision(false,
+                    $"{prefix}the target binary's compatibility probe failed, so it cannot run on this database without a restore; nothing was changed");
+            }
+        }
+
+        return floor;
     }
 
     /// <summary>Parses the <c>db status --json</c> line.</summary>

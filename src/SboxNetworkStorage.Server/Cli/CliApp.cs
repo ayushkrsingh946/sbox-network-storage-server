@@ -68,6 +68,7 @@ public static class CliApp
         Database
           db test                       Connect to the configured database
           db status                     Show the schema version
+          compatibility [--json]        Non-mutating schema check for this binary (rollback/downgrade preflight)
           db migrate                    Apply pending schema migrations
           db backup [--output FILE]     Back up the database
           db restore <FILE>             Restore a backup (stop the server first)
@@ -166,6 +167,7 @@ public static class CliApp
                 "telemetry" => await TelemetryCommands.RunAsync(context),
                 "config" => ConfigCommands.Run(context),
                 "db" => await DatabaseCommands.RunAsync(context),
+                "compatibility" => await DatabaseCommands.CheckCompatibilityAsync(context),
                 "export" => await ExportCommands.ExportAsync(context),
                 "import" => await ExportCommands.ImportAsync(context),
                 "admin" => await AdminCommands.RunAsync(context),

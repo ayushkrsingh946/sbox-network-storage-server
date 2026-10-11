@@ -14,8 +14,10 @@ public sealed class ShippedAssemblyHygieneTests
     ];
 
     // These exact strings are wire-compatibility identifiers: excluded historical client route templates
-    // (keeping their catalog classification avoids changing wire compatibility) and the .NET host's
-    // single-file extraction variable, whose name contains "BUN". Descriptions/logs are not exempt.
+    // (keeping their catalog classification avoids changing wire compatibility), the .NET host's
+    // single-file extraction variable, whose name contains "BUN", and the client-protocol request body
+    // field "isPublishedGameBundle" (contains "Bun"), which the server reads to attribute game revisions.
+    // Descriptions/logs are not exempt.
     private static readonly HashSet<string> WireCompatibilityStrings = new(StringComparer.Ordinal)
     {
         "/v3/prototype/spacetimedb/:projectId/checkpoint",
@@ -28,7 +30,8 @@ public sealed class ShippedAssemblyHygieneTests
         "/v3/prototype/spacetimedb/:projectId/status",
         "/v3/prototype/spacetimedb/:projectId/storage/:collectionId/:key",
         "/v3/prototype/spacetimedb/:projectId/workflows",
-        "DOTNET_BUNDLE_EXTRACT_BASE_DIR="
+        "DOTNET_BUNDLE_EXTRACT_BASE_DIR=",
+        "isPublishedGameBundle"
     };
 
     private static readonly string[] RemovedTypes =

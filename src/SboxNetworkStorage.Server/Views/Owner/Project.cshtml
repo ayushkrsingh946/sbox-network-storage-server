@@ -19,6 +19,7 @@
     <article class="card metric"><span>API keys</span><strong>@Model.Keys.Count</strong><a href="#api-keys">Manage access →</a></article>
     <article class="card metric"><span>Project status</span><strong class="status-text">@(project.Enabled ? "Enabled" : "Disabled")</strong><span>s&box auth @((project.RequireSboxAuth ?? true) ? "required" : "off")</span></article>
 </section>
+<section class="card"><h2>Clients &amp; compatibility</h2><p>Updating this server does not require games to update their library. Inspect the versions still running before changing any compatibility policy.</p><a class="button secondary" href="@url/clients">Client versions &amp; policy impact</a></section>
 @if (Model.Error is not null) { <p class="error" role="alert">@Model.Error</p> }
 @if (Model.RawKey is not null)
 {

@@ -119,7 +119,10 @@ so old installs may need to step through an intermediate release
 Schema version 3 adds project/slug endpoint and project/key-identifier API-key
 indexes, plus surrogate primary keys for request logs and storage errors.
 Events sharing a project and millisecond are now kept separately. Existing log
-rows are preserved by the migration. Version 2 remains the earlier
+rows are preserved by the migration. On PostgreSQL, the v3 `ADD PRIMARY KEY`
+on the log tables takes an `ACCESS EXCLUSIVE` lock on each table for the whole
+migration: expect request/error-log writes to pause on large tables. Take a
+backup and migrate in a maintenance window. Version 2 remains the earlier
 legacy-player-projection opt-in migration.
 
 Before applying or testing migrations against an existing database, run
@@ -155,8 +158,12 @@ derived on read, so `db status` and `doctor` work either way.
 
 `sbox-ns db status` prints the floor (`Compat floor:`), and `db status --json` prints
 `{"provider","schemaVersion","minBinarySchema","supportedSchemaVersion"}`;
-`sbox-ns schema-info [--json]` prints the highest schema the binary supports. `rollback --keep-data` and
-`update --allow-downgrade` use exactly these (see [self-hosting.md](self-hosting.md#rolling-back)).
+`sbox-ns schema-info [--json]` prints the highest schema the binary supports, and
+`sbox-ns compatibility [--json]` runs this binary's non-mutating preflight (the floor-rule
+verdict plus the layout generation it understands). `rollback --keep-data` and
+`update --allow-downgrade` run the *target* binary's copy of that preflight against every
+instance's database, so either side refusing stops everything before the service is stopped
+(see [self-hosting.md](self-hosting.md#rolling-back)).
 
 Adding a migration: pick the tag with the rule above and put it in both drivers.
 `scripts/rollback-notes.sh` turns the tags into the release-notes line

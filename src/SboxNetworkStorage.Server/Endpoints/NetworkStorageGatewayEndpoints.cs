@@ -549,6 +549,7 @@ public static class NetworkStorageGatewayEndpoints
         }
 
         ClientIdentityContext.ApplyBodyLibraryVersion(context, body, "libraryVersion", "library_version");
+        ClientIdentityContext.ApplyBodyGameRevision(context, body);
         var result = await handler.ExecuteAsync(projectId, auth, steamId, body, context.RequestAborted);
 
         context.Response.StatusCode = result.StatusCode;

@@ -1,7 +1,9 @@
 using SboxNetworkStorage.Server.Cli;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Updates;
+using SboxNetworkStorage.Storage.Postgres;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Storage.Sqlite;
 
 namespace SboxNetworkStorage.Cli.Tests;
 
@@ -128,6 +130,30 @@ public sealed class SchemaRollbackTests
     }
 
     [Fact]
+    public async Task Gate_refuses_when_the_target_probe_disagrees_with_the_floor_rule()
+    {
+        // The floor rule passes, but the target binary itself says it cannot run on this database.
+        var current = BinarySchemaInfo.ForThisBuild();
+        var host = new StateHost(new Dictionary<string, SchemaState> { ["default"] = new(current.SupportedSchemaVersion, 1) })
+        {
+            Target = current,
+            ProbeExitCode = 1,
+        };
+
+        var ex = await Assert.ThrowsAsync<CliException>(() =>
+            UpdateCommands.RequireDataPreservingRollbackAsync(host, "sbox-ns", "previous", [Instance("default")], UpdateCommands.RestoreAlternative));
+
+        Assert.Contains("compatibility probe", ex.Message);
+    }
+
+    [Fact]
+    public void Gate_reads_reasons_from_the_instances_configured_provider_migrations()
+    {
+        Assert.Same(SqliteMigrations.All, SchemaRollback.KnownMigrationsFor(Instance("default")));
+        Assert.Same(PostgresMigrations.All, SchemaRollback.KnownMigrationsFor(PostgresInstance("pg")));
+    }
+
+    [Fact]
     public void Schema_info_round_trips_and_rejects_what_an_older_binary_prints()
     {
         var info = BinarySchemaInfo.ForThisBuild();
@@ -149,6 +175,10 @@ public sealed class SchemaRollbackTests
     private static ServerInstance Instance(string name)
         => new(name, "sbox-ns.service", ConfigLoader.Load(Path.Combine(Path.GetTempPath(), "sbox-ns-schema-rollback", "config"), Path.Combine(Path.GetTempPath(), "sbox-ns-schema-rollback", "data"), null, _ => null));
 
+    private static ServerInstance PostgresInstance(string name)
+        => new(name, "sbox-ns.service", ConfigLoader.Load(Path.Combine(Path.GetTempPath(), "sbox-ns-schema-rollback", "config"), Path.Combine(Path.GetTempPath(), "sbox-ns-schema-rollback", "data"),
+            new Dictionary<string, string> { ["database.provider"] = "postgres" }, _ => null));
+
     private sealed class StateHost(Dictionary<string, SchemaState> states) : IUpdateHost
     {
         public Dictionary<string, SchemaState> States { get; } = states;
@@ -167,6 +197,11 @@ public sealed class SchemaRollbackTests
         public Task<int> StopAsync(string unit, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<int> MigrateAsync(string binary, ServerInstance instance, CancellationToken ct) => throw new NotSupportedException();
+
+        public int ProbeExitCode { get; init; }
+
+        public Task<int> CheckCompatibilityAsync(string targetBinary, string installedBinary, ServerInstance instance, CancellationToken ct)
+            => Task.FromResult(ProbeExitCode);
 
         public Task<int> BackupAsync(string binary, ServerInstance instance, string outputPath, CancellationToken ct) => throw new NotSupportedException();
 

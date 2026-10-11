@@ -120,6 +120,7 @@ Setup and operations:
 | `quickstart` | Configure if needed, create or reuse a project, ensure keys, return the `NetworkStorage.Configure(...)` line. `requireSboxAuth: false` makes a development project that accepts requests without s&box tokens. |
 | `project_list`, `project_create` | Projects |
 | `project_authority` | Hosting profile and advisory authority findings for one project (read-only) |
+| `project_clients` | Read a project's 30-day client-version compatibility report: requests, approximate players, versions/statuses and affected share; does not enable a minimum |
 | `key_list`, `key_create` | API keys (secret keys are returned once, when created) |
 | `config_show`, `config_get`, `config_set`, `config_validate` | Settings (secrets hidden; secret settings cannot be set) |
 | `db_status`, `db_backup` | Database status and consistent backups |

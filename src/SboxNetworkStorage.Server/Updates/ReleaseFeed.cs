@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -96,6 +97,13 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// Most bytes accepted for one feed or manifest response. The feed and the <c>release.json</c>
+    /// manifest are small version documents: anything larger is a misconfiguration or a hostile
+    /// mirror, never a release this server should parse into memory unbounded.
+    /// </summary>
+    public const int MaxResponseBytes = 64 * 1024;
+
     public static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
@@ -123,15 +131,26 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
     /// <summary>
     /// Latest release allowed by <c>updates.include_prereleases</c>, or a specific tag. When the
     /// feed is unreachable the newest GitHub stable release is used, whatever the channel.
+    /// Same as <see cref="GetReleaseWithSourceAsync"/> without the source: binary updates behave as before.
     /// </summary>
     public async Task<ReleaseInfo> GetReleaseAsync(string? specificVersion, CancellationToken ct)
+        => (await GetReleaseWithSourceAsync(specificVersion, ct)).Release;
+
+    /// <summary>
+    /// Latest release allowed by <c>updates.include_prereleases</c>, or a specific tag, plus where it
+    /// came from. <c>FromSignedFeed</c> is true only for the feed URL compiled into the binary
+    /// (<see cref="UpdateTrust"/>): the only source a <c>libraryCompat</c> overlay may come from.
+    /// The GitHub <c>release.json</c> fallback is unsigned, so its overlay — if it has one — is
+    /// never applied. Binary-update callers use <see cref="GetReleaseAsync"/> and behave as before.
+    /// </summary>
+    public async Task<(ReleaseInfo Release, bool FromSignedFeed)> GetReleaseWithSourceAsync(string? specificVersion, CancellationToken ct)
     {
         var includePrereleases = config.GetBoolean("updates.include_prereleases");
         if (specificVersion is null && !includePrereleases)
         {
             try
             {
-                return await GetFromFeedAsync(ct);
+                return (await GetFromFeedAsync(ct), true);
             }
             catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException or InvalidDataException)
             {
@@ -139,7 +158,7 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
             }
         }
 
-        return await GetFromGitHubAsync(specificVersion, includePrereleases, ct);
+        return (await GetFromGitHubAsync(specificVersion, includePrereleases, ct), false);
     }
 
     /// <summary>
@@ -148,7 +167,7 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
     /// </summary>
     public async Task<ReleaseInfo> GetFromFeedAsync(CancellationToken ct)
     {
-        var fromFeed = await http.GetFromJsonAsync<ReleaseInfo>(FeedUrl, JsonOptions, ct);
+        var fromFeed = await GetJsonAsync<ReleaseInfo>(FeedUrl, ct);
         if (fromFeed is null || !SemanticVersion.TryParse(fromFeed.Version, out _))
         {
             throw new InvalidDataException($"the release feed {FeedUrl} returned no valid version");
@@ -174,11 +193,11 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
         if (specificVersion is not null)
         {
             var tag = specificVersion.StartsWith('v') ? specificVersion : "v" + specificVersion;
-            release = await http.GetFromJsonAsync<JsonElement>($"{api}/tags/{Uri.EscapeDataString(tag)}", JsonOptions, ct);
+            release = await GetJsonAsync<JsonElement?>($"{api}/tags/{Uri.EscapeDataString(tag)}", ct) ?? default;
         }
         else if (includePrereleases)
         {
-            var releases = await http.GetFromJsonAsync<JsonElement>($"{api}?per_page=20", JsonOptions, ct);
+            var releases = await GetJsonAsync<JsonElement?>($"{api}?per_page=20", ct) ?? default;
             release = releases.EnumerateArray()
                 .Where(r => !r.GetProperty("draft").GetBoolean())
                 .Where(r => SemanticVersion.TryParse(r.GetProperty("tag_name").GetString(), out _))
@@ -191,7 +210,7 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
         }
         else
         {
-            release = await http.GetFromJsonAsync<JsonElement>($"{api}/latest", JsonOptions, ct);
+            release = await GetJsonAsync<JsonElement?>($"{api}/latest", ct) ?? default;
         }
 
         var tagName = release.GetProperty("tag_name").GetString() ?? throw new InvalidOperationException("Release has no tag.");
@@ -201,7 +220,7 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
             {
                 if (asset.GetProperty("name").GetString() == "release.json")
                 {
-                    var manifest = await http.GetFromJsonAsync<ReleaseInfo>(asset.GetProperty("browser_download_url").GetString()!, JsonOptions, ct);
+                    var manifest = await GetJsonAsync<ReleaseInfo>(asset.GetProperty("browser_download_url").GetString()!, ct);
                     if (manifest is not null)
                     {
                         return manifest;
@@ -219,8 +238,36 @@ public sealed class ReleaseFeed(HttpClient http, EffectiveConfig config, UpdateT
             PublishedAt: release.TryGetProperty("published_at", out var published) && published.ValueKind == JsonValueKind.String ? published.GetDateTimeOffset() : null,
             Prerelease: release.TryGetProperty("prerelease", out var pre) && pre.GetBoolean());
     }
-
     /// <summary>Download URL of a named asset on the release tagged <c>v{version}</c>.</summary>
     public string AssetUrl(string version, string assetName)
         => $"https://github.com/{GitHubRepository}/releases/download/v{version.TrimStart('v')}/{assetName}";
+
+    /// <summary>
+    /// Reads one JSON document, refusing to buffer more than <see cref="MaxResponseBytes"/> bytes.
+    /// Same errors as the <c>GetFromJsonAsync</c> this replaces (HTTP failures, bad JSON, cancellation).
+    /// </summary>
+    private async Task<T?> GetJsonAsync<T>(string url, CancellationToken ct)
+    {
+        using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var rented = ArrayPool<byte>.Shared.Rent(8192);
+        try
+        {
+            using var bounded = new MemoryStream();
+            int read;
+            while ((read = await stream.ReadAsync(rented.AsMemory(), ct)) > 0)
+            {
+                if (bounded.Length + read > MaxResponseBytes)
+                    throw new InvalidDataException($"Response from {url} exceeds the {MaxResponseBytes}-byte cap.");
+                bounded.Write(rented.AsSpan(0, read));
+            }
+            bounded.Seek(0, SeekOrigin.Begin);
+            return await JsonSerializer.DeserializeAsync<T>(bounded, JsonOptions, ct);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
 }

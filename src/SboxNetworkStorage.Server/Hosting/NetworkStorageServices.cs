@@ -16,10 +16,12 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Infrastructure.Workspace;
 using SboxNetworkStorage.Server.Activity;
 using SboxNetworkStorage.Server.Alerts;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Infrastructure;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Storage;
+using SboxNetworkStorage.Storage.Relational;
 
 namespace SboxNetworkStorage.Server.Hosting;
 
@@ -45,6 +47,19 @@ public static class NetworkStorageServices
         services.AddMemoryCache();
 
         services.AddSingleton(TimeProvider.System);
+        // Client-version analytics and opt-in library policy (docs/compatibility.md). The tracker buffers
+        // per-request identity groups in memory; the writer flushes them into client_versions_daily.
+        services.AddSingleton<LibraryPolicyCache>();
+        services.AddSingleton<ClientVersionTracker>();
+        services.AddSingleton<IClientVersionStore>(sp =>
+        {
+            var admin = sp.GetRequiredService<INetworkStorageStoreAdmin>();
+            return admin is IClientVersionStore versions ? versions
+                : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IClientVersionStore)}: client-version analytics need a relational store.");
+        });
+        services.AddSingleton<ClientVersionsQuery>();
+        services.AddSingleton<ClientVersionWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<ClientVersionWriter>());
 
         // Errors are logged locally; the bounded in-memory archive backs correlation lookups.
         services.AddSingleton<IErrorArchive, InMemoryErrorArchive>();

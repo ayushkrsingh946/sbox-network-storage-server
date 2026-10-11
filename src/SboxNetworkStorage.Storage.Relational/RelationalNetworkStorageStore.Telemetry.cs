@@ -159,13 +159,15 @@ public abstract partial class RelationalNetworkStorageStore
 
     // ── storage_errors ──────────────────────────────────────────────
 
-    public Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct)
+    public Task InsertStorageErrorAsync(string projectId, long createdAtUnixMs, string errorId, string message, string? stackTrace, string? source, string? requestPath, string severity, CancellationToken ct, RequestClientInfo? client = null)
     {
         V.Id(projectId);
         return ExecuteAsync(_sql.InsertStorageError, ct,
             Text("project_id", projectId), Int64("created_at_unix_ms", createdAtUnixMs), Text("error_id", errorId),
             Text("message", message), Text("stack_trace", stackTrace ?? string.Empty), Text("source", source ?? string.Empty),
-            Text("request_path", requestPath ?? string.Empty), Text("severity", severity));
+            Text("request_path", requestPath ?? string.Empty), Text("severity", severity), Text("library_version", client?.LibraryVersion),
+            Text("client_type", client?.ClientType), Text("engine_version", client?.EngineVersion),
+            Int64("library_revision", client?.LibraryRevision), Int64("game_revision", client?.GameRevision));
     }
 
     public Task<IReadOnlyList<JsonElement>> ListStorageErrorsAsync(string projectId, int limit, CancellationToken ct)

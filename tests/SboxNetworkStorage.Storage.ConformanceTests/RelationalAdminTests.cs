@@ -250,7 +250,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3, 4], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4, 5], migration.AppliedVersions);
         var old = (await Store.ReadProjectAsync("old1", Ct))!.Value;
         Assert.True(old.GetProperty("legacyPlayerProjections").GetBoolean());
         Assert.Equal("Old", old.GetProperty("name").GetString());
@@ -261,8 +261,8 @@ public sealed class SqliteAdminTests : RelationalAdminTests
     }
 
     /// <summary>
-    /// Puts a migrated database back into its version 1 shape (version 3 objects removed, original
-    /// WITHOUT ROWID log tables), then runs <paramref name="seed"/> against it.
+    /// Puts a migrated database back into its version 1 shape (later indexes, tables and columns removed,
+    /// original WITHOUT ROWID log tables), then runs <paramref name="seed"/> against it.
     /// </summary>
     private async Task RevertToVersion1Async(string seed)
     {
@@ -274,6 +274,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
             DROP INDEX ix_api_keys_project_key_identifier;
             DROP TABLE storage_errors;
             DROP TABLE storage_request_log;
+            DROP TABLE client_versions_daily;
             CREATE TABLE storage_errors (project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, error_id TEXT, message TEXT, stack_trace TEXT, source TEXT, request_path TEXT, severity TEXT, PRIMARY KEY (project_id, created_at_unix_ms DESC)) STRICT, WITHOUT ROWID;
             CREATE TABLE storage_request_log (project_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, method TEXT, path TEXT, status_code INTEGER, duration_ms INTEGER, api_key_identifier TEXT, PRIMARY KEY (project_id, created_at_unix_ms DESC)) STRICT, WITHOUT ROWID;
             DELETE FROM schema_version WHERE version >= 2;
@@ -292,12 +293,12 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3, 4], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4, 5], migration.AppliedVersions);
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Assert.Equal(new[] { "/b", "/a" }, log.Select(r => Json.Str(r, "path")));
         Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
         Assert.Single(await Store.ListStorageRequestLogAsync("p2", 10, Ct));
-        Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error"}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
+        Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
 
         await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/d", 200, 1, null, Ct); // same millisecond as a migrated row
         Assert.Equal(3, (await Store.ListStorageRequestLogAsync("p1", 10, Ct)).Count);
@@ -314,23 +315,63 @@ public sealed class SqliteAdminTests : RelationalAdminTests
         {
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
-            // v4 on its own: take the three columns away again and mark only v4 as unapplied.
+            // v4 and v5 on their own: take their columns and table away again and mark only v4 and v5 as unapplied.
             command.CommandText = """
                 ALTER TABLE storage_request_log DROP COLUMN library_version;
                 ALTER TABLE storage_request_log DROP COLUMN client_type;
                 ALTER TABLE storage_request_log DROP COLUMN engine_version;
-                DELETE FROM schema_version WHERE version = 4;
+                ALTER TABLE storage_errors DROP COLUMN library_version;
+                ALTER TABLE storage_errors DROP COLUMN client_type;
+                ALTER TABLE storage_errors DROP COLUMN engine_version;
+                ALTER TABLE storage_errors DROP COLUMN library_revision;
+                ALTER TABLE storage_errors DROP COLUMN game_revision;
+                DROP TABLE client_versions_daily;
+                DELETE FROM schema_version WHERE version IN (4, 5);
                 """;
             await command.ExecuteNonQueryAsync();
         }
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([4], migration.AppliedVersions);
+        Assert.Equal([4, 5], migration.AppliedVersions);
         await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/new", 200, 1, null, Ct, new RequestClientInfo("1.1.0", "game", "26.10.02"));
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/old","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
         Json.Equal("""{"created_at_unix_ms":200,"method":"GET","path":"/new","status_code":200,"duration_ms":1,"api_key_identifier":"","library_version":"1.1.0","client_type":"game","engine_version":"26.10.02"}""", log[0]);
+    }
+
+    [Fact]
+    public async Task Migration_v5_adds_the_client_version_table_and_error_identity_columns_without_changing_existing_rows()
+    {
+        await Store.MigrateAsync(Ct);
+        await Store.InsertStorageErrorAsync("p1", 100, "e1", "boom", "trace", "worker", "/a", "error", Ct);
+        await using (var connection = new SqliteConnection($"Data Source={_path};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            // v5 on its own: take its table and columns away again and mark only v5 as unapplied.
+            command.CommandText = """
+                ALTER TABLE storage_errors DROP COLUMN library_version;
+                ALTER TABLE storage_errors DROP COLUMN client_type;
+                ALTER TABLE storage_errors DROP COLUMN engine_version;
+                ALTER TABLE storage_errors DROP COLUMN library_revision;
+                ALTER TABLE storage_errors DROP COLUMN game_revision;
+                DROP TABLE client_versions_daily;
+                DELETE FROM schema_version WHERE version = 5;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var migration = await Store.MigrateAsync(Ct);
+
+        Assert.Equal([5], migration.AppliedVersions);
+        Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
+        var versions = (IClientVersionStore)Store;
+        var key = new ClientVersionKey("p1", 1000, "1.1.0", 42, "game", 11);
+        await versions.WriteClientVersionsAsync([new(key, 3, 20, new byte[PlayerCountSketch.Size])], Ct);
+        var row = Assert.Single(await versions.ReadClientVersionsAsync("p1", 1000, Ct));
+        Assert.Equal(3, row.Requests);
+        Assert.Equal(key, row.Key);
     }
 
     [Fact]
@@ -404,7 +445,35 @@ public sealed class PostgresAdminTests : RelationalAdminTests
         await connection.OpenAsync();
         await using var command = new Npgsql.NpgsqlCommand("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = @s", connection);
         command.Parameters.AddWithValue("s", _schema);
-        Assert.Equal(30L, (long)(await command.ExecuteScalarAsync())!); // 29 data tables + schema_version
+        Assert.Equal(31L, (long)(await command.ExecuteScalarAsync())!); // 30 data tables + schema_version
+    }
+
+    [SkippableFact]
+    public async Task Migration_v5_adds_the_client_version_table_and_error_identity_columns_without_changing_existing_rows()
+    {
+        await Store.MigrateAsync(Ct);
+        await Store.InsertStorageErrorAsync("p1", 100, "e1", "boom", "trace", "worker", "/a", "error", Ct);
+        // v5 on its own: take its table and columns away again and mark only v5 as unapplied.
+        await TestDatabases.ExecutePostgresAsync($"""
+            ALTER TABLE "{_schema}".storage_errors DROP COLUMN library_version;
+            ALTER TABLE "{_schema}".storage_errors DROP COLUMN client_type;
+            ALTER TABLE "{_schema}".storage_errors DROP COLUMN engine_version;
+            ALTER TABLE "{_schema}".storage_errors DROP COLUMN library_revision;
+            ALTER TABLE "{_schema}".storage_errors DROP COLUMN game_revision;
+            DROP TABLE "{_schema}".client_versions_daily;
+            DELETE FROM "{_schema}".schema_version WHERE version = 5;
+            """);
+
+        var migration = await Store.MigrateAsync(Ct);
+
+        Assert.Equal([5], migration.AppliedVersions);
+        Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
+        var versions = (IClientVersionStore)Store;
+        var key = new ClientVersionKey("p1", 1000, "1.1.0", 42, "game", 11);
+        await versions.WriteClientVersionsAsync([new(key, 3, 20, new byte[PlayerCountSketch.Size])], Ct);
+        var row = Assert.Single(await versions.ReadClientVersionsAsync("p1", 1000, Ct));
+        Assert.Equal(3, row.Requests);
+        Assert.Equal(key, row.Key);
     }
 
     [Fact]
@@ -470,6 +539,17 @@ public sealed class MigrationTagTests
         Assert.Equal(SchemaChange.Breaking, SqliteMigrations.All[0].Compat);
         Assert.Equal(1, SchemaCompatibility.FloorAt(SqliteMigrations.All, SqliteMigrations.All.Count));
         Assert.Equal([SchemaChange.Breaking, SchemaChange.Additive, SchemaChange.Additive], SqliteMigrations.All.Take(3).Select(m => m.Compat));
+    }
+
+    [Fact]
+    public void Migration_lists_are_contiguous_from_one_with_an_explicit_tag_on_every_version()
+    {
+        Assert.Equal(SqliteMigrations.All.Count, PostgresMigrations.All.Count);
+        foreach (var migrations in new[] { SqliteMigrations.All, PostgresMigrations.All })
+        {
+            Assert.Equal(Enumerable.Range(1, migrations.Count), migrations.Select(m => m.Version));
+            Assert.All(migrations, m => Assert.True(Enum.IsDefined(m.Compat), $"Migration {m.Version} has no explicit SchemaChange tag."));
+        }
     }
 
     [Fact]
