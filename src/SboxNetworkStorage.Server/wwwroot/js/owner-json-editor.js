@@ -1,7 +1,7 @@
 "use strict";
 (function () {
-  // The textarea remains authoritative. Visual mode is opt-in and keeps unknown
-  // fields. JSON mode stays available without JavaScript.
+  // Visual mode is the default only when it can represent the source losslessly.
+  // Raw JSON remains available, and preserves unsafe numbers and authoritative source.
   function kind(value) { return value === null ? "null" : Array.isArray(value) ? "array" : typeof value; }
   function initial(type) { return { string: "", number: 0, boolean: false, null: null, object: {}, array: [] }[type]; }
   function put(object, key, value) { Object.defineProperty(object, key, { value: value, enumerable: true, writable: true, configurable: true }); }
@@ -58,7 +58,7 @@
     var root, active = false;
     var controls = element("div", undefined, "actions json-editor-controls");
     var visualButton = element("button", "Visual", "secondary");
-    var jsonButton = element("button", "JSON", "secondary");
+    var jsonButton = element("button", "Raw JSON", "secondary");
     visualButton.type = jsonButton.type = "button";
     visualButton.setAttribute("aria-pressed", "false"); jsonButton.setAttribute("aria-pressed", "true");
     controls.append(visualButton, jsonButton);
@@ -66,6 +66,12 @@
     var panel = element("div", undefined, "json-visual-editor"); panel.hidden = true;
     textarea.before(controls, message, panel);
     function error(text) { message.textContent = text; message.hidden = !text; }
+    function showSource(visible) {
+      var shell = textarea.closest(".source-editor");
+      (shell || textarea).hidden = !visible;
+      if (shell && shell.previousElementSibling && shell.previousElementSibling.classList.contains("source-actions")) shell.previousElementSibling.hidden = !visible;
+      if (visible && textarea._redrawSource) textarea._redrawSource();
+    }
     function sync() { textarea.value = JSON.stringify(root, null, 2); textarea.dispatchEvent(new Event("input", { bubbles: true })); }
     function drawValue(parent, key, depth) {
       var value = parent[key], type = kind(value);
@@ -123,7 +129,7 @@
       if (active) return;
       try { root = parse(textarea.value); render(); error(""); }
       catch (e) { error(e.message); return; }
-      active = true; panel.hidden = false; textarea.hidden = true;
+      active = true; panel.hidden = false; showSource(false);
       visualButton.setAttribute("aria-pressed", "true"); jsonButton.setAttribute("aria-pressed", "false");
     });
     function visualValid() {
@@ -134,7 +140,7 @@
         if (!visualValid()) return;
         sync();
       }
-      active = false; panel.hidden = true; textarea.hidden = false; error("");
+      active = false; panel.hidden = true; showSource(true); error("");
       visualButton.setAttribute("aria-pressed", "false"); jsonButton.setAttribute("aria-pressed", "true");
     });
     textarea.form.addEventListener("submit", function (event) {
@@ -142,6 +148,15 @@
       if (!visualValid()) { event.preventDefault(); return; }
       sync();
     });
+    textarea.addEventListener("change", function () {
+      if (!active) return;
+      try { root = parse(textarea.value); render(); error(""); }
+      catch (e) {
+        active = false; panel.hidden = true; showSource(true); error(e.message);
+        visualButton.setAttribute("aria-pressed", "false"); jsonButton.setAttribute("aria-pressed", "true");
+      }
+    });
+    visualButton.click();
   });
   // Test hook only: the browser never defines module, so this is inert in production.
   if (typeof module !== "undefined" && module.exports) module.exports = { decimal: decimal, exactNumber: exactNumber, scanProblems: scanProblems, parse: parse };

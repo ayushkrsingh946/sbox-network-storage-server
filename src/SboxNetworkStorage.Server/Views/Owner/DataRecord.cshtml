@@ -10,7 +10,6 @@
     var steamId = Model.Creating ? null : OwnerDataRecords.SteamId(collection, record.Key);
     var projectUrl = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
 }
-<a href="@collectionUrl">@Model.ProjectName · @collection.Name</a>
 <div class="page-heading">
     <div><h1>@(Model.Creating ? "Create record" : "Edit record") @if (!Model.Creating) { <code>@record.Key</code> }</h1></div>
     <div class="actions"><a class="button secondary" href="@collectionUrl">Back to records</a>@if (!Model.Creating) { <a class="button secondary" href="@recordUrl">Reload current record</a> }</div>

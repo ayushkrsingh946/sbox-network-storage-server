@@ -5,6 +5,7 @@ globalThis.document = {
   querySelector: () => null,
   querySelectorAll: () => [],
   getElementById: () => null,
+  addEventListener: () => {},
 };
 globalThis.window = { location: { pathname: "/" } };
 

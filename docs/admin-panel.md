@@ -173,6 +173,7 @@ project overview has a copyable first prompt that names the project ID.
 
 The overview keeps name, description, **Enabled** and **Require s&box
 authentication** open. The other settings are folded and closed by default.
+Project settings also has an optional colour. It tints the project tile on All projects and defaults to Automatic, which keeps the generated colour. Every project gets a generated tile with its initials, using the chosen colour or a generated one when Automatic is set.
 
 ### Hosting profile
 
@@ -333,28 +334,87 @@ collection type and expected version.
 
 ## Authoring and runtime diagnostics
 
-The project overview links to collection/schema, endpoint, workflow and query
-definitions and game values. Author definitions in YAML; the dashboard stores
+The project overview links to collection, endpoint, workflow and query
+lists and game values. Each list is a sortable table with one row per
+resource: the name opens a detail page, and **Quick preview** opens the same
+summary in a dialog (or the detail page without JavaScript). The detail page
+has **Overview**, **Edit** and **Code** tabs as server links (`?tab=`), so
+each tab works without JavaScript. **Overview** shows stored stats and a
+read-only outline with the full source. **Edit** keeps the definition editor
+full width. **Code** keeps the `Use from the game` guide full width. Game
+values render the detail layout directly, with no list. Old
+`.../resources/<kind>?id=<id>` links redirect to the detail page, and
+`?draft=<id>` redirects to `.../resources/<kind>/new?draft=<id>`.
+Author definitions in YAML; the dashboard stores
 your source text and compiles it with the same compiler as editor sync.
 Raw JSON is still accepted for older edits but is deprecated. Saving preserves
 source metadata and updates only the selected resource, not other definitions.
-
+Saving redirects to the detail page **Edit** tab of the saved id.
 Saved definitions are available to the runtime immediately. Editor sync can
-overwrite dashboard edits, so reconcile changes with your checked-in YAML/JSON
+overwrite dashboard edits, so reconcile changes with your checked-in YAML
 source. Endpoint expressions use double braces, such as `{{steamId}}` and
 `{{player.level}}`.
 
-The definition editor keeps **Check definition** and **Save live definition**
-alongside the source. Expand the endpoint or collection builder for routing,
-storage and snippet controls. Expand **Examples** below the editor to browse
-complete definitions; **Use example** replaces the editor text and asks for
-confirmation when it is not empty. Review the replacement before saving.
+The **Edit** tab keeps the definition editor with **Guided editor**, **Raw source** and
+**Examples**. Collections, endpoints, workflows, queries and game values all
+open in **Guided editor**. **Check definition** and **Save live definition**
+stay beside the editor. Changes stay local until you save.
+
+Guided editor shows the definition as collapsed blocks. Open a block to edit
+its options. Fields use typed controls: dropdowns for fixed choices, on/off
+switches for booleans, and text fields for the rest. Maps and lists nest
+inside blocks. **Expand all** opens every block; **Collapse all** closes them.
+
+Add buttons open a dialog. Pipeline steps come from a searchable palette
+grouped by purpose: Data, Logic, Values, Random, Flow and Integrations (22
+step types). New steps get a unique id based on the step type. Blocks offer
+**Duplicate** and **Remove**, and fields can be renamed. Reorder with the
+handle: drag it, use the up and down buttons, or press Alt+Up and Alt+Down
+on the handle.
+
+Guided edits write small targeted changes into the source text. Comments,
+unknown fields, quoting and formatting survive, and large integers keep
+their exact digits. Switching tabs never rewrites the source. **Raw source**
+is the same authoritative text with highlighting. Without JavaScript the raw
+textarea still edits and saves the full source.
+
+Saving parses the YAML on the server. A value that reads as a number or
+`true`/`false` is stored as that type even when it is quoted, so a string value
+such as `"200"` comes back as the number `200`. Game values are stored without
+their source text: after a save the editor shows the server's rendering of the
+stored values, without comments or the original formatting.
+
+Some sources need Raw. Invalid YAML, several documents, a top-level list or
+scalar, and definitions that carry authoritative `sourceText` show a notice
+in Guided and leave the source untouched. YAML aliases and anchors also
+route to Raw: alias blocks show an **Edit in Raw** button, and structural
+edits through a shared reference are rejected with a message. Failed edits
+never half-apply.
+
+The list and detail pages have a **New** button. It asks for an id (letters, numbers,
+underscore or hyphen, 1-128 characters) and opens a pristine
+`.../resources/<kind>/new?draft=<id>` template with that id. Nothing is published until you save. Leaving with
+unsaved changes still triggers the navigation warning.
+
+YAML, JSON and C# have local syntax highlighting. Click a source line number
+to select that line, or use **Go to line**. The line-number gutter also
+supports arrow keys, Home and End. **Copy source** copies the full textarea,
+not the highlighted markup. Tab inserts two spaces; Shift+Tab leaves the
+textarea. Ctrl+S / Command+S saves the definition. Unsaved source and
+unapplied block inputs trigger a navigation warning. Review inserted fields
+and expressions before saving.
+
+Open the **Examples** tab to browse complete definitions grouped by
+category. Each card shows a **Preview source** view and a **Use example**
+button. Replacement asks for confirmation in the shared confirm dialog when
+the editor is not empty. Saving stays a separate action. Review the
+replacement before saving.
 
 A new collection starts as `accessMode: endpoint`: game clients reach it only
 through endpoints and queries, and direct document calls answer
-`403 ENDPOINT_ONLY`. The collection builder sets **Game client access**
-(`accessMode: endpoint` or `public`) and **Deletes from game clients**
-(`allowRecordDelete`) together with the storage kind. See
+`403 ENDPOINT_ONLY`. **Game client access** (`accessMode: endpoint` or
+`public`) and **Deletes from game clients** (`allowRecordDelete`) sit with
+the storage kind. See
 [collection access from game clients](client-setup.md#collection-access-from-game-clients).
 
 A save that fails validation keeps your text and lists each diagnostic as
@@ -376,21 +436,52 @@ rules, webhooks and pages.
 
 ### Use from the game
 
-When an endpoint or collection is open in the editor, a **Use from the game**
-card shows the C# for it, with a **Copy** button:
+The detail page **Code** tab shows how to use the open collection, endpoint, workflow, query or game values,
+with a **Copy** button on every block. The card has tabs for copyable C# and a prepared agent prompt.
+Workflows add an endpoint-step tab with the YAML step that runs them.
+Internal endpoints show an endpoint-step tab and an agent prompt instead of
+game code. New drafts get the same card with skeleton values: it says to
+save first and shows no **Test this endpoint** link. The prompt includes the
+current editor source, with unsaved changes. Every block names the live
+project and resource. No block ever contains a secret key.
 
+- Setup: the exact `NetworkStorage.Configure( "<projectId>", "<public key>", "<base URL>" );`
+  line, with the oldest enabled public key and the dashboard base URL
+  (`server.public_url`, otherwise the dashboard address). Without an enabled
+  public key the card says to create one under API keys. It warns when the
+  base URL is loopback-only or plain HTTP.
 - Endpoints: `await NetworkStorage.CallEndpoint( "<slug>", new { ... } );`
   with the input filled from the endpoint's `input` schema (declared defaults,
   otherwise a value of the declared type), followed by the
   `TryGetLastEndpointError` check. The `endpoint_snippet` MCP tool returns the
   same code. Links open **Endpoint tests** with the endpoint selected and its
-  **Version history**.
+  **Version history**. Secret endpoints say to call them from a dedicated
+  server, never from the game client. Internal endpoints never run over HTTP:
+  the card shows the calling route (`action: run`, `flow: <slug>`) instead of
+  game code.
 - Collections with `accessMode: public`: `GetDocument` and `SaveDocument` for
   the player's own document (per-player) or a named record (global), with the
-  saved object built from the schema. Other collections say to call an
-  endpoint instead, because direct calls answer `403 ENDPOINT_ONLY`. A link
-  opens the collection in the data browser.
-- Workflows link to their version history.
+  saved object built from the schema. The card also says when deletes from
+  game clients are off. Other collections name an endpoint that reads or
+  writes them and show its call, because direct calls answer
+  `403 ENDPOINT_ONLY`. A link opens the collection in the data browser.
+- Workflows: game code can never run a workflow directly. The card shows the
+  endpoint step that runs it (`type: workflow`, `workflow: <id>`, params from
+  the workflow's `params`), names the endpoints that run it when any do, and
+  shows the C# that calls the first one. Links open its **Version history**.
+- Queries: `await NetworkStorage.RunQuery( "<queryId>" );`. The card says
+  results are shared between callers for the cache TTL, and that forced fresh
+  runs need a secret key. Secret queries say to run them from a dedicated
+  server only.
+- Game values: `await NetworkStorage.GetGameValues();`, which reads every
+  group and table in one call. The card lists the saved groups and tables and
+  says values are read-only from game code.
+- Agent prompt: a prepared prompt that names the project ID and resource, and
+  tells the agent which `sbox-ns` MCP tools to use (`definition_get`,
+  `endpoint_test`, `logs_requests`, `errors_recent`, `data_records`,
+  `definition_check`) before changing anything. Paste it into a session after
+  connecting the agent (see [coding agents](mcp.md)).
+
 
 ### Pages
 
@@ -460,19 +551,26 @@ with the required configuration/secrets, not a portable project archive.
 
 ## Themes and visual editing
 
-The theme selector offers System, Dark, Light, Slate and Warm. System follows
+The theme selector offers System, Dark, Light, Mint, Slate and Warm. System follows
 your operating system. Your choice is stored in this browser only; it does not
 change other operators' dashboards. All themes work without external assets.
 The shared design rules live in [UI guidelines](ui-guidelines.md).
 
-Record payloads open in JSON mode. Select **Visual**
-to edit strings, numbers, booleans, objects and arrays without writing JSON.
-You can add or remove nested fields, then switch back to JSON or save directly.
-Unknown fields are kept.
+Record payloads and endpoint-test inputs open in **Visual** when they can be
+represented without loss. Edit strings, numbers, booleans, objects and arrays
+without writing JSON, add or remove nested fields, then switch to **Raw JSON**
+or save directly. Unknown fields are kept. Duplicate keys, precision-sensitive
+numbers and definitions with authoritative `sourceText` stay in raw mode.
 
-Visual mode refuses duplicate keys and numbers that JavaScript would round.
 Both modes use the same server-side schema validation, permission checks
 and conflict detection.
+
+Collection, record, key, activity, client-version, rate-limit and saved-test
+tables have clickable column labels. Click once for ascending order and again
+for descending; the arrow and `aria-sort` state show the current direction.
+Sorting only reorders displayed rows. Record pagination, database ordering and
+server-side filters remain unchanged. Action/preview columns and ordered
+execution steps are not sortable.
 
 ## Optional admin security
 

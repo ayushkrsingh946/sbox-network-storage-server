@@ -468,6 +468,19 @@ public sealed class NetworkStorageProjectService(
                     var hosting = formValues.GetValueOrDefault("hostingProfile");
                     if (hosting is "player-hosted" or "dedicated" or "hybrid" or "unset")
                         project = project with { HostingProfile = hosting == "unset" ? null : hosting };
+                    // The colour picker and the "Automatic colour" checkbox share the
+                    // field name, so a checked box arrives as "color=#rrggbb,auto".
+                    // A missing field keeps the current value. Any "auto" part or an
+                    // explicitly empty value clears it; the first valid #rrggbb part
+                    // wins and anything else keeps the current value.
+                    if (formValues.TryGetValue("color", out var colorPosted))
+                    {
+                        var colorParts = colorPosted.Trim().Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+                        if (colorParts.Length == 0 || colorParts.Any(part => string.Equals(part, "auto", StringComparison.OrdinalIgnoreCase)))
+                            project = project with { Color = null };
+                        else if (colorParts.FirstOrDefault(IsProjectColor) is { } color)
+                            project = project with { Color = color.ToLowerInvariant() };
+                    }
                     break;
                 }
             case "security":
@@ -999,6 +1012,10 @@ public sealed class NetworkStorageProjectService(
         => string.Equals(value, "on", StringComparison.OrdinalIgnoreCase)
            || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
            || string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsProjectColor(string? value)
+        => value is { Length: 7 } color && color[0] == '#'
+           && color[1..].All(Uri.IsHexDigit);
 
     private static Dictionary<string, string> DefaultPermissions()
     {

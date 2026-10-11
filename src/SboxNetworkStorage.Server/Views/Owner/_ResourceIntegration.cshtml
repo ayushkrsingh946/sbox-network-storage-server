@@ -1,0 +1,34 @@
+@model SboxNetworkStorage.Server.Owner.OwnerResourceIntegration
+@using SboxNetworkStorage.Server.Owner
+<section class="card integration-guide" id="use-from-game">
+    <h2>@Model.Heading</h2>
+    @if (Model.Intro is not null)
+    {
+        <p class="muted">@Model.Intro @if (Model.Kind == "collection") { <a href="@OwnerDocs.Url("client-setup.md#collection-access-from-game-clients")" rel="noreferrer">Collection access</a> }</p>
+    }
+    @if (Model.Configure is not null)
+    {
+        <p class="muted">Paste this line into the game's startup code first. Only the public key belongs in game builds.</p>
+        <div class="copy-row"><pre data-language="csharp">@Model.Configure</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+    }
+    @if (Model.SetupNote is not null) { <p class="notice">@Model.SetupNote</p> }
+    <div data-tabs>
+        <div class="workbench-tabs" role="tablist" aria-label="@Model.Heading">
+            @foreach (var panel in Model.Panels)
+            {
+                <button type="button" role="tab" id="@(panel.Id)-tab" aria-controls="@panel.Id" data-tab="@panel.Id">@panel.Label</button>
+            }
+        </div>
+        @foreach (var panel in Model.Panels)
+        {
+            <div id="@panel.Id" role="tabpanel" aria-labelledby="@(panel.Id)-tab">
+                <div class="copy-row"><pre @if (panel.Language is not null) { <text>data-language="@panel.Language"</text> } else { <text>data-prompt-source="definition"</text> }>@panel.Code</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+            </div>
+        }
+    </div>
+    <div class="actions resource-links">
+        @if (Model.TestUrl is not null) { <a class="button secondary" href="@Model.TestUrl">Test this endpoint</a> }
+        @if (Model.VersionsUrl is not null) { <a class="button secondary" href="@Model.VersionsUrl">Version history</a> }
+        @if (Model.DataUrl is not null) { <a class="button secondary" href="@Model.DataUrl">Browse records</a> }
+    </div>
+</section>

@@ -12,7 +12,7 @@
     var agentPrompt = $"My sbox-ns project ID is {project.Id}. Use the sbox-ns MCP tools to read its definitions, recent requests and errors before you change anything, and dry-run endpoints with endpoint_test before I play.";
 }
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
-<div class="page-heading"><div><h1>@project.Name</h1><p>@project.Description</p><code>@project.Id</code></div><a class="button" href="@url/data">Browse data</a></div>
+<div class="page-heading"><div class="project-title">@OwnerProjectIcon.For(project, 56)<div><h1>@project.Name</h1>@if (!string.IsNullOrEmpty(project.Description)) { <p>@project.Description</p> }<code>@project.Id</code></div></div><a class="button" href="@url/data">Browse data</a></div>
 <section class="grid overview-grid">
     <article class="card metric"><span>Collections</span><strong>@(Model.Resources?.Collections.Count ?? 0)</strong><a href="@url/resources/collection">Manage schemas →</a></article>
     <article class="card metric"><span>Endpoints</span><strong>@(Model.Resources?.Endpoints.Count ?? 0)</strong><a href="@url/resources/endpoint">Author endpoints →</a></article>
@@ -31,9 +31,8 @@
     </aside>
 }
 <section class="card" id="connect">
-    <h2>Connect your game</h2>
-    <p>Paste this line into your game's startup code (for example a GameObjectSystem). Keep secret keys out of game builds.</p>
-    <div class="copy-row"><pre>@configure</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+    <div class="section-head"><div><h2>Connect your game</h2><p>Paste this line into your game's startup code (for example a GameObjectSystem). Keep secret keys out of game builds.</p></div><div class="page-actions"><a class="button secondary" href="@url/activity/logs">Request log</a></div></div>
+    <div class="copy-row"><pre data-language="csharp">@configure</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
     @if (connect.PublicKey is null) { <p class="notice">This project has no enabled public key. Create one under <a href="#api-keys">API keys</a>; the line above then shows it.</p> }
     @if (!connect.FromPublicUrl && connect.IsLoopback)
     {
@@ -49,23 +48,23 @@
     }
     <h3>Editor setup window</h3>
     <p>Or enter the same values in <strong>Editor &gt; Network Storage &gt; Setup</strong> in the s&amp;box editor, and leave CDN URL empty.</p>
-    <dl class="connect-fields">
-        <dt>Project ID</dt><dd><code>@project.Id</code><button type="button" class="secondary" data-copy-previous>Copy</button></dd>
-        <dt>Public API Key</dt><dd>@if (connect.PublicKey is not null) { <code>@connect.PublicKey</code><button type="button" class="secondary" data-copy-previous>Copy</button> } else { <span class="muted">Create a public key under API keys.</span> }</dd>
-        <dt>Base URL</dt><dd><code>@connect.BaseUrl</code><button type="button" class="secondary" data-copy-previous>Copy</button></dd>
-        <dt>Secret Key</dt><dd><span class="muted">Shown once when you create a secret key under API keys. Only the editor Sync Tool needs it.</span></dd>
-    </dl>
+    <ul class="rows">
+        <li><span class="row-label">Project ID</span><span class="row-value"><code>@project.Id</code><button type="button" class="secondary" data-copy-previous>Copy</button></span></li>
+        <li><span class="row-label">Public API Key</span><span class="row-value">@if (connect.PublicKey is not null) { <code>@connect.PublicKey</code><button type="button" class="secondary" data-copy-previous>Copy</button> } else { <span class="muted">Create a public key under API keys.</span> }</span></li>
+        <li><span class="row-label">Base URL</span><span class="row-value"><code>@connect.BaseUrl</code><button type="button" class="secondary" data-copy-previous>Copy</button></span></li>
+        <li><span class="row-label">Secret Key</span><span class="row-value"><span class="muted">Shown once when you create a secret key under API keys. Only the editor Sync Tool needs it.</span></span></li>
+    </ul>
     <h3>Checklist</h3>
     <div class="table-scroll"><table class="checklist">
         <thead><tr><th scope="col">Step</th><th scope="col">Status</th><th scope="col">Details</th></tr></thead>
         <tbody>
-        <tr><td>A public key exists</td><td>@(connect.PublicKey is null ? "Not yet" : "Done")</td><td>@(connect.PublicKey is null ? "Create a public key under API keys." : "The game uses it in NetworkStorage.Configure.")</td></tr>
-        <tr><td>A collection or endpoint is defined</td><td>@(hasDefinitions ? "Done" : "Not yet")</td><td>Define them under <a href="@url/resources/collection">Collections</a> and <a href="@url/resources/endpoint">Endpoints</a>, or push them with <strong>Editor &gt; Network Storage &gt; Sync Tool</strong>.</td></tr>
-        <tr><td>The game reached this server</td><td>@(Model.LastRequest is null ? "Not yet" : "Done")</td><td>
+        <tr><td>A public key exists</td><td><span class="badge @(connect.PublicKey is null ? "" : "positive")">@(connect.PublicKey is null ? "Not yet" : "Done")</span></td><td>@(connect.PublicKey is null ? "Create a public key under API keys." : "The game uses it in NetworkStorage.Configure.")</td></tr>
+        <tr><td>A collection or endpoint is defined</td><td><span class="badge @(hasDefinitions ? "positive" : "")">@(hasDefinitions ? "Done" : "Not yet")</span></td><td>Define them under <a href="@url/resources/collection">Collections</a> and <a href="@url/resources/endpoint">Endpoints</a>, or push them with <strong>Editor &gt; Network Storage &gt; Sync Tool</strong>.</td></tr>
+        <tr><td>The game reached this server</td><td><span class="badge @(Model.LastRequest is null ? "" : "positive")">@(Model.LastRequest is null ? "Not yet" : "Done")</span></td><td>
         @if (Model.LastRequest is { } last) { <span>Last request @When(last.At): @last.Method <code>@last.Path</code> (status @last.Status). <a href="@url/activity/logs">Request log</a></span> }
         else { <span>No requests in the last @SboxNetworkStorage.Server.Activity.RuntimeActivityLog.Retention.Days days. From the game machine run <code>curl @connect.BaseUrl/health</code> and <code>curl @connect.BaseUrl/v3/server-info</code>. If they fail, check the firewall or port forward.</span> }
         </td></tr>
-        <tr><td>Rejected requests in the last 24 hours</td><td>@(Model.RecentRejected.Count == 0 ? "None" : Model.RecentRejected.Count.ToString(CultureInfo.InvariantCulture))</td><td>
+        <tr><td>Rejected requests in the last 24 hours</td><td><span class="badge">@(Model.RecentRejected.Count == 0 ? "None" : Model.RecentRejected.Count.ToString(CultureInfo.InvariantCulture))</span></td><td>
         @if (Model.RecentRejected.Count == 0) { <span>No 401 or 403 responses in the recent request log.</span> }
         else
         {
@@ -94,18 +93,17 @@
     }
 </section>
 <section class="card" id="api-keys">
-    <h2>API keys</h2>
-    <p><code>sbox_ns_...</code> public keys are runtime credentials. <code>sbox_sk_...</code> secret keys must stay server-side.</p>
-    @if (Model.Keys.Count == 0) { <p class="muted">No API keys yet. Create a public key for the game below.</p> }
+    <div class="section-head"><div><h2>API keys</h2><p><code>sbox_ns_...</code> public keys are runtime credentials. <code>sbox_sk_...</code> secret keys must stay server-side.</p></div><div class="page-actions"><button type="button" data-dialog="create-key">Create key</button></div></div>
+    @if (Model.Keys.Count == 0) { <p class="muted">No API keys yet. Create a public key for the game with the button above.</p> }
     else
     {
-    <div class="table-scroll"><table>
+    <div class="table-scroll"><table data-sortable>
         <thead><tr><th>Label</th><th>Type</th><th>Status</th><th>Created (UTC)</th><th>Key identifier</th><th>Permissions</th><th>Actions</th></tr></thead>
         <tbody>
         @foreach (var key in Model.Keys)
         {
             <tr>
-                <td>@key.Label</td><td>@key.KeyType</td><td>@(key.Enabled ? "Enabled" : "Disabled")</td><td>@key.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
+                <td>@key.Label</td><td>@key.KeyType</td><td><span class="badge @(key.Enabled ? "positive" : "")">@(key.Enabled ? "Enabled" : "Disabled")</span></td><td>@key.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td>
                 <td><code>@(key.KeyType == "public" ? key.Key : key.KeyIdentifier ?? "Secret (hidden)")</code></td>
                 <td>
                     @if (key.KeyType != "secret") { <span class="muted">Runtime key</span> }
@@ -130,7 +128,7 @@
                 <td class="actions">
                     <form method="post" action="@url/keys/toggle">
                         @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" />
-                        <button type="submit">@(key.Enabled ? "Disable" : "Enable")</button>
+                        <button type="submit" class="secondary">@(key.Enabled ? "Disable" : "Enable")</button>
                     </form>
                     <form method="post" action="@url/keys/revoke">
                         @Html.AntiForgeryToken()<input name="key" type="hidden" value="@key.Key" /><input name="confirmTitle" type="hidden" value="Revoke API key" /><input name="confirmMessage" type="hidden" value="Revoke the key &quot;@key.Label&quot; permanently? Games using it stop working." />
@@ -142,6 +140,7 @@
         </tbody>
     </table></div>
     }
+    <noscript>
     <h3>Create key</h3>
     <form method="post" action="@url/keys">
         @Html.AntiForgeryToken()
@@ -149,14 +148,24 @@
         <label>Type <select name="keyType"><option value="public">Public (game runtime)</option><option value="secret">Secret (editor / server)</option></select></label>
         <button type="submit">Create key</button>
     </form>
+    </noscript>
+    <dialog class="owner-dialog" id="create-key" aria-labelledby="create-key-title"><div class="owner-dialog-body"><h2 id="create-key-title">Create key</h2><form method="post" action="@url/keys">
+        @Html.AntiForgeryToken()
+        <label>Label <input name="label" required maxlength="64" data-autofocus /></label>
+        <label>Type <select name="keyType"><option value="public">Public (game runtime)</option><option value="secret">Secret (editor / server)</option></select></label>
+        <div class="owner-dialog-actions"><button type="submit">Create key</button><button type="submit" class="secondary" formmethod="dialog" formnovalidate value="cancel">Cancel</button></div>
+    </form></div></dialog>
 </section>
-<section class="grid">
+<section class="grid" id="project-settings">
     <article class="card">
         <h2>Project settings</h2>
         <form method="post" action="@url/settings">
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="project" />
             <label>Name <input name="name" value="@project.Name" required maxlength="64" /></label>
             <label>Description <textarea name="description" maxlength="256">@project.Description</textarea></label>
+            <label>Project colour <input type="color" name="color" value="@(project.Color ?? OwnerProjectIcon.DefaultColor(project.Id))" /></label>
+            <p class="muted">Sets the project tile on the dashboard. Tick Automatic colour to use the generated colour.</p>
+            <label class="check"><input type="checkbox" name="color" value="auto" checked="@(project.Color is null)" /> Automatic colour</label>
             <label class="check"><input type="checkbox" name="enabled" value="true" checked="@project.Enabled" /> Enabled</label>
             <label>How the game is hosted <select name="hostingProfile"><option value="player-hosted" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "player-hosted")">A player hosts (listen server, public key only)</option><option value="dedicated" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "dedicated")">Dedicated server (secret key)</option><option value="hybrid" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "hybrid")">Both player-hosted and dedicated</option><option value="unset" selected="@(SboxNetworkStorage.Domain.Workspace.WorkspaceProjectProfiles.NormalizeHostingProfile(project.HostingProfile) == "unset")">Not set</option></select></label>
             <button type="submit">Save project settings</button>
@@ -208,6 +217,8 @@
         <p class="muted">This server does not block any request. It only reports these settings to the client library and the editor Sync Tool, and tells the client through revision-init when its game revision is outdated. What happens to an outdated player is up to the client library. <a href="@OwnerDocs.Url("admin-panel.md#revision-policy")" rel="noreferrer">Revision policy</a></p>
         <form method="post" action="@url/settings">
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="revisions" />
+            <fieldset class="manage-windows"><legend>Enforcement (applied by the client library)</legend>
+            <div class="form-grid">
             <label class="check"><input type="checkbox" name="revisionEnforcementEnabled" value="true" checked="@(project.RevisionEnforcementEnabled == true)" /> Enforce the revision policy in the client library</label>
             <label>Mode <select name="revisionEnforcementMode">
                 <option value="allow_continue" selected="@(project.RevisionEnforcementMode != "force_upgrade")">Let outdated players continue</option>
@@ -219,15 +230,25 @@
                 <option value="block_all" selected="@(project.RevisionPostGraceAction == "block_all")">Client library blocks all requests</option>
             </select></label>
             <label>Escalate after (minutes) <input type="number" name="revisionEscalateAfterMinutes" value="@project.RevisionEscalateAfterMinutes" min="60" max="1440" placeholder="Never" /></label>
+            <label class="check"><input type="checkbox" name="revisionForceEndpointUpgrade" value="true" checked="@(project.RevisionForceEndpointUpgrade == true)" /> Require upgraded endpoints</label>
+            </div>
+            </fieldset>
+            <fieldset class="manage-windows"><legend>Player messaging</legend>
+            <div class="form-grid">
             <label>Notice for outdated players <textarea name="revisionNotifyMessage" maxlength="500">@project.RevisionNotifyMessage</textarea></label>
             <label class="check"><input type="checkbox" name="revisionShowDefaultMessage" value="true" checked="@(project.RevisionShowDefaultMessage == true)" /> Show the default message</label>
-            <label class="check"><input type="checkbox" name="revisionForceEndpointUpgrade" value="true" checked="@(project.RevisionForceEndpointUpgrade == true)" /> Require upgraded endpoints</label>
             <label>New version banner <select name="revisionShowNewVersionBanner"><option value="true" selected="@(project.RevisionShowNewVersionBanner != false)">Show</option><option value="false" selected="@(project.RevisionShowNewVersionBanner == false)">Hide</option></select></label>
             <label>Update options <select name="revisionShowUpdateOptions"><option value="true" selected="@(project.RevisionShowUpdateOptions != false)">Show</option><option value="false" selected="@(project.RevisionShowUpdateOptions == false)">Hide</option></select></label>
             <label>Outdated popup <select name="revisionShowPopupOnce"><option value="true" selected="@(project.RevisionShowPopupOnce != false)">Once per session</option><option value="false" selected="@(project.RevisionShowPopupOnce == false)">Every time</option></select></label>
+            </div>
+            </fieldset>
+            <fieldset class="manage-windows"><legend>Test simulation</legend>
+            <div class="form-grid">
             <label class="check"><input type="checkbox" name="revisionTestOutdatedEditor" value="true" checked="@(project.RevisionTestOutdatedEditor == true)" /> Simulate an outdated client in the editor</label>
             <label class="check"><input type="checkbox" name="revisionTestOutdatedLive" value="true" checked="@(project.RevisionTestOutdatedLive == true)" /> Simulate an outdated client in live builds</label>
-            <button type="submit">Save revision policy</button>
+            </div>
+            </fieldset>
+            <div class="actions"><button type="submit">Save revision policy</button></div>
         </form>
     </details>
 </section>
@@ -238,11 +259,11 @@
     <div class="actions resource-links"><a class="button secondary" href="@url/tests">Endpoint tests</a><a class="button secondary" href="@url/versions">Version history</a><a class="button secondary" href="@url/rate-limits">Rate limit rules</a><a class="button secondary" href="@url/webhooks">Webhooks</a><a class="button secondary" href="@url/pages">Pages</a></div>
     <h3>Collections</h3>
     @if (Model.Resources?.Collections.Count is null or 0) { <p class="muted">No collections yet. Create one under Collections or push it with the editor Sync Tool.</p> }
-    else { <ul>@foreach (var collection in Model.Resources.Collections) { <li><a href="@url/data/@Uri.EscapeDataString(collection.Id)"><strong>@collection.Name</strong></a> · @collection.CollectionType · <code>@collection.Id</code> · @collection.Description</li> }</ul> }
+    else { <ul class="rows">@foreach (var collection in Model.Resources.Collections) { <li><span class="row-label"><a href="@url/data/@Uri.EscapeDataString(collection.Id)">@collection.Name</a>@if (!string.IsNullOrEmpty(collection.Description)) { <span class="row-sub">@collection.Description</span> }</span><span class="row-value"><span class="muted">@collection.CollectionType</span><code>@collection.Id</code></span></li> }</ul> }
     <h3>Endpoints</h3>
     @if (Model.Resources?.Endpoints.Count is null or 0) { <p class="muted">No endpoints yet. Create one under Endpoints or push it with the editor Sync Tool.</p> }
-    else { <ul>@foreach (var endpoint in Model.Resources.Endpoints) { <li><a href="@url/resources/endpoint?id=@Uri.EscapeDataString(endpoint.Id)"><strong>@endpoint.Name</strong></a> · @endpoint.Method <code>@endpoint.Slug</code> · @(endpoint.Enabled ? "Enabled" : "Disabled")</li> }</ul> }
-    <div class="actions resource-links"><a href="@url/activity/analytics">Player analytics</a><a href="@url/activity/logs">Audit &amp; request logs</a><a href="@url/activity/errors">Errors</a><a href="@url/activity/usage">Usage</a></div>
+    else { <ul class="rows">@foreach (var endpoint in Model.Resources.Endpoints) { <li><span class="row-label"><a href="@url/resources/endpoint/@Uri.EscapeDataString(endpoint.Id)">@endpoint.Name</a><span class="row-sub">@endpoint.Method <code>@endpoint.Slug</code></span></span><span class="row-value"><span class="badge @(endpoint.Enabled ? "positive" : "")">@(endpoint.Enabled ? "Enabled" : "Disabled")</span></span></li> }</ul> }
+    <div class="actions resource-links"><a class="button secondary" href="@url/activity/analytics">Player analytics</a><a class="button secondary" href="@url/activity/logs">Audit &amp; request logs</a><a class="button secondary" href="@url/activity/errors">Errors</a><a class="button secondary" href="@url/activity/usage">Usage</a></div>
 </section>
 <section class="card" id="coding-agent">
     <h2>Use with a coding agent</h2>

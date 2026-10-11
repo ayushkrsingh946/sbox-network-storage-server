@@ -1,17 +1,7 @@
 "use strict";
-// Examples gallery, full step palette and live definition check for the
-// resources editor. The YAML textarea stays authoritative: gallery inserts and
-// palette snippets only edit the text, and saving still runs server validation.
+// Examples and live definition checks. Block additions use the parsed AST model;
+// the source textarea remains authoritative and saving still validates on the server.
 (function () {
-  // Step palette groups mirror the executor's step families.
-  var stepGroups = {
-    Data: ["read", "write", "delete", "lookup", "filter", "lookup_many", "random_select"],
-    Logic: ["condition", "assert"],
-    Values: ["transform", "object", "array", "merge", "sort", "switch", "compute"],
-    Random: ["random"],
-    Flow: ["block", "workflow", "sleep", "response"],
-    Integrations: ["webhook"]
-  };
   function callSummary(call) {
     var parts = [(call.method || "POST"), call.secret ? "secret key" : "public key", "expects " + call.status];
     if (call.input) parts.push("input " + call.input);
@@ -23,7 +13,7 @@
     return { projectRoot: "/dashboard/projects/" + match[1] + "/resources", kind: match[2] || "endpoint" };
   }
   // Test hook only: the browser never defines module, so this is inert in production.
-  if (typeof module !== "undefined" && module.exports) module.exports = { stepGroups: stepGroups, callSummary: callSummary, projectPaths: projectPaths };
+  if (typeof module !== "undefined" && module.exports) module.exports = { projectPaths: projectPaths };
 
   var textarea = document.getElementById("definition");
   if (!textarea) return;
@@ -32,16 +22,6 @@
   var projectRoot = paths.projectRoot;
   var kind = paths.kind;
 
-  function insert(text) {
-    var start = textarea.selectionStart === null ? textarea.value.length : textarea.selectionStart;
-    var end = textarea.selectionEnd === null ? start : textarea.selectionEnd;
-    if (start > 0 && textarea.value[start - 1] !== "\n") text = "\n" + text;
-    textarea.value = textarea.value.slice(0, start) + text + textarea.value.slice(end);
-    var caret = start + text.length;
-    textarea.setSelectionRange(caret, caret);
-    textarea.focus();
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-  }
 
   function token() {
     var input = document.querySelector("input[name=__RequestVerificationToken]");
@@ -55,29 +35,6 @@
     return node;
   }
 
-  function buildPalette(stepYaml) {
-    var select = document.getElementById("builder-step");
-    if (!select || !stepYaml) return;
-    select.textContent = "";
-    Object.keys(stepGroups).forEach(function (group) {
-      var available = stepGroups[group].filter(function (type) { return stepYaml[type]; });
-      if (available.length === 0) return;
-      var optgroup = document.createElement("optgroup");
-      optgroup.label = group;
-      available.forEach(function (type) {
-        var option = document.createElement("option");
-        option.value = type;
-        option.textContent = type;
-        optgroup.appendChild(option);
-      });
-      select.appendChild(optgroup);
-    });
-    var add = document.getElementById("builder-add-step");
-    if (add) add.addEventListener("click", function () {
-      var snippet = stepYaml[select.value];
-      if (snippet) insert(snippet + "\n");
-    });
-  }
 
   function buildGallery(examples) {
     var host = document.getElementById("example-gallery");
@@ -110,14 +67,12 @@
         insertButton.type = "button";
         insertButton.addEventListener("click", function () {
           var source = example.source.replace(/\s+$/, "") + "\n";
-          if (textarea.value === source) {
-            textarea.focus();
-            return;
-          }
+          var showGuided = function () { document.getElementById("edit-tab").click(); };
+          if (textarea.value === source) { showGuided(); return; }
           var apply = function () {
             textarea.value = source;
             textarea.dispatchEvent(new Event("input", { bubbles: true }));
-            textarea.focus();
+            showGuided();
           };
           // The gallery only exists with JavaScript; the confirm dialog is the
           // same shared one destructive buttons use. Without it, keep the
@@ -165,6 +120,13 @@
           actions.appendChild(companions);
         }
         card.appendChild(actions);
+        var preview = el("details", "example-source");
+        preview.appendChild(el("summary", null, "Preview source"));
+        var code = el("pre", null, example.source);
+        code.dataset.language = "yaml";
+        preview.appendChild(code);
+        card.appendChild(preview);
+        document.dispatchEvent(new CustomEvent("owner:highlight", { detail: code }));
         host.appendChild(card);
       });
     });
@@ -182,6 +144,7 @@
     results.setAttribute("role", "status");
     results.setAttribute("aria-live", "polite");
     button.addEventListener("click", function () {
+      if (window.OwnerBlockEditor && !document.getElementById("definition-guided").hidden && !window.OwnerBlockEditor.validate()) return;
       button.disabled = true;
       results.textContent = "Checking...";
       var checkedDefinition = textarea.value;
@@ -198,6 +161,7 @@
         if (typeof result.ok !== "boolean" || !Array.isArray(result.diagnostics))
           throw new Error("Invalid check response");
         results.textContent = "";
+        results.dataset.checked = "true";
         if (textarea.value !== checkedDefinition) {
           results.textContent = "The definition changed during the check. Check again to validate the current text.";
           return;
@@ -221,8 +185,6 @@
   }
 
   var gallery = document.getElementById("example-gallery");
-  var stepSelect = document.getElementById("builder-step");
-  var addStep = document.getElementById("builder-add-step");
   var catalogStatus = el("p", "muted");
   catalogStatus.setAttribute("role", "status");
   catalogStatus.setAttribute("aria-live", "polite");
@@ -231,18 +193,16 @@
     gallery.appendChild(catalogStatus);
   }
   function loadCatalog() {
-    if (stepSelect) stepSelect.disabled = true;
-    if (addStep) addStep.disabled = true;
-    catalogStatus.textContent = "Loading examples and step snippets...";
+    document.dispatchEvent(new Event("owner:catalog-loading"));
+    catalogStatus.textContent = "Loading examples and building blocks...";
     fetch(projectRoot + "/catalog").then(readResponse).then(function (catalog) {
-      if (!Array.isArray(catalog.examples) || !catalog.stepYaml || typeof catalog.stepYaml !== "object")
+      if (!Array.isArray(catalog.examples) || !catalog.stepDefaults || typeof catalog.stepDefaults !== "object")
         throw new Error("Invalid catalog response");
-      buildPalette(catalog.stepYaml);
       buildGallery(catalog.examples);
-      if (stepSelect) stepSelect.disabled = false;
-      if (addStep) addStep.disabled = false;
+      document.dispatchEvent(new CustomEvent("owner:catalog", { detail: catalog }));
     }).catch(function () {
-      catalogStatus.textContent = "Could not load examples and step snippets. Retry or continue editing the definition directly.";
+      document.dispatchEvent(new Event("owner:catalog-error"));
+      catalogStatus.textContent = "Could not load examples and building blocks. Retry or continue editing existing blocks or Raw source.";
       if (gallery) {
         gallery.textContent = "";
         gallery.appendChild(catalogStatus);
@@ -256,6 +216,7 @@
       }
     });
   }
+  document.addEventListener("owner:catalog-retry", loadCatalog);
   loadCatalog();
   buildCheck();
 })();

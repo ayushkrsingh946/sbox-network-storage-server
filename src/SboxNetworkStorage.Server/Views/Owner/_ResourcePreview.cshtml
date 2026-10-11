@@ -1,0 +1,29 @@
+@model SboxNetworkStorage.Server.Owner.OwnerResourcePreviewModel
+@{
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    var detailUrl = url + "/resources/" + Model.Kind + "/" + Uri.EscapeDataString(Model.Id);
+    var editUrl = detailUrl + "?tab=edit";
+    string? csharp = null;
+    if (Model.Integration is not null)
+    {
+        foreach (var panel in Model.Integration.Panels)
+        {
+            if (csharp is null && panel.Language == "csharp") csharp = panel.Code;
+        }
+    }
+}
+<h2 id="quick-preview-title">@Model.Name</h2>
+<p class="muted"><code>@Model.Id</code>@if (Model.Kind == "endpoint") { <span class="badge">@Model.Row.Method</span> <span class="badge @((Model.Row.Enabled ?? true) ? "positive" : "")">@((Model.Row.Enabled ?? true) ? "Enabled" : "Disabled")</span> <span class="badge">@Model.Row.Access</span> }
+else if (Model.Kind == "collection") { <span class="badge">@Model.Row.Storage</span> <span class="badge">@Model.Row.ClientAccess</span> }</p>
+@await Html.PartialAsync("~/Views/Owner/_ResourceStatStrip.cshtml", (Kind: Model.Kind, Row: Model.Row))
+@await Html.PartialAsync("~/Views/Owner/_ResourceOutline.cshtml", (Kind: Model.Kind, Definition: Model.DefinitionJson, Row: Model.Row))
+@if (csharp is not null)
+{
+    <h3>Call from the game</h3>
+    <div class="copy-row"><pre data-language="csharp">@csharp</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+}
+<div class="owner-dialog-actions">
+    <a class="button secondary" href="@detailUrl">Open</a>
+    <a class="button" href="@editUrl">Edit</a>
+    <form method="dialog"><button type="submit" class="secondary" value="cancel">Close</button></form>
+</div>

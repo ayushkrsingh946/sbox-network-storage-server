@@ -34,8 +34,8 @@
                     <form method="post" action="@url/webhooks/profiles/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@profile.Id" /><input type="hidden" name="confirmTitle" value="Delete webhook profile" /><input type="hidden" name="confirmMessage" value="Delete the webhook profile &quot;@profile.Name&quot;?" /><button class="danger" type="submit" data-confirm-title="Delete webhook profile" data-confirm="Delete the webhook profile &quot;@profile.Name&quot;?">Delete</button></form>
                 </div>
             </div>
-            <p class="muted"><code>@profile.Url</code></p>
-            <details><summary>Webhook step YAML</summary><pre class="manage-snippet" data-copyable>@OwnerWebhooksController.StepYaml(profile)</pre><button type="button" class="secondary" data-copy-previous>Copy step</button></details>
+            <div class="copy-row"><code class="selectable">@profile.Url</code><button type="button" class="secondary" data-copy-previous>Copy</button></div>
+            <details><summary>Webhook step YAML</summary><div class="copy-row"><pre class="manage-snippet" data-copyable data-language="yaml">@OwnerWebhooksController.StepYaml(profile)</pre><button type="button" class="secondary" data-copy-previous>Copy step</button></div></details>
         </article>
     }
 </section>
@@ -47,7 +47,7 @@
         <div class="form-grid">
             <label>Profile id <input name="id" value="@editing?.Id" required maxlength="40" pattern="[a-z0-9_]{1,40}" placeholder="purchases" /></label>
             <label>Name <input name="name" value="@editing?.Name" required maxlength="64" placeholder="Purchases channel" /></label>
-            <label>Embed color <input name="color" value="@((editing?.Color ?? "#5865f2").TrimStart('#'))" maxlength="7" pattern="#?[0-9a-fA-F]{6}" /></label>
+            <label>Embed color (hex, without #) <input name="color" value="@((editing?.Color ?? "#5865f2").TrimStart('#'))" maxlength="7" pattern="#?[0-9a-fA-F]{6}" placeholder="5865f2" /></label>
         </div>
         <label>Discord webhook URL <input name="url" type="url" value="@editing?.Url" required placeholder="https://discord.com/api/webhooks/..." autocomplete="off" /></label>
         <label class="check"><input type="checkbox" name="enabled" value="true" checked="@(editing?.Enabled ?? true)" /> Offer this profile in the endpoint builder</label>

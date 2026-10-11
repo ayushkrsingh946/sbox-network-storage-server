@@ -1,0 +1,242 @@
+@using System.Text.Json
+@using SboxNetworkStorage.Server.Owner
+@model (string Kind, JsonElement? Definition, OwnerResourceRow? Row)
+@{
+    string Text(JsonElement element, string name)
+        => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? "" : "";
+    int ArrayLength(JsonElement element, string name)
+        => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.GetArrayLength() : 0;
+    string StepTarget(JsonElement step)
+    {
+        foreach (var key in new[] { "collection", "workflow", "flow", "table", "endpoint" })
+        {
+            var named = Text(step, key);
+            if (named.Length > 0) return key + " " + named;
+        }
+        var expression = Text(step, "expression");
+        if (expression.Length > 0) return expression;
+        if (step.ValueKind == JsonValueKind.Object && step.TryGetProperty("fields", out var fields) && fields.ValueKind == JsonValueKind.Object)
+            return fields.EnumerateObject().Count() + " fields";
+        if (step.ValueKind == JsonValueKind.Object && step.TryGetProperty("ops", out var ops) && ops.ValueKind == JsonValueKind.Array)
+            return ops.GetArrayLength() + " ops";
+        var action = Text(step, "action");
+        if (action.Length > 0) return "action " + action;
+        return "";
+    }
+    string BodySummary(JsonElement response)
+    {
+        if (!response.TryGetProperty("body", out var body)) return "None";
+        if (body.ValueKind == JsonValueKind.Object)
+        {
+            var keys = body.EnumerateObject().Select(field => field.Name).ToList();
+            return keys.Count == 0 ? "Empty object" : "keys: " + string.Join(", ", keys);
+        }
+        if (body.ValueKind == JsonValueKind.String) return body.GetString() ?? "";
+        return body.GetRawText();
+    }
+    string ValueSummary(JsonElement item, string type)
+    {
+        if (type == "table")
+        {
+            var rows = item.TryGetProperty("rows", out var list) && list.ValueKind == JsonValueKind.Array ? list.GetArrayLength() : 0;
+            var columns = 0;
+            if (item.TryGetProperty("columns", out var declared) && declared.ValueKind == JsonValueKind.Array) columns = declared.GetArrayLength();
+            else if (rows > 0 && list[0].ValueKind == JsonValueKind.Object) columns = list[0].EnumerateObject().Count();
+            return rows + (rows == 1 ? " row" : " rows") + ", " + columns + " columns";
+        }
+        var entries = item.TryGetProperty("entries", out var map) && map.ValueKind == JsonValueKind.Object ? map.EnumerateObject().Count() : 0;
+        return entries + (entries == 1 ? " entry" : " entries");
+    }
+}
+@if (Model.Definition is not { ValueKind: JsonValueKind.Object } definition)
+{
+    <p class="muted">No saved source yet.</p>
+}
+else if (Model.Kind == "endpoint")
+{
+    <div class="outline">
+        <h3>Input fields</h3>
+        @if (definition.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.Object
+            && input.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object
+            && properties.EnumerateObject().Any())
+        {
+            <dl class="outline-facts">
+            @foreach (var field in properties.EnumerateObject())
+            {
+                var fieldType = Text(field.Value, "type");
+                <dt><code>@field.Name</code></dt><dd>@(fieldType.Length > 0 ? fieldType : "any")</dd>
+            }
+            </dl>
+        }
+        else { <p class="muted">None.</p> }
+        @if (ArrayLength(definition, "steps") > 0)
+        {
+            var steps = definition.GetProperty("steps");
+            <h3>Pipeline (@steps.GetArrayLength())</h3>
+            <ol class="pipeline">
+            @{ var number = 0; }
+            @foreach (var step in steps.EnumerateArray())
+            {
+                number++;
+                var stepId = Text(step, "id");
+                var stepType = Text(step, "type");
+                var target = StepTarget(step);
+                <li><code>@(stepId.Length > 0 ? stepId : "step " + number)</code>@if (stepType.Length > 0) { <span class="badge">@stepType</span> }@if (target.Length > 0) { <span class="pipeline-target">@target</span> }</li>
+            }
+            </ol>
+        }
+        else { <h3>Pipeline</h3><p class="muted">None.</p> }
+        <h3>Response</h3>
+        @if (definition.TryGetProperty("response", out var response) && response.ValueKind == JsonValueKind.Object)
+        {
+            <dl class="outline-facts">
+                <dt>Status</dt><dd>@(response.TryGetProperty("status", out var status) ? status.GetRawText() : "200")</dd>
+                <dt>Body</dt><dd>@BodySummary(response)</dd>
+            </dl>
+        }
+        else { <p class="muted">None.</p> }
+    </div>
+}
+else if (Model.Kind == "collection")
+{
+    <div class="outline">
+        @if (definition.TryGetProperty("schema", out var schema) && schema.ValueKind == JsonValueKind.Object
+            && schema.TryGetProperty("properties", out var properties) && properties.ValueKind == JsonValueKind.Object
+            && properties.EnumerateObject().Any())
+        {
+            var fields = properties.EnumerateObject().ToList();
+            <h3>Fields (@fields.Count)</h3>
+            <table class="outline-table">
+                <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Default</th></tr></thead>
+                <tbody>
+                @foreach (var field in fields)
+                {
+                    var fieldType = Text(field.Value, "type");
+                    var defaultText = field.Value.ValueKind == JsonValueKind.Object && field.Value.TryGetProperty("default", out var fallback) ? fallback.GetRawText() : null;
+                    <tr><td><code>@field.Name</code></td><td>@(fieldType.Length > 0 ? fieldType : "any")</td><td>@if (defaultText is not null) { <code>@defaultText</code> } else { <span class="muted">none</span> }</td></tr>
+                }
+                </tbody>
+            </table>
+        }
+        else { <h3>Fields</h3><p class="muted">None.</p> }
+    </div>
+}
+else if (Model.Kind == "workflow")
+{
+    <div class="outline">
+        <h3>Parameters</h3>
+        @if (definition.TryGetProperty("params", out var parameters) && parameters.ValueKind == JsonValueKind.Object
+            && parameters.EnumerateObject().Any())
+        {
+            <dl class="outline-facts">
+            @foreach (var parameter in parameters.EnumerateObject())
+            {
+                var parameterType = Text(parameter.Value, "type");
+                var parameterDefault = parameter.Value.ValueKind == JsonValueKind.Object && parameter.Value.TryGetProperty("default", out var fallback)
+                    ? fallback.GetRawText() : "";
+                <dt><code>@parameter.Name</code></dt><dd>@(parameterType.Length > 0 ? parameterType : "any")@if (parameterDefault.Length > 0) { <span class="muted">, default @parameterDefault</span> }</dd>
+            }
+            </dl>
+        }
+        else if (Model.Row?.Parameters is { Length: > 0 } names && names != "None") { <p>@names</p> }
+        else { <p class="muted">None.</p> }
+        @if (ArrayLength(definition, "steps") > 0)
+        {
+            var steps = definition.GetProperty("steps");
+            <h3>Steps (@steps.GetArrayLength())</h3>
+            <ol class="pipeline">
+            @{ var number = 0; }
+            @foreach (var step in steps.EnumerateArray())
+            {
+                number++;
+                var stepId = Text(step, "id");
+                var stepType = Text(step, "type");
+                var target = StepTarget(step);
+                <li><code>@(stepId.Length > 0 ? stepId : "step " + number)</code>@if (stepType.Length > 0) { <span class="badge">@stepType</span> }@if (target.Length > 0) { <span class="pipeline-target">@target</span> }</li>
+            }
+            </ol>
+        }
+        else { <h3>Steps</h3><p class="muted">None.</p> }
+        <h3>Returns</h3>
+        @if (definition.TryGetProperty("returns", out var returns) && returns.ValueKind == JsonValueKind.Object
+            && returns.EnumerateObject().Any())
+        {
+            <dl class="outline-facts">
+            @foreach (var entry in returns.EnumerateObject())
+            {
+                <dt><code>@entry.Name</code></dt><dd><code>@entry.Value.GetRawText()</code></dd>
+            }
+            </dl>
+        }
+        else { <p class="muted">None.</p> }
+    </div>
+}
+else if (Model.Kind == "query")
+{
+    <div class="outline">
+        <dl class="outline-facts">
+            <dt>Type</dt><dd>@(Text(definition, "type") is { Length: > 0 } queryType ? queryType : Model.Row?.QueryType ?? "Query")</dd>
+        </dl>
+        <h3>Sources</h3>
+        @if (ArrayLength(definition, "sources") > 0)
+        {
+            <ul>
+            @foreach (var source in definition.GetProperty("sources").EnumerateArray())
+            {
+                if (source.ValueKind == JsonValueKind.String)
+                {
+                    <li><code>@source.GetString()</code></li>
+                }
+                else if (source.ValueKind == JsonValueKind.Object)
+                {
+                    var collection = Text(source, "collectionId") is { Length: > 0 } named ? named
+                        : Text(source, "collection") is { Length: > 0 } legacy ? legacy
+                        : Text(source, "queryId");
+                    var alias = Text(source, "alias");
+                    <li><code>@collection</code>@if (alias.Length > 0) { <span class="muted">as @alias</span> }</li>
+                }
+            }
+            </ul>
+        }
+        else { <p class="muted">@(Model.Row?.Sources ?? "None")</p> }
+        <h3>Configuration</h3>
+        @if (definition.TryGetProperty("config", out var config) && config.ValueKind == JsonValueKind.Object
+            && config.EnumerateObject().Any())
+        {
+            <dl class="outline-facts">
+            @foreach (var entry in config.EnumerateObject())
+            {
+                <dt><code>@entry.Name</code></dt><dd><code>@entry.Value.GetRawText()</code></dd>
+            }
+            @if (definition.TryGetProperty("cache", out var cache) && cache.ValueKind == JsonValueKind.Object
+                && cache.TryGetProperty("ttlSeconds", out var ttl))
+            {
+                <dt>Shared cache</dt><dd>@ttl.GetRawText() seconds</dd>
+            }
+            </dl>
+        }
+        else { <p class="muted">None.</p> }
+    </div>
+}
+else if (Model.Kind == "game-values")
+{
+    <div class="outline">
+        @if (ArrayLength(definition, "items") > 0)
+        {
+            var items = definition.GetProperty("items");
+            <h3>Groups and tables (@items.GetArrayLength())</h3>
+            <dl class="outline-facts">
+            @foreach (var item in items.EnumerateArray())
+            {
+                var itemId = Text(item, "id");
+                var itemType = Text(item, "type") is { Length: > 0 } declared ? declared : "group";
+                <dt><code>@(itemId.Length > 0 ? itemId : "item")</code></dt>
+                <dd><span class="badge">@itemType</span> <span class="muted">@ValueSummary(item, itemType)</span></dd>
+            }
+            </dl>
+        }
+        else { <h3>Groups and tables</h3><p class="muted">None.</p> }
+    </div>
+}

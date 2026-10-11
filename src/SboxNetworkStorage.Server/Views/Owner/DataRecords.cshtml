@@ -7,9 +7,7 @@
     var url = OwnerDataController.CollectionUrl(Model.ProjectId, collection.Id);
     string PageUrl(int page) => $"{url}?page={page}&size={Model.PageSize}" + (Model.Query is null ? "" : "&q=" + Uri.EscapeDataString(Model.Query));
 }
-<a href="@dataUrl">@Model.ProjectName · data browser</a>
-<div class="page-heading"><div><h1>@collection.Name</h1></div><div class="actions"><a class="button" href="@url/new">Create record</a><a class="button secondary" href="@url/export" download>Download JSON</a></div></div>
-<p class="muted"><code>@collection.Id</code> · @collection.Kind collection · @collection.RecordCount record(s)</p>
+<div class="page-heading"><div><h1>@collection.Name</h1><p><code>@collection.Id</code> · @collection.Kind collection · @collection.RecordCount record(s)</p></div><div class="actions"><a class="button" href="@url/new">Create record</a><a class="button secondary" href="@url/export" download>Download JSON</a></div></div>
 <section class="card">
     <form method="get" action="@url" class="search">
         <label>Key starts with <input name="q" value="@Model.Query" maxlength="@OwnerDataController.MaxQueryLength" autocomplete="off" placeholder="@(collection.Global ? "record id" : "Steam ID or record key")" /></label>
@@ -26,14 +24,15 @@
         else
         {
             <div class="empty-state">
-                <p>No records yet. @(collection.Global ? "Create the first global record here, or save one from an endpoint." : "Records appear when the game saves player data through an endpoint or the document API. You can also create one here.")</p>
+                <h3>No records yet</h3>
+                <p>@(collection.Global ? "Create the first global record here, or save one from an endpoint." : "Records appear when the game saves player data through an endpoint or the document API. You can also create one here.")</p>
                 <div class="actions"><a class="button" href="@url/new">Create record</a><a class="button secondary" href="/dashboard/projects/@Uri.EscapeDataString(Model.ProjectId)/tests">Run an endpoint test</a></div>
             </div>
         }
     }
     else
     {
-        <div class="table-scroll"><table>
+        <div class="table-scroll"><table data-sortable data-sort-scope="page">
             <thead><tr><th>Key</th><th>Version</th><th>Changed</th><th>Size</th><th>Preview</th></tr></thead>
             <tbody>
             @foreach (var record in Model.Records)
@@ -50,8 +49,8 @@
         </table></div>
     }
     <nav class="pager" aria-label="Pages">
-        @if (Model.Page > 1) { <a href="@PageUrl(Model.Page - 1)">Previous</a> }
+        @if (Model.Page > 1) { <a class="button secondary" href="@PageUrl(Model.Page - 1)">Previous</a> }
         <span>Page @Model.Page of @Model.PageCount</span>
-        @if (Model.Page < Model.PageCount) { <a href="@PageUrl(Model.Page + 1)">Next</a> }
+        @if (Model.Page < Model.PageCount) { <a class="button secondary" href="@PageUrl(Model.Page + 1)">Next</a> }
     </nav>
 </section>

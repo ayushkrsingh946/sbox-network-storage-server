@@ -1,24 +1,24 @@
 /* Owner management pages: tests, versions, rate limit rules, webhooks, pages, key permissions. */
-.manage-windows { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem 1rem 0; margin: 0 0 1rem; }
-.manage-windows legend { padding: 0 .4rem; color: var(--muted); font-size: .85rem; }
-.manage-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; }
-.manage-inline label { flex: 1 1 24rem; margin-bottom: 0; }
-.manage-profile { border-top: 1px solid var(--border); padding: 1rem 0; }
+.manage-windows { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .85rem .85rem 0; margin: 0 0 .85rem; min-width: 0; }
+.manage-windows legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; }
+.manage-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .65rem; }
+.manage-inline label { flex: 1 1 22rem; margin-bottom: 0; }
+.manage-profile { border-top: 1px solid var(--border); padding: .85rem 0; }
 .manage-profile:first-of-type { border-top: 0; }
-.manage-profile h3 { display: flex; align-items: center; gap: .5rem; margin: 0; }
-.manage-profile details { margin-top: .5rem; }
+.manage-profile h3 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: 0; font-size: .9rem; }
+.manage-profile details { margin-top: .4rem; }
 .manage-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-2); }
-.manage-snippet { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
-.manage-input { min-height: 160px; }
+.manage-snippet { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; font-size: .8rem; }
+.manage-input { min-height: 140px; }
 .badge.manage-failed { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
-.manage-versions { display: grid; grid-template-columns: minmax(200px, 260px) minmax(220px, 320px) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.manage-versions { display: grid; grid-template-columns: minmax(200px, 260px) minmax(220px, 320px) minmax(0, 1fr); gap: 1rem; align-items: start; }
 .manage-versions > .empty-state { grid-column: 2 / -1; }
-.manage-versions .resource-list h3 { font-size: .85rem; color: var(--muted); margin: 1rem 0 .3rem; }
+.manage-versions .resource-list h3 { font-size: .78rem; color: var(--muted); margin: .85rem 0 .25rem; }
 .manage-version-list { list-style: none; padding: 0; margin: 0; }
-.manage-version-list a { display: flex; flex-direction: column; gap: .15rem; padding: .6rem; border-radius: var(--radius-sm); text-decoration: none; color: var(--text); }
+.manage-version-list a { display: flex; flex-direction: column; gap: .1rem; padding: .5rem .6rem; border-radius: var(--radius-sm); text-decoration: none; color: var(--text); font-size: .85rem; }
 .manage-version-list a[aria-current="page"] { background: var(--surface-2); }
 .manage-version-list .badge { align-self: flex-start; }
-.manage-version-list .muted { font-size: .8rem; }
+.manage-version-list .muted { font-size: .78rem; }
 .manage-diff { white-space: pre; max-height: 60vh; font-size: .8rem; line-height: 1.5; }
 .manage-diff span { display: block; }
 .manage-diff-add { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
@@ -33,11 +33,6 @@
 .copy-row { display: flex; align-items: flex-start; gap: .5rem; }
 .copy-row pre { flex: 1 1 auto; margin: 0; }
 .copy-row button { flex: none; white-space: nowrap; }
-.connect-fields { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem 1rem; align-items: center; }
-.connect-fields dt { font-weight: 600; }
-.connect-fields dd { margin: 0; display: flex; align-items: center; gap: .5rem; min-width: 0; }
-.connect-fields dd code { min-width: 0; overflow-wrap: anywhere; }
-.connect-fields dd button { flex: none; }
 .checklist td { vertical-align: top; }
 .checklist ul { margin: .25rem 0 0; padding-left: 1.1rem; }
 /* Collapsed advanced settings and rarely used cards. */
@@ -47,3 +42,28 @@ details.card.settings-advanced > summary { font-size: 1.1rem; }
 .import-export { margin: 1rem 0; }
 .import-export > .card { margin-top: 1rem; }
 .copy-row code { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+/* Second line under a row label, for descriptions and method/slug detail. */
+.rows .row-sub { display: block; font-weight: 400; color: var(--muted); font-size: .8rem; }
+.rows .row-sub code { font-size: .85em; }
+.manage-profile h3 code { overflow-wrap: anywhere; }
+/* Project hub: one column below md, three columns at md and up. The id
+   outranks the auto-fill .project-grid rule in owner-management.css. */
+#project-grid.project-grid { grid-template-columns: 1fr; }
+@media (min-width: 768px) {
+  #project-grid.project-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Denser cards: title row on top, compact facts pinned to the bottom so cards
+   in a row stay even with no reserved description space. The min-height
+   override below replaces the .project-card > p reservation in
+   owner-management.css, which left a gap when the description was missing. */
+#project-grid .project-card { display: flex; flex-direction: column; }
+#project-grid .project-card h2 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+#project-grid .project-id { margin-top: .15rem; }
+#project-grid .project-card > p { min-height: 0; margin: .5rem 0 0; }
+#project-grid .project-facts { margin-top: auto; padding-top: .6rem; font-size: .8rem; }
+/* Generated tile: fixed pixel size from its width/height attributes. */
+.project-tile { flex: none; vertical-align: middle; }
+/* Project page heading: tile beside the title. */
+.project-title { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+/* Settings colour control: native picker at control height. */
+#project-settings input[type="color"] { width: 3rem; height: 2rem; padding: .15rem; }

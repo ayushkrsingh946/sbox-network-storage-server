@@ -30,6 +30,15 @@ public sealed class OwnerConnectAndActivityTests : IDisposable
     private Task FlushActivityAsync()
         => factory.Services.GetRequiredService<RuntimeActivityWriterService>().FlushAsync(CancellationToken.None);
 
+    /// <summary>Status cell text of one overview checklist row, ignoring badge markup.</summary>
+    private static string ChecklistStatus(string overview, string step)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(overview,
+            "<td>" + System.Text.RegularExpressions.Regex.Escape(step) + "</td><td>(?:<[^>]+>)*(?<status>[^<]*)<");
+        Assert.True(match.Success, $"Checklist row '{step}' not found.");
+        return match.Groups["status"].Value;
+    }
+
     private async Task<IReadOnlyList<System.Text.Json.JsonElement>> RequestLogAsync(string projectId)
     {
         await using var scope = factory.Services.CreateAsyncScope();
@@ -68,8 +77,8 @@ public sealed class OwnerConnectAndActivityTests : IDisposable
         Assert.DoesNotContain("status code", logs);
 
         var overview = await owner.GetStringAsync(url);
-        Assert.Contains("Rejected requests in the last 24 hours</td><td>1</td>", overview);
-        Assert.Contains("<td>The game reached this server</td><td>Done</td>", overview);
+        Assert.Equal("1", ChecklistStatus(overview, "Rejected requests in the last 24 hours"));
+        Assert.Equal("Done", ChecklistStatus(overview, "The game reached this server"));
         Assert.Contains("answered 401", overview);
     }
 
@@ -102,7 +111,7 @@ public sealed class OwnerConnectAndActivityTests : IDisposable
         var (owner, _, url) = await SetupAsync();
         using var __ = owner;
         const string definition = "sourceVersion: 1\nkind: endpoint\nid: broken\nname: Broken\nmethod: PUT\nenabled: true\nsteps:\n  - id: ok\n    type: object\n    fields:\n      ok: true\nresponse:\n  status: 200\n  body: \"{{ok}}\"\n";
-        var page = await owner.GetStringAsync(url + "/resources/endpoint");
+        var page = await owner.GetStringAsync(url + "/resources/endpoint/new?draft=broken");
         using var saved = await owner.PostAsync(url + "/resources/endpoint", Form(("definition", definition), ("__RequestVerificationToken", Csrf(page))));
 
         Assert.Equal(HttpStatusCode.BadRequest, saved.StatusCode);
@@ -131,8 +140,8 @@ public sealed class OwnerConnectAndActivityTests : IDisposable
             Assert.Equal(("public", true), (key.KeyType, key.Enabled));
             var overview = await owner.GetStringAsync(created.Headers.Location);
             Assert.Contains(WebUtility.HtmlEncode($"NetworkStorage.Configure( \"{projectId}\", \"{key.Key}\", \"http://localhost\" );"), overview);
-            Assert.Contains("<td>A public key exists</td><td>Done</td>", overview);
-            Assert.Contains("<td>The game reached this server</td><td>Not yet</td>", overview);
+            Assert.Equal("Done", ChecklistStatus(overview, "A public key exists"));
+            Assert.Equal("Not yet", ChecklistStatus(overview, "The game reached this server"));
             Assert.Contains("curl http://localhost/v3/server-info", overview);
             // Opened from localhost without server.public_url: the owner is told players cannot use this address.
             Assert.Contains("This base URL only works on this machine.", overview);

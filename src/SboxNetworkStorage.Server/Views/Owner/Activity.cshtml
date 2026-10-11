@@ -23,7 +23,7 @@
     @if (table.Rows.Count == 0) { <div class="empty-state"><h3>No stored activity</h3><p>@table.Empty</p></div> }
     else
     {
-        <div class="table-scroll"><table><caption class="sr-only">@table.Title</caption><thead><tr>@foreach (var column in table.Columns) { <th scope="col">@column</th> }@if (notes) { <th scope="col">What it means</th> }</tr></thead><tbody>
+        <div class="table-scroll"><table data-sortable><caption class="sr-only">@table.Title</caption><thead><tr>@foreach (var column in table.Columns) { <th scope="col">@column</th> }@if (notes) { <th scope="col" data-no-sort>What it means</th> }</tr></thead><tbody>
         @foreach (var row in table.Rows)
         {
             <tr>@foreach (var value in row.Cells) { <td>@value</td> }

@@ -1,12 +1,54 @@
 @using SboxNetworkStorage.Server.Updates
 @using SboxNetworkStorage.Server.Hosting
 @using SboxNetworkStorage.Server.Owner
+@using SboxNetworkStorage.Application.NetworkStorage
+@inject INetworkStorageProjectService ProjectLookup
 @inject UpdateNoticeState Updates
 @{
     var segments = Context.Request.Path.Value?.Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
     var projectUrl = segments.Length >= 3 && segments[0] == "dashboard" && segments[1] == "projects" ? "/dashboard/projects/" + Uri.EscapeDataString(segments[2]) : null;
     var path = Context.Request.Path.Value ?? "";
     var authenticated = User.Identity?.IsAuthenticated == true;
+    var sectionLabels = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["activity"] = "Activity", ["analytics"] = "Analytics", ["logs"] = "Logs",
+        ["rate-limits"] = "Rate limit rules", ["webhooks"] = "Webhooks", ["pages"] = "Pages",
+        ["clients"] = "Clients", ["collection"] = "Collections", ["endpoint"] = "Endpoints",
+        ["workflow"] = "Workflows", ["query"] = "Queries", ["game-values"] = "Game values",
+        ["activity"] = "Activity", ["analytics"] = "Analytics", ["logs"] = "Request logs",
+        ["errors"] = "Errors", ["usage"] = "Usage", ["records"] = "Records", ["new"] = "New record",
+    };
+    var crumbs = new List<(string Label, string? Url)>();
+    if (authenticated)
+    {
+        if (path == "/dashboard")
+        {
+            crumbs.Add(("Projects", null));
+        }
+        else if (projectUrl is not null)
+        {
+            var scoped = await OwnerProjectScope.ResolveAsync(ProjectLookup, segments[2], Context.RequestAborted);
+            crumbs.Add(("Projects", "/dashboard"));
+            crumbs.Add((scoped?.Name ?? segments[2], projectUrl));
+            var trail = segments.Skip(3).ToArray();
+            for (var i = 0; i < trail.Length; i++)
+            {
+                // Resource and record ids render verbatim. Only section and kind labels are title-cased.
+                var isId = i >= 2 && trail.Length > 0 && (trail[0] == "resources" || trail[0] == "data");
+                string label;
+                if (isId) { label = trail[i]; }
+                else if (sectionLabels.TryGetValue(trail[i], out var known) && known.Length > 0) { label = known; }
+                else { label = trail[i].Replace('-', ' '); if (label.Length > 0) label = char.ToUpperInvariant(label[0]) + label[1..]; }
+                var last = i == trail.Length - 1;
+                crumbs.Add((label, last ? null : projectUrl + "/" + string.Join('/', trail.Take(i + 1).Select(Uri.EscapeDataString))));
+            }
+        }
+        else if (path == "/dashboard/security")
+        {
+            crumbs.Add(("Projects", "/dashboard"));
+            crumbs.Add(("Admin security", null));
+        }
+    }
     var icons = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["grid"] = "<rect x=\"2\" y=\"2\" width=\"5\" height=\"5\" rx=\"1\"/><rect x=\"9\" y=\"2\" width=\"5\" height=\"5\" rx=\"1\"/><rect x=\"2\" y=\"9\" width=\"5\" height=\"5\" rx=\"1\"/><rect x=\"9\" y=\"9\" width=\"5\" height=\"5\" rx=\"1\"/>",
@@ -41,19 +83,31 @@
     <script src="/owner-assets/dialog.js" defer></script>
     <script src="/owner-assets/toast.js" defer></script>
     <title>Network Storage · Owner console</title>
+    <link rel="stylesheet" href="/owner-assets/vendor/bootstrap.min.css" />
     <link rel="stylesheet" href="/owner-assets/management.css" />
+    <link rel="stylesheet" href="/owner-assets/workbench.css" />
+    <script src="/owner-assets/vendor/bootstrap.js" defer></script>
 </head>
 <body data-open-dialog="@(ViewData["OpenDialog"] as string ?? "")">
 <a class="skip-link" href="#main-content">Skip to content</a>
+@{ UpdateNotice? stripUpdate = authenticated && Updates.Current is { UpdateAvailable: true } u ? u : null; }
+@if (demo || OwnerTransport.IsInsecureRemote(Context) || stripUpdate is not null)
+{
+    <div class="alert-strip" role="region" aria-label="Server notices">
+    @if (demo) { <p class="alert-item alert-demo" data-alert="demo"><strong>Read-only demo.</strong><span>Generated sample data. Changes cannot be saved.</span><button type="button" data-alert-close aria-label="Dismiss demo notice">×</button></p> }
+    @if (OwnerTransport.IsInsecureRemote(Context)) { <p class="alert-item alert-security" data-alert="http"><strong>Served over plain HTTP.</strong><span>Passwords and the session cookie travel unencrypted.</span><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">Enable HTTPS</a><button type="button" data-alert-close aria-label="Dismiss plain HTTP warning">×</button></p> }
+    @if (authenticated && stripUpdate is not null) { <p class="alert-item" data-alert="update" data-version="@stripUpdate.Latest.Version"><strong>@(stripUpdate.Latest.Security ? "Security update available" : "Update available"): @stripUpdate.Latest.Version.</strong><span>Running @stripUpdate.CurrentVersion.</span><span>Run <code>sbox-ns update</code> for a manual update.</span>@if (Uri.TryCreate(stripUpdate.Latest.ChangelogUrl, UriKind.Absolute, out var stripLog) && stripLog.Scheme == "https") { <a href="@stripLog.AbsoluteUri" rel="noreferrer">Changelog</a> }<button type="button" data-alert-close aria-label="Dismiss update notice">×</button></p> }
+    </div>
+}
 <header class="topbar">
-    <a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">ns</span><span>Network Storage</span></a>
-    <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
+    <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg></button><a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">ns</span><span>Network Storage</span></a></div>
+    <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="mint">Mint and orchid</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
     @if (authenticated && !demo) { <form method="post" action="/logout">@Html.AntiForgeryToken()<button class="secondary" type="submit">Log out</button></form> }</div>
 </header>
 <div class="shell @(authenticated ? "" : "auth-shell")">
 @if (authenticated)
 {
-    <aside class="sidebar"><nav aria-label="Owner navigation"><p class="nav-label">Workspace</p><a href="/dashboard" aria-current="@(path == "/dashboard" ? "page" : null)">@Html.Raw(Icon("grid"))All projects</a>
+    <aside class="sidebar" id="owner-nav"><nav aria-label="Owner navigation"><p class="nav-label">Workspace</p><a href="/dashboard" aria-current="@(path == "/dashboard" ? "page" : null)">@Html.Raw(Icon("grid"))All projects</a>
     @if (!demo) { <a href="/dashboard/security" aria-current="@(path == "/dashboard/security" ? "page" : null)">@Html.Raw(Icon("shield"))Admin security</a> }
     @if (projectUrl is not null)
     {
@@ -62,7 +116,7 @@
         <p class="nav-label">Build</p>
         @foreach (var kind in new[] { "collection", "endpoint", "workflow", "query", "game-values" })
         {
-            <a href="@projectUrl/resources/@kind" aria-current="@(path.EndsWith("/resources/" + kind, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(kind))@(kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(kind[0]) + kind[1..] + "s" })</a>
+            <a href="@projectUrl/resources/@kind" aria-current="@(path.Contains("/resources/" + kind, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(kind))@(kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(kind[0]) + kind[1..] + "s" })</a>
         }
         <p class="nav-label">Manage</p>
         @foreach (var (pg, label) in new[] { ("tests", "Endpoint tests"), ("versions", "Version history"), ("rate-limits", "Rate limit rules"), ("webhooks", "Webhooks"), ("pages", "Pages") })
@@ -96,10 +150,14 @@
     {
         <aside class="notice security" role="alert"><strong>This panel is served over plain HTTP</strong><p>Passwords, login links and the session cookie travel unencrypted. Enable ACME TLS, a TLS reverse proxy, or connect through an SSH tunnel.</p><a href="@OwnerTransport.HttpsDocsUrl" rel="noreferrer">How to enable HTTPS</a></aside>
     }
-    @if (authenticated && Updates.Current is { UpdateAvailable: true } update)
+    @if (crumbs.Count > 0)
     {
-        <aside class="@(update.Latest.Security ? "notice security" : "notice")" role="status"><strong>@(update.Latest.Security ? "Security update available" : "Update available"): @update.Latest.Version</strong><p>Running @update.CurrentVersion. Automatic installation is optional and requires enabled release gates. Run <code>sbox-ns update</code> for a manual update.</p>
-        @if (Uri.TryCreate(update.Latest.ChangelogUrl, UriKind.Absolute, out var changelog) && changelog.Scheme == "https") { <a href="@changelog.AbsoluteUri" rel="noreferrer">Read changelog</a> }</aside>
+        <nav class="crumbs" aria-label="Breadcrumb"><ol>
+        @foreach (var (label, url) in crumbs)
+        {
+            <li>@if (url is null) { <span aria-current="page">@label</span> } else { <a href="@url">@label</a> }</li>
+        }
+        </ol></nav>
     }
     @RenderBody()
     <footer>Your server. Your data. <span>Network Storage · Single local owner</span></footer>
@@ -107,5 +165,7 @@
 </div>
 @if (demo) { <script src="/owner-assets/demo.js" defer></script> }
 <dialog class="owner-dialog" id="owner-confirm" aria-labelledby="owner-confirm-title"><div class="owner-dialog-body"><h2 id="owner-confirm-title" data-confirm-title>Confirm</h2><p data-confirm-message></p><div class="owner-dialog-actions"><form method="dialog"><button type="submit" class="secondary" value="cancel" data-autofocus>Cancel</button><button type="submit" class="danger" value="confirm" data-confirm-ok>Confirm</button></form></div></div></dialog>
+<script src="/owner-assets/workbench.js" defer></script>
+<script src="/owner-assets/table-sort.js" defer></script>
 </body>
 </html>

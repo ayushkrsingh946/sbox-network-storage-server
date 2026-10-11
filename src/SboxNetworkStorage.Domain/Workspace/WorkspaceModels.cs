@@ -80,7 +80,8 @@ public sealed record WorkspaceProject(
     Dictionary<string, object>? EndpointRateLimits = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? LegacyPlayerProjections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LibraryMinimum = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? LibraryAlertPercent = null
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? LibraryAlertPercent = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Color = null
 );
 public static class WorkspaceProjectProfiles
 {

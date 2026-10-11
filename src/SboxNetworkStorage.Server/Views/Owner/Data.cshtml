@@ -6,9 +6,7 @@
     var dataUrl = projectUrl + "/data";
     var playerSteamId = Model.Player is { } searched && searched.All(char.IsAsciiDigit) && searched.Length <= 32 ? searched : null;
 }
-<a href="@projectUrl">@Model.ProjectName</a>
-<div class="page-heading"><div><h1>Data browser</h1></div><a class="button secondary" href="@projectUrl">Back to project</a></div>
-<p class="muted">Browse, create and edit stored records with collection schema validation and version-checked saves. Deleted (tombstoned) player records are not shown.</p>
+<div class="page-heading"><div><h1>Data browser</h1><p>Browse, create and edit stored records with collection schema validation and version-checked saves. Deleted (tombstoned) player records are not shown.</p></div><a class="button secondary" href="@projectUrl">Project overview</a></div>
 @if (Model.Collections.Count == 0)
 {
     <section class="card empty-state">
@@ -36,7 +34,7 @@ else
             else
             {
                 <p>@found.Count record(s) for <code>@Model.Player</code></p>
-                <div class="table-scroll"><table>
+                <div class="table-scroll"><table data-sortable>
                     <thead><tr><th>Collection</th><th>Key</th><th>Version</th><th>Changed</th><th>Preview</th></tr></thead>
                     <tbody>
                     @foreach (var match in found)
@@ -58,7 +56,7 @@ else
     </section>
     <section class="card">
         <h2>Collections</h2>
-        <div class="table-scroll"><table>
+        <div class="table-scroll"><table data-sortable>
             <thead><tr><th>Collection</th><th>Type</th><th>Records</th><th>Actions</th></tr></thead>
             <tbody>
             @foreach (var collection in Model.Collections)
@@ -68,7 +66,7 @@ else
                     <td><a href="@url">@collection.Name</a> <code>@collection.Id</code></td>
                     <td>@collection.Kind</td>
                     <td>@collection.RecordCount</td>
-                    <td><div class="actions"><a href="@url/new">Create record</a><a href="@url/export" download>Download JSON</a></div></td>
+                    <td><div class="actions"><a class="button secondary" href="@url/new">Create record</a><a class="button secondary" href="@url/export" download>Download JSON</a></div></td>
                 </tr>
             }
             </tbody>

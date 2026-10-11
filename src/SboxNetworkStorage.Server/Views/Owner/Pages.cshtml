@@ -29,7 +29,7 @@
             <div class="copy-row"><pre>@publicUrl</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
             <details class="resource-tools"><summary>Fetch it from the game</summary>
                 <p class="muted">The response is JSON with <code>title</code>, <code>updatedAt</code> and <code>@field</code>@(editing.Type == "keyvalue" ? " (your object)" : " (the page text)").</p>
-                <div class="copy-row"><pre>var page = await Http.RequestJsonAsync&lt;JsonElement&gt;( "@publicUrl" );
+                <div class="copy-row"><pre data-language="csharp">var page = await Http.RequestJsonAsync&lt;JsonElement&gt;( "@publicUrl" );
 var @(field) = page.GetProperty( "@field" );</pre><button type="button" class="secondary" data-copy-previous>Copy</button></div>
                 <p class="muted">From a terminal: <code>curl @publicUrl</code></p>
             </details>

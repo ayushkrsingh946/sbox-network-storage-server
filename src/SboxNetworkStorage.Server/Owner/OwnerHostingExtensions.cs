@@ -119,6 +119,10 @@ public static class OwnerHostingExtensions
             await next(context);
         });
         app.MapControllers();
+        app.MapGet("/owner-assets/vendor/bootstrap.min.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.vendor-bootstrap.css")!, "text/css"));
+        app.MapGet("/owner-assets/vendor/bootstrap.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.vendor-bootstrap.js")!, "text/javascript"));
         app.MapGet("/owner-assets/management.css", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.management.css")!, "text/css"));
         app.MapGet("/owner-assets/theme.js", () => Results.Stream(
@@ -127,8 +131,14 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.json-editor.js")!, "text/javascript"));
         app.MapGet("/owner-assets/demo.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.demo.js")!, "text/javascript"));
-        app.MapGet("/owner-assets/resource-builder.js", () => Results.Stream(
-            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.builder.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/vendor/yaml.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.vendor-yaml.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/definition-model.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.definition-model.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/blocks.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.blocks.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/blocks.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.blocks.css")!, "text/css"));
         app.MapGet("/owner-assets/builder-catalog.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.builder-catalog.js")!, "text/javascript"));
         app.MapGet("/owner-assets/m/manage.css", () => Results.Stream(
@@ -139,6 +149,12 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.dialog.js")!, "text/javascript"));
         app.MapGet("/owner-assets/toast.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.toast.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/workbench.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.workbench.css")!, "text/css"));
+        app.MapGet("/owner-assets/workbench.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.workbench.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/table-sort.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.table-sort.js")!, "text/javascript"));
         return app;
     }
 }
