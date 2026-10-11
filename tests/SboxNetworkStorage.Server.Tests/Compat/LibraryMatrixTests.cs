@@ -251,9 +251,9 @@ public sealed class LibraryCompatOverlayTests
         Assert.Equal(Base.Recommended, merged.Recommended);
         Assert.Equal(Base.Blocked, merged.Blocked);
         Assert.Equal(LibraryStatus.Supported, merged.LegacyStatus);
-        // The sunset of an existing range only moves earlier, never later.
+        // An announced sunset never moves.
         Assert.Equal("2027-03-01", merged.Deprecated.Single(d => d.Range == "<1.2.0").Sunset);
-        Assert.DoesNotContain(merged.Deprecated, d => d.Range == "garbage");
+        Assert.Empty(merged.FeedDeprecated);
     }
 
     [Fact]
@@ -289,17 +289,23 @@ public sealed class LibraryCompatOverlayTests
     }
 
     [Fact]
-    public void AnOverlayCanAddADeprecationAndPullASunsetEarlier()
+    public void AFeedDeprecationDatesNewVersionsButNeverShortensAnAnnouncedSunset()
     {
         var merged = Base.Merge(new LibraryCompatOverlay(Deprecated:
         [
             new MatrixRule("<1.2.0", "2026-11-01", null, null),
+            new MatrixRule("<1.3.0", "2026-10-15", null, null),
             new MatrixRule("1.2.5", "2026-10-30", null, null),
         ]));
-        Assert.Equal("2026-11-01", merged.Deprecated.Single(d => d.Range == "<1.2.0").Sunset);
+
+        // The repeated range and every version the shipped matrix already deprecates keep the shipped date.
+        Assert.Equal("2027-03-01", merged.Evaluate(LibraryMatrixEvaluationTests.Id("1.1.9")).Sunset);
+        Assert.Equal("2026-12-01", merged.Evaluate(LibraryMatrixEvaluationTests.Id("1.1.5")).Sunset);
+        Assert.Equal("2027-01-01", merged.Evaluate(LibraryMatrixEvaluationTests.Id("1.2.8")).Sunset);
+        // A version the shipped matrix does not deprecate takes the earliest matching feed date.
         var added = merged.Evaluate(LibraryMatrixEvaluationTests.Id("1.2.5"));
         Assert.Equal(LibraryStatus.Deprecated, added.Status);
-        Assert.Equal("2026-10-30", added.Sunset);
+        Assert.Equal("2026-10-15", added.Sunset);
         AssertNoLooser(merged);
     }
 

@@ -144,9 +144,10 @@ When update checks are on (`updates.check`), the server also reads an optional
 `libraryCompat` object from the release feed, so a `blocked` range can reach
 servers that have not been updated. An overlay can only make a status
 **stricter**: it can raise `minimum` and `recommended`, add `blocked` and
-`deprecated` ranges (an earlier sunset replaces a later one), and deprecate or
-un-support the `legacy` bucket. It cannot lower `minimum`, remove a block, set
-`legacy` back to `supported` or block the whole `legacy` bucket; those parts
+`deprecated` ranges, and deprecate or un-support the `legacy` bucket. It cannot
+change an announced sunset: a feed `deprecated` range only dates versions the
+embedded matrix does not already deprecate. It cannot lower `minimum`, remove a
+block, set `legacy` back to `supported` or block the whole `legacy` bucket; those parts
 are ignored. A feed response without `libraryCompat` leaves the current
 overlay in place, and an empty `{}` removes it. Nothing needs network access:
 without the feed, the embedded matrix applies.

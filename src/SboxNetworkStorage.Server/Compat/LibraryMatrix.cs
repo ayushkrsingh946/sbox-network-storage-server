@@ -85,6 +85,13 @@ public sealed record LibraryMatrix(
     public const string ResourceName = "SboxNetworkStorage.Server.Compat.library-matrix.json";
     public const string MatrixUrl = "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json";
 
+    /// <summary>
+    /// Deprecations added by the release-feed overlay (<see cref="Merge"/>). Kept apart from the shipped
+    /// <see cref="Deprecated"/> rules so a feed date never replaces or undercuts an announced sunset.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<MatrixRule> FeedDeprecated { get; init; } = [];
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         ReadCommentHandling = JsonCommentHandling.Skip,
@@ -229,6 +236,16 @@ public sealed record LibraryMatrix(
             }
         }
 
+        // A feed deprecation only dates a version the shipped matrix does not already deprecate, so an announced
+        // sunset can never be shortened remotely (several feed rules: the earliest feed date applies).
+        if (verdict.Status != LibraryStatus.Deprecated)
+        {
+            foreach (var rule in FeedDeprecated)
+            {
+                if (VersionRange.TryParse(rule.Range, out var range) && range.Contains(version)) Consider(LibraryStatus.Deprecated, rule.Sunset, rule.Reason, null);
+            }
+        }
+
         // The latest version is reported to anything that should move: outdated or worse. Sunset only goes with deprecated.
         return verdict.Status >= LibraryStatus.Outdated
             ? verdict with { Latest = latest, Sunset = verdict.Status == LibraryStatus.Deprecated ? verdict.Sunset : null }
@@ -252,7 +269,7 @@ public sealed record LibraryMatrix(
             ["recommended"] = Recommended,
             ["latest"] = Latest,
             ["legacy"] = LegacyStatus.ToWire(),
-            ["deprecated"] = Deprecated.Select(r => Compact(("range", r.Range), ("sunset", r.Sunset), ("reason", r.Reason))).ToArray(),
+            ["deprecated"] = Deprecated.Concat(FeedDeprecated).Select(r => Compact(("range", r.Range), ("sunset", r.Sunset), ("reason", r.Reason))).ToArray(),
             ["blocked"] = Blocked.Select(r => Compact(("range", r.Range), ("reason", r.Reason), ("advisory", r.Advisory))).ToArray(),
             ["knownBroken"] = Libraries.Where(l => l.Status == "known-broken")
                 .Select(l => Compact(("version", l.Version), ("revision", l.Revision), ("engine", l.Engine), ("reason", l.Reason), ("issue", l.Issue))).ToArray(),
@@ -267,8 +284,9 @@ public sealed record LibraryMatrix(
     /// <summary>
     /// Applies a <c>libraryCompat</c> overlay from the release feed. The result is never looser than this matrix:
     /// <c>minimum</c> and <c>recommended</c> can only rise, <c>blocked</c> and <c>deprecated</c> only gain entries
-    /// (the earlier sunset wins for a repeated range), and the legacy status can only get stricter. Anything the
-    /// overlay says that would loosen the matrix, or that this server cannot read, is ignored.
+    /// (a repeated range keeps its shipped sunset, and a feed date never applies to a version the shipped matrix
+    /// already deprecates), and the legacy status can only get stricter. Anything the overlay says that would loosen
+    /// the matrix, or that this server cannot read, is ignored.
     /// </summary>
     public LibraryMatrix Merge(LibraryCompatOverlay? overlay)
     {
@@ -283,13 +301,12 @@ public sealed record LibraryMatrix(
             if (IsLibraryRange(rule.Range) && !blocked.Any(b => b.Range == rule.Range)) blocked.Add(rule with { Sunset = null });
         }
 
-        var deprecated = Deprecated.ToList();
+        var feedDeprecated = new List<MatrixRule>();
         foreach (var rule in overlay.Deprecated ?? [])
         {
             if (!IsLibraryRange(rule.Range) || !IsDate(rule.Sunset)) continue;
-            var existing = deprecated.FindIndex(d => d.Range == rule.Range);
-            if (existing < 0) deprecated.Add(rule with { Advisory = null });
-            else if (string.CompareOrdinal(rule.Sunset, deprecated[existing].Sunset) < 0) deprecated[existing] = deprecated[existing] with { Sunset = rule.Sunset };
+            if (Deprecated.Any(d => d.Range == rule.Range) || feedDeprecated.Any(d => d.Range == rule.Range)) continue;
+            feedDeprecated.Add(rule with { Advisory = null });
         }
 
         var libraries = Libraries.ToList();
@@ -306,7 +323,7 @@ public sealed record LibraryMatrix(
             else libraries.Add(entry);
         }
 
-        return this with { Minimum = minimum, Recommended = recommended, Libraries = libraries, Deprecated = deprecated, Blocked = blocked };
+        return this with { Minimum = minimum, Recommended = recommended, Libraries = libraries, Blocked = blocked, FeedDeprecated = feedDeprecated };
     }
 
     private static bool IsLibraryRange(string? text) => VersionRange.TryParse(text, out var range) && range.IsLibraryRange;
