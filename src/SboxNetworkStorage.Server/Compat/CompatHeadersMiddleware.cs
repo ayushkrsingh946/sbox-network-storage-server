@@ -3,18 +3,27 @@ using SboxNetworkStorage.Server.Hosting;
 namespace SboxNetworkStorage.Server.Compat;
 
 /// <summary>
-/// Adds <c>x-ns-server-version</c> to every response, including errors and rejected requests. Headers only: no
-/// response body changes. The header is written when the response starts, so no response path misses it.
+/// Adds the compatibility response headers to every response, including errors and rejected requests:
+/// <c>x-ns-server-version</c> always, and <c>x-ns-library-status</c> (plus <c>-latest</c> and <c>-sunset</c>
+/// where they apply) from the caller's <see cref="ClientIdentity"/>. Headers only: no response body changes, and
+/// no request is refused because of its library version here. The headers are written when the response starts,
+/// so a library version a handler found in the request body still counts.
 /// </summary>
-public sealed class CompatHeadersMiddleware(RequestDelegate next)
+public sealed class CompatHeadersMiddleware(RequestDelegate next, LibraryCompatProvider compat)
 {
     public Task InvokeAsync(HttpContext context)
     {
         context.Response.OnStarting(static state =>
         {
-            ((HttpContext)state).Response.Headers[CompatHeaders.ServerVersion] = BuildInfo.Version;
+            var (httpContext, provider) = ((HttpContext, LibraryCompatProvider))state;
+            var headers = httpContext.Response.Headers;
+            headers[CompatHeaders.ServerVersion] = BuildInfo.Version;
+            var result = provider.Current.Evaluate(ClientIdentityContext.Get(httpContext));
+            headers[CompatHeaders.LibraryStatus] = result.Status.ToWire();
+            if (result.Latest is not null) headers[CompatHeaders.LibraryLatest] = result.Latest;
+            if (result.Sunset is not null) headers[CompatHeaders.LibrarySunset] = result.Sunset;
             return Task.CompletedTask;
-        }, context);
+        }, (context, compat));
 
         return next(context);
     }
