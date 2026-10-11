@@ -13,7 +13,7 @@
 .block-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 46px; gap: .3rem; }
 .block-header-main { display: flex; align-items: center; gap: .3rem; min-width: 0; }
 .block-header:hover { background: var(--surface-2); }
-.block-toggle { display: flex; align-items: center; flex: 1; min-width: 0; flex-wrap: wrap; gap: .35rem .55rem; padding: .55rem .25rem; text-align: left; white-space: normal; border: 0; border-radius: 0; background: transparent; color: var(--text); font-weight: 400; }
+.block-toggle { display: flex; align-items: center; justify-content: flex-start; flex: 1; min-width: 0; flex-wrap: wrap; gap: .35rem .55rem; padding: .55rem .25rem; text-align: left; white-space: normal; border: 0; border-radius: 0; background: transparent; color: var(--text); font-weight: 400; }
 .block-toggle:hover { background: transparent; color: var(--text); }
 .block-title { font-size: .86rem; min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .block-chevron { width: .8rem; flex-shrink: 0; color: var(--muted); font-size: 1rem; }

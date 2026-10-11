@@ -1,7 +1,9 @@
 .resource-editor { grid-template-columns: minmax(150px, 180px) minmax(0, 1fr); gap: 16px; }
 .resource-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 16px; align-items: start; }
 .definition-panel { min-width: 0; }
-.integration-guide { min-width: 0; position: sticky; top: 72px; }
+.integration-guide { min-width: 0; position: sticky; top: 72px; padding: .75rem; }
+.integration-guide > p, .integration-guide .muted { font-size: .82rem; line-height: 1.5; margin: .25rem 0 .5rem; }
+.integration-guide .notice { padding: .5rem .75rem; margin: .5rem 0; font-size: .82rem; }
 .integration-guide .copy-row { flex-direction: column; }
 .integration-guide .copy-row pre { width: 100%; }
 .definition-heading { position: static; }
@@ -41,8 +43,8 @@ th[aria-sort="ascending"] .table-sort, th[aria-sort="descending"] .table-sort { 
 .syntax-comment { color: var(--muted); font-style: italic; }
 .syntax-expression { color: var(--accent); }
 .integration-guide .copy-row { position: relative; display: flex; align-items: flex-start; gap: 8px; }
-.integration-guide .copy-row pre { flex: 1; min-width: 0; max-height: 420px; font-size: 13px; line-height: 1.65; }
-.integration-guide .copy-row button { flex-shrink: 0; }
+.integration-guide .copy-row pre { flex: 1; min-width: 0; max-height: 420px; margin: 0; padding: .6rem 4.25rem .6rem .75rem; font-size: 12.5px; line-height: 1.6; }
+.integration-guide .copy-row button { position: absolute; top: .4rem; right: .4rem; flex-shrink: 0; }
 .resource-list input[type="search"] { margin-bottom: 10px; }
 .resource-list ul { max-height: 65vh; overflow-y: auto; }
 #definition-examples .example { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; box-shadow: none; padding: 16px 0; }
