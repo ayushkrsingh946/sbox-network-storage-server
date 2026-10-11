@@ -16,7 +16,8 @@ internal static class NetworkStorageManagementAutoTestRunner
         string authDecision,
         INetworkStorageStore store,
         EndpointExecutor? executor,
-        RevisionOverlay? overlay = null)
+        RevisionOverlay? overlay = null,
+        IQueryValuesContextProvider? valuesProvider = null)
     {
         if (executor is null)
         {
@@ -55,6 +56,11 @@ internal static class NetworkStorageManagementAutoTestRunner
                 authDecision: authDecision);
         }
 
+        // Same values context as test-endpoint and live calls, so {{values.*}} resolves the same way.
+        var values = valuesProvider is null
+            ? new Dictionary<string, object?>()
+            : await valuesProvider.GetValuesAsync(projectId, request.CancellationToken);
+
         var results = new List<object>(candidates.Length);
         foreach (var endpoint in candidates)
         {
@@ -68,7 +74,7 @@ internal static class NetworkStorageManagementAutoTestRunner
                     input,
                     SyntheticSteamId,
                     ownerUserId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    new Dictionary<string, object?>(),
+                    values,
                     hasSecretKey: true,
                     isDedicatedServer: false,
                     request.CancellationToken,
