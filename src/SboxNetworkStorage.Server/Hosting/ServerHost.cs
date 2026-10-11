@@ -1,6 +1,7 @@
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Endpoints;
 using SboxNetworkStorage.Server.Middleware;
@@ -86,6 +87,7 @@ public static class ServerHost
 
         configureBuilder?.Invoke(builder);
         var app = builder.Build();
+        app.UseMiddleware<CompatHeadersMiddleware>();
         app.UseMiddleware<ClientAddressMiddleware>();
         app.UseForwardedHeaders();
         app.UseMiddleware<HstsMiddleware>();

@@ -33,6 +33,7 @@ public sealed class OwnerActivityController(INetworkStorageProjectService projec
         ["source"] = "Source", ["request_path"] = "Request or record", ["error_id"] = "Error", ["message"] = "Message",
         ["requests"] = "Requests", ["reads"] = "Reads", ["writes"] = "Writes", ["endpoint_calls"] = "Endpoint calls",
         ["errors"] = "Errors", ["bytes_in"] = "Bytes in", ["bytes_out"] = "Bytes out", ["compute_units"] = "Compute units",
+        ["library_version"] = "Library", ["client_type"] = "Client", ["engine_version"] = "Engine",
         ["day"] = "Day", ["endpoint_slug"] = "Endpoint", ["calls"] = "Calls", ["duration_ms_sum"] = "Total duration (ms)",
     };
 
@@ -58,7 +59,7 @@ public sealed class OwnerActivityController(INetworkStorageProjectService projec
             case "logs":
                 tables.Add(Table("Runtime requests · latest 200", await store.ListStorageRequestLogAsync(projectId, 200, ct),
                     $"No requests recorded in the last {RuntimeActivityLog.Retention.Days} days. Requests from the game, including rejected ones, appear here within a few seconds.",
-                    "created_at_unix_ms", "method", "path", "status_code", "duration_ms"));
+                    "created_at_unix_ms", "method", "path", "status_code", "duration_ms", "library_version", "client_type", "engine_version"));
                 tables.Add(Table("Owner audit trail · latest 200", await store.ListAuditLogsAsync(projectId, 200, ct), "No dashboard or CLI changes recorded yet.", "created_at_unix_ms", "action", "user_id", "log_id"));
                 break;
             case "errors":

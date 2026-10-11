@@ -250,7 +250,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4], migration.AppliedVersions);
         var old = (await Store.ReadProjectAsync("old1", Ct))!.Value;
         Assert.True(old.GetProperty("legacyPlayerProjections").GetBoolean());
         Assert.Equal("Old", old.GetProperty("name").GetString());
@@ -292,16 +292,47 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4], migration.AppliedVersions);
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Assert.Equal(new[] { "/b", "/a" }, log.Select(r => Json.Str(r, "path")));
-        Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk"}""", log[1]);
+        Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
         Assert.Single(await Store.ListStorageRequestLogAsync("p2", 10, Ct));
         Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error"}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
 
         await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/d", 200, 1, null, Ct); // same millisecond as a migrated row
         Assert.Equal(3, (await Store.ListStorageRequestLogAsync("p1", 10, Ct)).Count);
     }
+    [Fact]
+    public async Task Migration_v4_adds_the_request_client_columns_without_rebuilding_or_changing_existing_rows()
+    {
+        await Store.MigrateAsync(Ct);
+        await RevertToVersion1Async("""
+            INSERT INTO storage_request_log (project_id, created_at_unix_ms, method, path, status_code, duration_ms, api_key_identifier) VALUES ('p1', 100, 'GET', '/old', 200, 3, 'pk');
+            """);
+        await Store.MigrateAsync(Ct);
+        await using (var connection = new SqliteConnection($"Data Source={_path};Pooling=False"))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            // v4 on its own: take the three columns away again and mark only v4 as unapplied.
+            command.CommandText = """
+                ALTER TABLE storage_request_log DROP COLUMN library_version;
+                ALTER TABLE storage_request_log DROP COLUMN client_type;
+                ALTER TABLE storage_request_log DROP COLUMN engine_version;
+                DELETE FROM schema_version WHERE version = 4;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var migration = await Store.MigrateAsync(Ct);
+
+        Assert.Equal([4], migration.AppliedVersions);
+        await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/new", 200, 1, null, Ct, new RequestClientInfo("1.1.0", "game", "26.10.02"));
+        var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
+        Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/old","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
+        Json.Equal("""{"created_at_unix_ms":200,"method":"GET","path":"/new","status_code":200,"duration_ms":1,"api_key_identifier":"","library_version":"1.1.0","client_type":"game","engine_version":"26.10.02"}""", log[0]);
+    }
+
     [Fact]
     public async Task Database_uses_wal_journal_and_target_is_the_file_path()
     {

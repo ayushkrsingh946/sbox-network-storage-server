@@ -7,6 +7,7 @@ using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Infrastructure;
+using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Middleware;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 
@@ -547,6 +548,7 @@ public static class NetworkStorageGatewayEndpoints
             catch (Exception ex) when (ex is JsonException or InvalidOperationException) { /* ignore bad body */ }
         }
 
+        ClientIdentityContext.ApplyBodyLibraryVersion(context, body, "libraryVersion", "library_version");
         var result = await handler.ExecuteAsync(projectId, auth, steamId, body, context.RequestAborted);
 
         context.Response.StatusCode = result.StatusCode;

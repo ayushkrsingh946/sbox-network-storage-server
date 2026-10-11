@@ -46,6 +46,38 @@ natively without a database write:
 an update check has run, else null. `sbox-ns doctor` also polls this route
 to check the listener.
 
+## Library identity
+
+The library tells the server which build it is, so the server can tell old and
+new libraries apart. Every header is optional: a library that sends none of
+them (every build up to 1.0.309133) keeps working exactly as before.
+
+|Header|Value|Meaning|
+|---|---|---|
+|`x-ns-library-version`|SemVer, e.g. `1.1.0`|Version of the Network Storage library. Missing or invalid (not `MAJOR.MINOR.PATCH[-pre][+build]`, or longer than 64 characters) is the `legacy` bucket, never an error. The old constant `1.0` counts as `legacy`.|
+|`x-ns-library-revision`|integer, e.g. `309133`|s&box package revision of the library, best effort. Ignored unless a non-negative integer.|
+|`x-ns-client-type`|`game`, `editor` or `dedicated`|Which kind of client is calling. Any other value is ignored.|
+|`x-ns-revision-id`|integer|Game revision the client was built from (published bundles only).|
+|`x-ns-engine-version`|engine build, e.g. `26.10.02`|The s&box engine build the client runs on. At most 32 characters of `[0-9A-Za-z._+-]`; any other value is ignored.|
+
+A library that does not send the header can still report its version in a
+request body. The server uses it when the headers carry no valid version (a
+valid header always wins):
+
+- `networkStorageVersion` in the `revision-init` body,
+- `libraryVersion` (or `library_version`) in heartbeat and analytics event bodies.
+
+The old constant `"1.0"` there is `legacy` as well.
+
+The resolved identity (library version or `legacy`, client type, engine build)
+is written with each runtime request to `storage_request_log` and shown as the
+**Library**, **Client** and **Engine** columns on the project's Logs tab. Rows
+written before these columns existed show them empty.
+
+Every response, including errors and rejected requests, carries
+`x-ns-server-version` with the server version. It is a header only: no
+response body changes, and libraries that do not look for it ignore it.
+
 ## Revision init handshake
 
 At game startup the client sends a one-time handshake with its running
