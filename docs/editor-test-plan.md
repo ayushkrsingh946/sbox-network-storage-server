@@ -4,8 +4,10 @@ Everything here needs the s&box editor and the real
 [Network Storage library](https://github.com/sbox-cool/sbox-network-storage),
 so CI cannot run it. Server-only behavior (HTTP contract, SQLite and
 PostgreSQL, installers) is covered by CI and the parity corpus.
-Tick a box in the PR that records the result, and write the engine build, library
-version and server version next to it.
+
+Each run ends with one `tested` row in [`compat/library-matrix.json`](../compat/library-matrix.json)
+(see [Recording the result](#recording-the-result)). Tick the boxes in the PR that
+records the run, and link that PR from the row's `evidence`.
 
 ## Setup
 
@@ -17,7 +19,55 @@ version and server version next to it.
    current `main` of the library repo. Never copy files over an old install. A build
    older than 1.0.309133 does not start on editor 26.10.
 3. Editor **Network Storage > Setup**: project ID, public key, secret key, Base URL.
-4. Record: s&box build, library version, server version (`/v3/server-info`).
+4. Write down the five facts below before the first test. A run that is missing
+   any of them is **invalid evidence**: it does not count, and no `pass` row may
+   be recorded from it.
+
+|Fact|Where to read it|`tested` field|
+|---|---|---|
+|s&box engine build, the full string (for example `26.10.02`)|The editor's About dialog, or the `.version` file next to the editor|`engine`|
+|Library version|A library from git: the tag it was built from or, if untagged, `git:<sha>` (`git rev-parse --short HEAD` in the library checkout). A library installed through the editor: the version Library Manager shows, or the `LibraryVersion` constant (`NetworkStorage.LibraryVersion`). Also note the package revision from the library's `.version` (`1.0.<revision>`) when you have it|`library`, `librarySource` (`git:<sha>`, `library-manager` or `release:<tag>`), `revision`|
+|Server build|`GET /v3/server-info`: `version`, `kind` (`self-hosted` or `hosted`) and `database`. Hosted runs record `kind: hosted`; for a self-hosted server also record the commit if it is not a release build|`server`, `kind`, `database`, `commit`|
+|Operating system|The machine the editor ran on, e.g. `Windows 11 23H2`|`os`|
+|Result|`pass` only when every box in the sections you ran is ticked on this setup; otherwise `fail`. No editor run: `ci-only`|`result`|
+
+The server also logs the library version and engine build it receives
+(`x-ns-library-version`, `x-ns-engine-version`; see
+[game-client.md](game-client.md#library-compatibility)). After the run, the project's
+**Logs** tab should show the same library version and engine build you wrote down. If it shows
+`legacy`, the library under test does not report its version and the run does not exercise the
+version contract.
+
+## Recording the result
+
+Add one row to `tested` in `compat/library-matrix.json` per server build, library, engine,
+operating system and database combination you ran, in the PR that records the run
+(the file is checked against `compat/library-matrix.schema.json` by `dotnet test`):
+
+```json
+{
+  "server": "0.5.0",
+  "commit": "6386646",
+  "kind": "self-hosted",
+  "library": "1.1.0",
+  "librarySource": "library-manager",
+  "revision": 310500,
+  "engine": "26.10.02",
+  "os": "Windows 11 23H2",
+  "database": ["sqlite"],
+  "result": "pass",
+  "date": "2026-10-20",
+  "evidence": ["sbox-cool/sbox-network-storage-server#54", "sbox-cool/sbox-network-storage#5"]
+}
+```
+
+- `engine` and `os` are optional in the schema only for `ci-only` rows. A `pass` row without
+  `engine`, `os`, `kind` and `librarySource` fails the schema check, and so does one without
+  `database` and `evidence`.
+- Do not write free text results into issues or PR descriptions instead of the row. Link the row's PR
+  or issue from `evidence`, and put the log excerpts and the filled-in checklist there.
+- `scripts/compat-tested-with.ps1 -Version 0.5.0` prints the "Tested with" table for release notes
+  from these rows; the release steps are in [releasing.md](releasing.md#release-evidence).
 
 ## A. Library install and update
 
