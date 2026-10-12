@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-12
+
+### Fixed
+
+- `sbox-ns service start` and `service restart` return only once the server
+  answers `/health` (up to 60 seconds). The installer's `SBOX_NS_DNS=1` mode
+  runs `dns enable` right after starting the service; the registry's ownership
+  proof could arrive before the server listened and the install failed.
+
 ## [0.5.1] - 2026-10-12
 
 ### Upgrade notes
