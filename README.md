@@ -1,4 +1,4 @@
-# <img src="src/SboxNetworkStorage.Server/wwwroot/img/sbox-network-storage-icon-512.png" alt="Network Storage ns icon: white on a Sky-blue tile" width="48" height="48" /> s&box Network Storage
+# <img src="src/SboxNetworkStorage.Server/wwwroot/img/sbox-network-storage-icon-512.png" alt="Network Storage icon: dark interlocking ns glyph on a green tile" width="48" height="48" /> s&box Network Storage
 
 **Open-source game backend for s&box. Player-hosted, P2P or dedicated: your backend owns the saves, purchases and reward rules.**
 

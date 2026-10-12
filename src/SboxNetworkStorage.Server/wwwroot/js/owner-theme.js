@@ -1,12 +1,11 @@
-/* Theme preference. "dark" (green) is the default. "system" resolves to
-   "dark" in a dark color scheme and to "light" (green) in a light one.
-   "cooldark" and "coollight" are the former blue Sky themes. The "mint" key
-   renders as "Mint and orchid" and is kept stable as an opt-in so stored
-   preferences keep working across relabels. */
+/* Theme preference. "system" is the default: it resolves to "dark" (Demo green on a
+   neutral canvas) in a dark color scheme and to "light" (Demo green on light) in a
+   light one. The "mint" key renders as "Mint and orchid" and is kept stable
+   as an opt-in so stored preferences keep working across relabels. */
 "use strict";
 (function () {
-  var themes = ["system", "dark", "light", "cooldark", "coollight", "mint", "slate", "warm"];
-  var preference = "dark";
+  var themes = ["system", "dark", "light", "mint", "slate", "warm"];
+  var preference = "system";
   var media = window.matchMedia("(prefers-color-scheme: light)");
   try { var saved = localStorage.getItem("sbox-ns-theme"); if (themes.indexOf(saved) !== -1) preference = saved; } catch (_) {}
   function apply() {
