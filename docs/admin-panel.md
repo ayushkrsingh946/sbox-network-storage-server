@@ -553,9 +553,11 @@ with the required configuration/secrets, not a portable project archive.
 
 ## Themes and visual editing
 
-The theme selector offers System, Dark, Light, Mint, Slate and Warm. System follows
-your operating system. Your choice is stored in this browser only; it does not
-change other operators' dashboards. All themes work without external assets.
+The theme selector offers System, Dark, Light, Cool dark, Cool light, Mint, Slate
+and Warm. Dark (green) is the default; Light is also green, and the Cool themes are
+the blue Sky palette. System follows your operating system. Your choice is stored
+in this browser only; it does not change other operators' dashboards. All themes
+work without external assets.
 The shared design rules live in [UI guidelines](ui-guidelines.md).
 
 Record payloads and endpoint-test inputs open in **Visual** when they can be

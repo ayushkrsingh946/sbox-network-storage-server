@@ -336,6 +336,64 @@ public static class NetworkStorageGatewayEndpoints
 
         var result = await handler.ExecuteAsync(request);
 
+        // Phase 4 (game-version-policy): opt-in enforcement (reads block only
+        // under block_all), pinned old-revision values and _revisionStatus.
+        // Fail-open: any lookup failure serves the live result above.
+        try
+        {
+            var revisionClientId = ClientIdentityContext.Get(context).RevisionId;
+            var workspace = context.RequestServices.GetService<SboxNetworkStorage.Application.Workspace.IWorkspaceStore>();
+            var memoryCache = context.RequestServices.GetService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
+            var keyResolver = context.RequestServices.GetService<IStorageApiKeyResolver>();
+            var projectService = context.RequestServices.GetService<INetworkStorageProjectService>();
+            // Legacy clients send no revision and never get policy status, pinning or blocking: skip key and project lookups.
+            if (revisionClientId.HasValue && result.StatusCode is >= 200 and < 300 && workspace is not null && memoryCache is not null
+                && keyResolver is not null && projectService is not null && !string.IsNullOrEmpty(apiKey))
+            {
+                var snapshotCache = new RevisionSnapshotCache(memoryCache);
+                var auth = await keyResolver.ResolveApiKeyAsync(apiKey, context.GetRouteValue("projectId")?.ToString() ?? "", context.RequestAborted);
+                var valuesProjectId = context.GetRouteValue("projectId")?.ToString() ?? "";
+                var access = auth is not null ? await projectService.ResolveProjectAccessAsync(auth.UserId, valuesProjectId, context.RequestAborted) : null;
+                if (access is not null && VersionPolicyEvaluator.HasExplicitPolicy(access.Project))
+                {
+                    var isSecret = string.Equals(auth!.KeyType, "secret", StringComparison.OrdinalIgnoreCase);
+                    if (access.Project.RevisionServerEnforcementEnabled == true && !isSecret)
+                    {
+                        var denial = await VersionPolicyEnforcement.CheckAsync(
+                            access.Project, auth.UserId, valuesProjectId, revisionClientId, isSecretCaller: false,
+                            isMutating: false,
+                            workspace, snapshotCache, DateTimeOffset.UtcNow, context.RequestAborted);
+                        if (denial is not null)
+                        {
+                            MeterAuthenticated(context, result);
+                            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                            context.Response.ContentType = "application/json; charset=utf-8";
+                            await context.Response.WriteAsJsonAsync(VersionPolicyEnforcement.DenialBody(denial), context.RequestAborted);
+                            return;
+                        }
+                    }
+                    var index = await RevisionSnapshots.ReadIndexAsync(workspace, auth.UserId, valuesProjectId, context.RequestAborted);
+                    var decision = VersionPolicyEvaluator.Evaluate(access.Project, index, revisionClientId, DateTimeOffset.UtcNow, index.LiveRevisionId);
+                    var status = RevisionStatusInjector.Build(access.Project, decision, revisionClientId);
+                    object? body = result.Body;
+                    if (decision.IsOutdated && !decision.GraceExpired && revisionClientId.HasValue
+                        && await snapshotCache.GetAsync(workspace, auth.UserId, valuesProjectId, revisionClientId.Value, context.RequestAborted) is { } pinned)
+                    {
+                        var includePrivate = isSecret && ApiKeyPermissionPolicy.HasPermission(auth, "collections", "r");
+                        body = GameValuesHandler.ToClientFormatFromStoreRows(pinned.GameValues, pinned.Collections, includePrivate);
+                    }
+                    if (status is not null && body is not null) body = RevisionStatusInjector.WithStatus(body, status);
+                    MeterAuthenticated(context, result);
+                    context.Response.StatusCode = result.StatusCode;
+                    context.Response.ContentType = "application/json; charset=utf-8";
+                    await context.Response.WriteAsJsonAsync(body, context.RequestAborted);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { return; }
+        catch { /* fail open */ }
+
         MeterAuthenticated(context, result);
         context.Response.StatusCode = result.StatusCode;
         context.Response.ContentType = "application/json; charset=utf-8";
@@ -541,7 +599,17 @@ public static class NetworkStorageGatewayEndpoints
 
         NetworkStorageUsageContext.SetAuthenticated(context, projectId);
 
-        JsonElement? body = null;
+        // Phase 4 (game-version-policy): opt-in server enforcement for
+        // expired revisions. Fail-open: lookup failures keep live behavior.
+        try
+        {
+            if (await VersionPolicyEnforcement.EnforceAsync(context, projectId, auth, isMutating: true))
+                return;
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { return; }
+        catch { /* fail open */ }
+
+         JsonElement? body = null;
         if (context.Request.ContentLength > 0)
         {
             try { body = await context.Request.ReadFromJsonAsync<JsonElement>(context.RequestAborted); }

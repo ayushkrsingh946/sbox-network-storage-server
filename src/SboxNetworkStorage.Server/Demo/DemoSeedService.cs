@@ -1,5 +1,7 @@
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
@@ -16,6 +18,7 @@ public sealed class DemoSeedService(IServiceScopeFactory scopes, EffectiveConfig
             throw new InvalidOperationException("The public demo requires its own SQLite database, not a shared PostgreSQL installation.");
         using var scope = scopes.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<INetworkStorageStore>();
+        var workspace = scope.ServiceProvider.GetRequiredService<IWorkspaceStore>();
         var admin = scope.ServiceProvider.GetRequiredService<INetworkStorageStoreAdmin>();
         await admin.EnsureSchemaCompatibleAsync(ct);
         var marker = Path.Combine(config.DataDirectory, "demo-project.json");
@@ -40,6 +43,46 @@ public sealed class DemoSeedService(IServiceScopeFactory scopes, EffectiveConfig
         var now = timestamp.ToUnixTimeMilliseconds();
         var month = timestamp.ToString("yyyy-MM", System.Globalization.CultureInfo.InvariantCulture);
         var day = timestamp.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var projects = (await workspace.GetUserProjectsAsync(1, ct)).ToList();
+        projects[0] = projects[0] with
+        {
+            HostingProfile = "player-hosted",
+            Webhooks = new Dictionary<string, object>
+            {
+                ["profiles"] = new[] { new { id = "demo-operations", name = "Operations (sample)", url = "https://example.invalid/demo-webhook", color = "#7eb89e", enabled = true } },
+            },
+        };
+        await workspace.SaveUserProjectsAsync(1, projects, ct);
+        await workspace.PutProjectResourceAsync(1, project, "game-package.json", new
+        {
+            currentRevisionId = 42, revisionPublishedAt = timestamp.AddHours(-2).ToString("O"), sampleData = true,
+        }, ct);
+        await ManagementProjectObjects.WriteTestsAsync(store, 1, project,
+            [JsonSerializer.SerializeToElement(new
+            {
+                id = "demo-save-test", name = "Save progress (sample)", endpoint = "save-progress",
+                input = new { level = 10 }, steamId = "10001", asServer = false, expect = new { outcome = "pass", status = 200 },
+            })], ct);
+        await store.UpsertRateLimitRulesAsync(project, JsonSerializer.SerializeToElement(new[]
+        {
+            new { id = "demo-coins", name = "Coin gain (sample)", collection = "players", field = "coins",
+                scope = "per_player", windows = new { perMinute = 100 }, action = "flag", webhook = false, enabled = true },
+        }), 1, ct);
+        await store.UpsertPageAsync(project, "welcome", "Welcome (sample)", JsonSerializer.Serialize(new
+        {
+            id = "welcome", slug = "welcome", title = "Welcome (sample)", pageType = "markdown",
+            contentMd = "# Island survival\\nGenerated community page. Explore, build a shelter and find the harbor.",
+            createdAt = timestamp.AddDays(-7).ToString("O"), updatedAt = timestamp.ToString("O"),
+        }), now - 7 * 86_400_000L, now, ct);
+        var versions = scope.ServiceProvider.GetRequiredService<IClientVersionStore>();
+        var existingClients = await versions.ReadClientVersionsAsync(project, (int)(timestamp.ToUnixTimeSeconds() / 86_400), ct);
+        if (existingClients.Count == 0)
+        {
+            var sketch = new byte[PlayerCountSketch.Size];
+            for (var n = 1; n <= 6; n++) PlayerCountSketch.Add(sketch, project, (10000 + n).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            await versions.WriteClientVersionsAsync(
+                [new(new(project, (int)(timestamp.ToUnixTimeSeconds() / 86_400), "legacy", null, "game", 42), 840, now, sketch)], ct);
+        }
         await Collection("players", "Player progress", "player", new { level = new { type = "number" }, coins = new { type = "number" } });
         await Collection("inventory", "Player inventory", "player", new { items = new { type = "array" } });
         await Collection("world", "World state", "global", new { season = new { type = "number" } });
@@ -60,6 +103,11 @@ public sealed class DemoSeedService(IServiceScopeFactory scopes, EffectiveConfig
                 null, null, 3600 + i * 1200, 3 + i, "quest-completed", "save-progress", "{}", now, ct);
             await store.InsertPlayerAnalyticsEventV2Async(project, player, now - i * 900000, $"demo-event-{i}", "quest-completed",
                 "progress", "First shelter", "save-progress", "players", JsonSerializer.SerializeToElement(new { quest = "first-shelter", sampleData = true }), ct);
+            await store.InsertLedgerEntryAsync(project, "players", player, 1, JsonSerializer.SerializeToElement(new
+            {
+                sequence = 1, timestamp = now - i * 900000, field = "coins", before = 100, after = 120 + i * 87,
+                delta = 20 + i * 87, endpoint = "save-progress", sampleData = true,
+            }), ct);
         }
         await store.UpsertGlobalRecordAsync(project, "world", "current-season", JsonSerializer.SerializeToElement(new {
             season = 3, weather = "clear", settlements = new[] { new { name = "Harbor", population = 18 }, new { name = "Hill camp", population = 7 } }, sampleData = true
@@ -67,6 +115,10 @@ public sealed class DemoSeedService(IServiceScopeFactory scopes, EffectiveConfig
         await store.UpsertEndpointAsync(project, "demo-save-progress", "save-progress", "POST", true,
             JsonSerializer.SerializeToElement(new { id = "demo-save-progress", name = "Save progress", slug = "save-progress", method = "POST", enabled = true,
                 steps = new[] { new { type = "respond", body = new { saved = true } } }, notes = "Illustrative definition. Public demo execution is disabled." }), null, 1, ct);
+        await ManagementProjectObjects.RecordVersionAsync(store, 1, project, "endpoint", "demo-save-progress",
+            JsonSerializer.SerializeToElement(new { id = "demo-save-progress", name = "Save progress", slug = "save-progress",
+                method = "POST", enabled = true, steps = new[] { new { type = "respond", body = new { saved = true } } },
+                notes = "Generated version-history example." }), "demo-fixture", now - 3_600_000, ct);
         await store.UpsertGameValuesAsync(project, JsonSerializer.SerializeToElement(new { xpMultiplier = 1.25, startingCoins = 100, maximumPartySize = 4 }), null, 1, ct);
         await store.UpsertWorkflowAsync(project, "demo-season-reward", "Season reward",
             JsonSerializer.SerializeToElement(new { id = "demo-season-reward", name = "Season reward",
@@ -82,6 +134,10 @@ public sealed class DemoSeedService(IServiceScopeFactory scopes, EffectiveConfig
                 new UsageDelta(840, 540, 300, 300, 102400, 204800, 2, 11760, 840, 8192), ct);
         await store.InsertAuditLogAsync(project, now, "demo-fixture-created", "demo-operator", "demo.seed", "{\"kind\":\"sample\"}",
             "{}", "{\"message\":\"Generated demo dataset created\"}", "{}", ct);
+        await SboxNetworkStorage.Infrastructure.NetworkStorage.Modules.ModuleDemoSeeder.SeedAsync(
+            scope.ServiceProvider.GetRequiredService<SboxNetworkStorage.Infrastructure.NetworkStorage.Modules.ModuleInstaller>(),
+            scope.ServiceProvider.GetRequiredService<IModuleDataStore>(),
+            store, 1, project, timestamp, ct);
         return;
 
         Task Collection(string id, string name, string type, object schema) => store.UpsertCollectionAsync(project, id, name, "public",

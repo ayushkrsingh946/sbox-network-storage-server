@@ -569,12 +569,30 @@ public sealed class NetworkStorageProjectService(
                         postGraceAction = string.IsNullOrWhiteSpace(project.RevisionPostGraceAction) ? "block_writes" : project.RevisionPostGraceAction;
                     }
 
+                    // Phase 4 (game-version-policy, 9.1): additive version rules.
+                    // D9 migration is evaluation-time (VersionPolicyEvaluator):
+                    // stored legacy values are never rewritten here.
+                    var inGraceAction = formValues.GetValueOrDefault("revisionInGraceAction");
+                    if (inGraceAction != "continue" && inGraceAction != "notify" && inGraceAction != "rejoin")
+                    {
+                        inGraceAction = project.RevisionInGraceAction
+                            ?? (string.Equals(enforcementMode, "force_upgrade", StringComparison.OrdinalIgnoreCase) ? "rejoin" : "notify");
+                    }
+                    var minimumRaw = formValues.GetValueOrDefault("revisionMinimumRevisionId");
+                    long? minimumRevision = string.IsNullOrWhiteSpace(minimumRaw) || string.Equals(minimumRaw, "disabled", StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : long.TryParse(minimumRaw, out var parsedMinimum) && parsedMinimum >= 0 ? parsedMinimum : project.RevisionMinimumRevisionId;
+                    var retentionRaw = formValues.GetValueOrDefault("revisionRetentionCount");
+                    int? retention = string.IsNullOrWhiteSpace(retentionRaw) || string.Equals(retentionRaw, "disabled", StringComparison.OrdinalIgnoreCase)
+                        ? null
+                        : int.TryParse(retentionRaw, out var parsedRetention) ? Math.Clamp(parsedRetention, VersionPolicyEvaluator.MinRetention, VersionPolicyEvaluator.MaxRetention) : project.RevisionRetentionCount;
+
                     project = project with
                     {
                         RevisionEnforcementEnabled = IsChecked(formValues.GetValueOrDefault("revisionEnforcementEnabled")),
                         RevisionShowDefaultMessage = IsChecked(formValues.GetValueOrDefault("revisionShowDefaultMessage")),
                         RevisionEnforcementMode = enforcementMode,
-                        RevisionGracePeriodMinutes = ParseOptionalInt(graceRaw, min: 5, max: 1440),
+                        RevisionGracePeriodMinutes = ParseGraceMinutes(graceRaw),
                         RevisionPostGraceAction = postGraceAction,
                         RevisionForceEndpointUpgrade = IsChecked(formValues.GetValueOrDefault("revisionForceEndpointUpgrade")),
                         RevisionNotifyMessage = (formValues.GetValueOrDefault("revisionNotifyMessage") ?? string.Empty).Trim()[..Math.Min((formValues.GetValueOrDefault("revisionNotifyMessage") ?? string.Empty).Trim().Length, 500)],
@@ -583,7 +601,11 @@ public sealed class NetworkStorageProjectService(
                         RevisionEscalateAfterMinutes = ParseOptionalInt(escalateRaw, min: 60, max: 1440),
                         RevisionShowPopupOnce = !formValues.ContainsKey("revisionShowPopupOnce") || IsChecked(formValues.GetValueOrDefault("revisionShowPopupOnce")),
                         RevisionTestOutdatedEditor = IsChecked(formValues.GetValueOrDefault("revisionTestOutdatedEditor")),
-                        RevisionTestOutdatedLive = IsChecked(formValues.GetValueOrDefault("revisionTestOutdatedLive"))
+                        RevisionTestOutdatedLive = IsChecked(formValues.GetValueOrDefault("revisionTestOutdatedLive")),
+                        RevisionMinimumRevisionId = minimumRevision,
+                        RevisionInGraceAction = inGraceAction,
+                        RevisionServerEnforcementEnabled = IsChecked(formValues.GetValueOrDefault("revisionServerEnforcementEnabled")),
+                        RevisionRetentionCount = retention,
                     };
                     break;
                 }
@@ -995,7 +1017,21 @@ public sealed class NetworkStorageProjectService(
             : null;
     }
 
-    private static string NormalizeRevisionMode(WorkspaceProject project)
+    /// <summary>
+    /// Grace period minutes (game-version-policy, 0-10080). 0 means no grace
+    /// window: an outdated client is past grace immediately. Empty/disabled
+    /// means no configured grace (the in-grace action applies).
+    /// </summary>
+    private static int? ParseGraceMinutes(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || string.Equals(value, "disabled", StringComparison.OrdinalIgnoreCase))
+            return null;
+        return int.TryParse(value, out var parsed) && parsed >= 0
+            ? Math.Clamp(parsed, 0, VersionPolicyEvaluator.MaxGraceMinutes)
+            : null;
+    }
+
+     private static string NormalizeRevisionMode(WorkspaceProject project)
     {
         if (string.IsNullOrWhiteSpace(project.RevisionEnforcementMode)
             && string.Equals(project.RevisionPostGraceAction, "allow_readonly", StringComparison.OrdinalIgnoreCase))

@@ -1,0 +1,50 @@
+@model SboxNetworkStorage.Server.Owner.OwnerInsightsModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    string WindowLine(SboxNetworkStorage.Infrastructure.NetworkStorage.Modules.WindowMetrics window) =>
+        window.EnoughData
+            ? $"{window.ActivePlayers} active, {window.NewPlayers} new, {window.Sessions} sessions" + (window.MedianSessionSeconds.HasValue ? $", median session {window.MedianSessionSeconds.Value:F0}s" : "")
+            : "Not enough data yet";
+    string Rate(double? rate, bool enough) => rate.HasValue ? $"{rate.Value:P1}" : (enough ? "0%" : "Not enough data yet");
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Player insights</h1><p>Who plays @Model.ProjectName, for how long, and whether they return — built from data the server already records.</p></div><a class="button secondary" href="@url/modules">Modules</a></div>
+@if (Model.Error is not null) { <div class="notice error" role="alert">@Model.Error</div> }
+<section class="card">
+    <h2>Overview</h2>
+    @if (Model.Overview is null) { <p class="muted">Not enough data yet. Overview appears once players start sessions.</p> }
+    else
+    {
+        <ul class="rows">
+        @foreach (var window in Model.Overview.Windows) { <li><span class="row-label">Last @window.WindowDays day@(window.WindowDays == 1 ? "" : "s")</span><span class="row-value">@WindowLine(window)</span></li> }
+            <li><span class="row-label">Day-1 return rate</span><span class="row-value">@Rate(Model.Overview.Day1ReturnRate, true)</span></li>
+            <li><span class="row-label">Day-7 return rate</span><span class="row-value">@Rate(Model.Overview.Day7ReturnRate, Model.Overview.Day7EnoughData)</span></li>
+        </ul>
+        @if (Model.Overview.DroppedLogEntries > 0) { <p class="notice">The action log dropped @Model.Overview.DroppedLogEntries entries under burst traffic; game requests were not affected.</p> }
+        <div class="actions"><a class="button secondary" href="@url/modules/insights/log">Action log</a></div>
+    }
+</section>
+<section class="card">
+    <h2>Player search</h2>
+    <form method="get" action="@url/modules/insights">
+        <label>Steam ID or display name <input type="text" name="q" value="@Model.Query" /></label>
+        <div class="actions"><button type="submit">Search</button></div>
+    </form>
+    @if (!string.IsNullOrEmpty(Model.Query))
+    {
+        @if (Model.Profiles.Count == 0) { <p class="muted">No players match.</p> }
+        else
+        {
+            <ul class="rows">
+            @foreach (var profile in Model.Profiles)
+            {
+                var steamId = profile.ValueKind == System.Text.Json.JsonValueKind.Object && profile.TryGetProperty("steam_id", out var id) && id.ValueKind == System.Text.Json.JsonValueKind.String ? id.GetString() ?? "" : "";
+                var name = profile.ValueKind == System.Text.Json.JsonValueKind.Object && profile.TryGetProperty("player_name", out var nm) && nm.ValueKind == System.Text.Json.JsonValueKind.String ? nm.GetString() ?? "" : "";
+                <li><span class="row-label"><a href="@url/modules/insights/players/@Uri.EscapeDataString(steamId)"><code>@steamId</code></a></span><span class="row-value">@name</span></li>
+            }
+            </ul>
+        }
+    }
+</section>

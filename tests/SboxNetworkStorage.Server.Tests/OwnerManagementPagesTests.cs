@@ -350,10 +350,10 @@ public sealed class OwnerManagementPagesTests
         var overview = WebUtility.HtmlDecode(await owner.GetStringAsync($"/dashboard/projects/{project.ProjectId}"));
         Assert.Contains($"My sbox-ns project ID is {project.ProjectId}. Use the sbox-ns MCP tools", overview);
         Assert.DoesNotContain("parity", overview);
-        // Advanced settings start folded, each with a sentence and a doc link; the revision policy says it never blocks.
-        foreach (var summary in new[] { "Player keys", "Player projections", "Revision policy \\(applied by the client library\\)", "Auth sessions and encrypted requests" })
+        // Advanced settings start folded, each with a sentence and a doc link. Server-side enforcement is an explicit opt-in switch.
+        foreach (var summary in new[] { "Player keys", "Player projections", "Revision policy \\(game versions\\)", "Auth sessions and encrypted requests" })
             Assert.Matches($"<details class=\"(card )?settings-advanced\">\\s*<summary>{summary}</summary>", overview);
-        Assert.Contains("This server does not block any request.", overview);
+        Assert.Contains("Server-side enforcement (this server blocks requests)", overview);
         foreach (var anchor in new[] { "auth-sessions", "encrypted-requests", "player-key-mode", "legacy-player-projections", "revision-policy" })
             Assert.Contains($"docs/admin-panel.md#{anchor}\"", overview);
     }

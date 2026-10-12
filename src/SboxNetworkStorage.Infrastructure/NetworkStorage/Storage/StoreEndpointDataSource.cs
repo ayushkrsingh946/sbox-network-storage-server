@@ -29,26 +29,39 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreEndpointDataSource> _logger;
     private readonly RevisionOverlay? _overlay;
+    // Phase 4 (game-version-policy): pinned retained revision. When set,
+    // definitions (endpoints, workflows, collections) come from the immutable
+    // snapshot; player records always stay live (shared across revisions).
+    private readonly RevisionSnapshots.SnapshotDocument? _snapshot;
 
     public StoreEndpointDataSource(
         INetworkStorageStore store,
         ILogger<StoreEndpointDataSource> logger)
-        : this(store, logger, overlay: null)
+        : this(store, logger, overlay: null, snapshot: null)
     {
     }
 
-    private StoreEndpointDataSource(INetworkStorageStore store, ILogger<StoreEndpointDataSource> logger, RevisionOverlay? overlay)
+    private StoreEndpointDataSource(INetworkStorageStore store, ILogger<StoreEndpointDataSource> logger, RevisionOverlay? overlay, RevisionSnapshots.SnapshotDocument? snapshot)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _overlay = overlay;
+        _snapshot = snapshot;
     }
 
     /// <summary>
     /// A data source for a request targeting the staged revision: endpoint definitions and collection
     /// definitions (name→id resolution and global/per-player routing) come from the overlay first.
     /// </summary>
-    public StoreEndpointDataSource WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay);
+    public StoreEndpointDataSource WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay, _snapshot);
+
+    /// <summary>
+    /// A data source pinned to a retained revision: endpoint, workflow and
+    /// collection definitions come from the immutable snapshot first, falling
+    /// back to live only for definitions the snapshot does not contain.
+    /// Records (player data) are never pinned.
+    /// </summary>
+    public StoreEndpointDataSource WithRevisionSnapshot(RevisionSnapshots.SnapshotDocument snapshot) => new(_store, _logger, _overlay, snapshot);
 
     /// <inheritdoc />
     public int MaxPayloadBytes => _store.MaxPayloadBytes;
@@ -58,6 +71,10 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     {
         try
         {
+            // Pinned snapshot first; absent slug falls through to live below.
+            if (_snapshot is not null && SnapshotEndpointDefinition(endpointSlug) is { } pinned)
+                return pinned;
+
             if (_overlay is not null && _overlay.StagesEndpoint(endpointSlug))
             {
                 JsonElement? live = null;
@@ -99,8 +116,24 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
         }
     }
 
+    private Dictionary<string, object?>? SnapshotEndpointDefinition(string endpointSlug)
+    {
+        if (_snapshot is null) return null;
+        foreach (var row in _snapshot.Endpoints)
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            var slug = row.TryGetProperty("slug", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+            if (!string.Equals(slug, endpointSlug, StringComparison.Ordinal)) continue;
+            return ExtractDefinition(row);
+        }
+        return null;
+    }
+
     private async Task<IReadOnlyList<JsonElement>> CollectionRowsAsync(string projectId, CancellationToken ct)
     {
+        // Pinned snapshots replace the live set wholesale (full capture at
+        // publish); the staged overlay merges over live instead.
+        if (_snapshot is not null) return _snapshot.Collections;
         var rows = await _store.ListCollectionsAsync(projectId, ct);
         return _overlay is null ? rows : _overlay.MergeCollectionRows(rows);
     }
@@ -229,6 +262,18 @@ public sealed class StoreEndpointDataSource : IEndpointDataSource, IEndpointReco
     {
         try
         {
+            if (_snapshot is not null)
+            {
+                foreach (var row in _snapshot.Workflows)
+                {
+                    if (row.ValueKind != JsonValueKind.Object) continue;
+                    var id = row.TryGetProperty("workflow_id", out var w) && w.ValueKind == JsonValueKind.String ? w.GetString() : null
+                        ?? (row.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() : null)
+                        ?? (row.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null);
+                    if (!string.Equals(id, workflowId, StringComparison.Ordinal)) continue;
+                    return ExtractDefinition(row);
+                }
+            }
             var wf = await _store.ReadWorkflowAsync(projectId, workflowId, ct);
             if (!wf.HasValue) return null;
             return ExtractDefinition(wf.Value);

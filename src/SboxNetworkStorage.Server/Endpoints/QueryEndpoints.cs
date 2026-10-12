@@ -2,10 +2,15 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
-using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Application.NetworkStorage;
+using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
+using SboxNetworkStorage.Server.Compat;
+using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Middleware;
 
 
@@ -131,7 +136,45 @@ public static class QueryEndpoints
             return;
         }
 
-        // ── Determine live vs cached ──
+        // Phase 4 (game-version-policy): opt-in server enforcement (GET reads
+        // are blocked only under block_all), pinned snapshot definitions and
+        // _revisionStatus. Fail-open: lookup failures keep live behavior.
+        long? revisionClientId = ClientIdentityContext.Get(context).RevisionId;
+        RevisionSnapshots.SnapshotDocument? pinnedSnapshot = null;
+        Dictionary<string, object?>? revisionStatus = null;
+        try
+        {
+            var workspace = context.RequestServices.GetService<IWorkspaceStore>();
+            var memoryCache = context.RequestServices.GetService<IMemoryCache>();
+            if (workspace is not null && memoryCache is not null && VersionPolicyEvaluator.HasExplicitPolicy(access.Project))
+            {
+                var snapshotCache = new RevisionSnapshotCache(memoryCache);
+                if (access.Project.RevisionServerEnforcementEnabled == true && !endpointSecret.HasSecretKey)
+                {
+                    var denial = await VersionPolicyEnforcement.CheckAsync(
+                        access.Project, auth.UserId, projectId, revisionClientId, isSecretCaller: false,
+                        isMutating: false,
+                        workspace, snapshotCache, DateTimeOffset.UtcNow, context.RequestAborted);
+                    if (denial is not null)
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        context.Response.ContentType = "application/json; charset=utf-8";
+                        await context.Response.WriteAsJsonAsync(VersionPolicyEnforcement.DenialBody(denial), JsonOptions, context.RequestAborted);
+                        return;
+                    }
+                }
+                var index = await RevisionSnapshots.ReadIndexAsync(workspace, auth.UserId, projectId, context.RequestAborted);
+                var decision = VersionPolicyEvaluator.Evaluate(access.Project, index, revisionClientId, DateTimeOffset.UtcNow, index.LiveRevisionId);
+                if (decision.IsOutdated && !decision.GraceExpired && revisionClientId.HasValue)
+                    pinnedSnapshot = await snapshotCache.GetAsync(workspace, auth.UserId, projectId, revisionClientId.Value, context.RequestAborted);
+                revisionStatus = RevisionStatusInjector.Build(access.Project, decision, revisionClientId);
+                if (revisionStatus is not null) context.Items["RevisionStatus"] = revisionStatus;
+            }
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { return; }
+        catch { /* fail open */ }
+
+         // ── Determine live vs cached ──
         // Without ?cache=1 the response keeps the live shape (no-store, no cache fields). Only a secret key
         // may actually force a fresh run: the public key ships in every game build, so a public caller is
         // always served from the shared cache, which runs the query at most once per short interval.
@@ -139,11 +182,14 @@ public static class QueryEndpoints
         var runLive = wantsLive && endpointSecret.HasSecretKey;
 
         // ── Build the values context (game-values + collections) ──
-        var valuesProvider = context.RequestServices.GetRequiredService<IQueryValuesContextProvider>();
+        var valuesProvider = context.RequestServices.GetService<IQueryValuesContextProvider>();
         IReadOnlyDictionary<string, object?>? values = null;
         try
         {
-            values = await valuesProvider.GetValuesAsync(projectId, context.RequestAborted);
+            if (pinnedSnapshot is not null && context.RequestServices.GetService<StoreQueryValuesContextProvider>() is { } concreteValues)
+                values = await concreteValues.WithRevisionSnapshot(pinnedSnapshot).GetValuesAsync(projectId, context.RequestAborted);
+            else if (valuesProvider is not null)
+                values = await valuesProvider.GetValuesAsync(projectId, context.RequestAborted);
         }
         catch { /* best-effort — values context is optional */ }
 
@@ -152,9 +198,15 @@ public static class QueryEndpoints
         QueryResult? result;
         try
         {
-            result = await executor.ExecuteAsync(projectId, queryId, values, bypassCache: runLive, context.RequestAborted);
+            // Pinned execution: the old build's query definition runs over live
+            // records. Bypass the shared-query cache so a pinned run never
+            // poisons (or reads) another revision's cached result.
+            if (pinnedSnapshot is not null && SnapshotQueryDefinition(pinnedSnapshot, queryId) is { } pinnedQuery)
+                result = await executor.ExecuteWithQueryAsync(projectId, queryId, pinnedQuery, values, bypassCache: true, context.RequestAborted);
+            else
+                result = await executor.ExecuteAsync(projectId, queryId, values, bypassCache: runLive, context.RequestAborted);
         }
-        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
             return; // client disconnected
         }
@@ -199,6 +251,11 @@ public static class QueryEndpoints
 
         AddResultFields(body, result, includeCacheFields: !wantsLive);
 
+        // _revisionStatus rides the query body when a policy is configured;
+        // absent otherwise, so legacy bodies are unchanged.
+        if (context.Items["RevisionStatus"] is Dictionary<string, object?> queryStatus)
+            body["_revisionStatus"] = queryStatus;
+
         // Cache-control header for live-shaped results.
         if (wantsLive)
         {
@@ -208,6 +265,34 @@ public static class QueryEndpoints
         context.Response.StatusCode = StatusCodes.Status200OK;
         context.Response.ContentType = "application/json; charset=utf-8";
         await context.Response.WriteAsJsonAsync(body, JsonOptions, context.RequestAborted);
+    }
+
+    /// <summary>
+    /// The pinned revision's query definition from the snapshot row
+    /// (<c>definition_json</c> may be text or an object). Null when the
+    /// snapshot does not contain the query — the caller falls back to live.
+    /// </summary>
+    private static JsonElement? SnapshotQueryDefinition(RevisionSnapshots.SnapshotDocument snapshot, string queryId)
+    {
+        foreach (var row in snapshot.Queries)
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            var id = row.TryGetProperty("query_id", out var q) && q.ValueKind == JsonValueKind.String ? q.GetString()
+                ?? (row.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString()
+                ?? (row.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null) : null) : null;
+            if (!string.Equals(id, queryId, StringComparison.Ordinal)) continue;
+            if (row.TryGetProperty("definition_json", out var def))
+            {
+                if (def.ValueKind == JsonValueKind.Object) return def;
+                if (def.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(def.GetString()))
+                {
+                    try { return JsonDocument.Parse(def.GetString()!).RootElement.Clone(); }
+                    catch (JsonException) { return null; }
+                }
+            }
+            return row;
+        }
+        return null;
     }
 
     // ── Output builder (mirror addQueryResultFields) ──
@@ -335,10 +420,13 @@ public static class QueryEndpoints
     {
         context.Response.StatusCode = status;
         context.Response.ContentType = "application/json; charset=utf-8";
-        await context.Response.WriteAsJsonAsync(new
+        object body = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            error = new { code, message }
-        }, JsonOptions, context.RequestAborted);
+            ["error"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["code"] = code, ["message"] = message },
+        };
+        if (context.Items["RevisionStatus"] is Dictionary<string, object?> errorStatus)
+            body = RevisionStatusInjector.WithStatus(body, errorStatus);
+        await context.Response.WriteAsJsonAsync(body, JsonOptions, context.RequestAborted);
     }
 
     // ── Cache TTL ──

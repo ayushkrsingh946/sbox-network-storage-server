@@ -14,8 +14,43 @@
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <div class="page-heading"><div><h1>Version history</h1><p>Every save of an endpoint or workflow is kept, newest first (up to 50 per resource), for @Model.ProjectName.</p></div><a class="button secondary" href="@url">Project overview</a></div>
 @if (Model.Error is not null) { <div class="notice error" role="alert"><strong>Could not restore this version</strong><pre>@Model.Error</pre></div> }
+<section class="card">
+    <div class="section-heading"><h2>Published game revisions</h2></div>
+    <p class="muted">Each package sync that publishes a revision keeps an immutable snapshot of its endpoints, workflows, collections, queries and game values. Old builds inside their support window run their own revision's definitions and values; player records are always shared live data, so collection schema changes must stay backward-compatible.</p>
+    @if (Model.Retained is null || Model.Retained.Count == 0) { <p class="muted">No published revisions yet. The first package sync that sets a revision writes the first snapshot.</p> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Revision</th><th>Published (UTC)</th><th>Support</th><th>Players (24h)</th><th>Schema</th><th>Actions</th></tr></thead>
+        <tbody>
+        @foreach (var retained in Model.Retained)
+        {
+            <tr>
+                <td><code>@retained.RevisionId</code></td>
+                <td>@retained.PublishedAtUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")</td>
+                <td>
+                    @if (retained.State == "live") { <span class="badge positive">Live</span> }
+                    else if (retained.State == "grace") { <span class="badge">In grace@(retained.GraceEndsAtUtc is { } ends ? " until " + ends.ToString("yyyy-MM-dd HH:mm:ss 'UTC'") : "")</span> }
+                    else { <span class="badge danger">Expired</span> }
+                </td>
+                <td>@retained.Players24h</td>
+                <td>@if (retained.SchemaWarning is not null) { <span class="badge danger" title="@retained.SchemaWarning">Non-additive change</span> } else { <span class="muted">—</span> }</td>
+                <td class="actions">
+                    @if (retained.State == "grace")
+                    {
+                        <form method="post" action="@url/versions/grace/end">@Html.AntiForgeryToken()<input type="hidden" name="revisionId" value="@retained.RevisionId" /><input type="hidden" name="confirmTitle" value="End grace period" /><input type="hidden" name="confirmMessage" value="End the grace period for revision @retained.RevisionId now? Its players move to the after-grace action immediately." /><button class="danger" type="submit" data-confirm-title="End grace period" data-confirm="End the grace period for revision @retained.RevisionId now? Its players move to the after-grace action immediately.">End grace</button></form>
+                        <form method="post" action="@url/versions/grace/extend">@Html.AntiForgeryToken()<input type="hidden" name="revisionId" value="@retained.RevisionId" /><label>Extend <input type="number" name="extendMinutes" value="60" min="1" max="10080" required /> min</label><input type="hidden" name="confirmTitle" value="Extend grace period" /><input type="hidden" name="confirmMessage" value="Extend the grace period for revision @retained.RevisionId?" /><button type="submit" data-confirm-title="Extend grace period" data-confirm="Extend the grace period for revision @retained.RevisionId?">Extend</button></form>
+                    }
+                    else { <span class="muted">—</span> }
+                </td>
+            </tr>
+        }
+        </tbody>
+        </table></div>
+    }
+</section>
 <div class="manage-versions">
-    <aside class="card resource-list">
+     <aside class="card resource-list">
         <h2>Resources</h2>
         @if (Model.Resources.Count == 0) { <p class="muted">No endpoints or workflows yet.</p> }
         @foreach (var group in Model.Resources.GroupBy(resource => resource.Kind))

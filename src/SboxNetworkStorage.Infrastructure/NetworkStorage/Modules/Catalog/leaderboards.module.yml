@@ -1,0 +1,9 @@
+id: leaderboards
+version: 1.0.0
+minServerVersion: 0.6.0
+name: Leaderboards starter kit
+description: High-score submit with server-side validation plus a top-scores query. A submit below the stored best keeps the best. Works in player-hosted projects with only a public key.
+permissions: []
+hooks: []
+panels: []
+settings: []

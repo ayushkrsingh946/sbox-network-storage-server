@@ -61,7 +61,8 @@ public sealed partial class EndpointExecutor
         bool liveServe = false,
         string? playerKeyMode = null,
         bool enforcePublicAccessGates = false,
-        EndpointDryRunTrace? trace = null)
+        EndpointDryRunTrace? trace = null,
+        Func<string, bool>? isModuleDisabled = null)
     {
         // 1. Load endpoint definition from the store.
         Dictionary<string, object?>? endpointDef;
@@ -91,6 +92,12 @@ public sealed partial class EndpointExecutor
         {
             var denial = CheckPublicAccess(endpointDef, endpointSlug, hasSecretKey);
             if (denial is not null) return denial;
+            // A disabled module stops its endpoints with ENDPOINT_DISABLED. Data and
+            // settings are kept; re-enabling restores them. Internal callers (test
+            // runner, dry-run) still execute, so only public gates check here.
+            if (isModuleDisabled is not null
+                && ModuleOwner(endpointDef) is { } ownedModule && isModuleDisabled(ownedModule))
+                return Denied(403, "ENDPOINT_DISABLED", $"Endpoint \"{endpointSlug}\" is disabled.");
         }
 
         // Live cutover serving has no legacy server in the loop. Record writes/deletes the
@@ -646,6 +653,19 @@ public sealed partial class EndpointExecutor
         System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.False } => true,
         _ => false,
     };
+
+    /// <summary>
+    /// The module that owns an endpoint definition, when the <c>module</c> field
+    /// names one. Stored definitions may carry it as a string or a JSON string.
+    /// </summary>
+    private static string? ModuleOwner(Dictionary<string, object?> endpointDef)
+        => endpointDef.GetValueOrDefault("module") switch
+        {
+            string module when module.Length > 0 => module,
+            System.Text.Json.JsonElement element when element.ValueKind == System.Text.Json.JsonValueKind.String
+                && element.GetString() is { Length: > 0 } text => text,
+            _ => null,
+        };
 
     private static EndpointExecutionResult Denied(int status, string code, string message) =>
         new(false, status, new Dictionary<string, object?>

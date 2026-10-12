@@ -17,6 +17,20 @@ public sealed record OwnerServerModel(
 
 public sealed record OwnerProjectOption(string Id, string Name);
 
+public sealed record OwnerProviderView(
+    string Id,
+    string DisplayName,
+    string OriginLabel,
+    string Capabilities,
+    string Description,
+    bool Available,
+    string? UnavailableReason,
+    bool Configured,
+    string? Detail,
+    string? FromAddress,
+    IReadOnlyList<string> Created,
+    bool HasSecret);
+
 public sealed record OwnerAlertsModel(
     IReadOnlyList<ChannelInfo> Channels,
     IReadOnlyList<AlertRule> Rules,
@@ -28,12 +42,19 @@ public sealed record OwnerAlertsModel(
     bool EditingChannelHasSecret,
     string? RuleError = null,
     string? ChannelError = null,
-    IReadOnlyList<ChannelDelivery>? TestResult = null);
+    IReadOnlyList<ChannelDelivery>? TestResult = null,
+    IReadOnlyList<OwnerProviderView>? Providers = null,
+    ProviderPlan? PendingPlan = null,
+    ProviderInputs? PendingInputs = null,
+    bool PendingHasToken = false,
+    string? PendingProviderId = null,
+    string? ProviderError = null,
+    string? ProviderNotice = null);
 
 /// <summary>
 /// Server-wide operator pages: <c>/dashboard/server</c> (live host stats, short history) and
-/// <c>/dashboard/server/alerts</c> (alert rules, notification channels, history). Owner only; the
-/// read-only demo does not serve them (<see cref="Demo.DemoReadOnlyMiddleware"/> allowlist).
+/// <c>/dashboard/server/alerts</c> (alert rules, notification channels, history). Owner only;
+/// the public demo renders generated examples without reading host measurements or channel secrets.
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
 public sealed class OwnerServerController(
@@ -42,6 +63,7 @@ public sealed class OwnerServerController(
     MonitoringStore store,
     AlertRuleEngine engine,
     AlertDispatcher dispatcher,
+    ProviderRegistry providers,
     INetworkStorageStoreAdmin admin,
     IWorkspaceStore workspace,
     SboxNetworkStorage.Server.Configuration.EffectiveConfig config) : Controller
@@ -51,6 +73,8 @@ public sealed class OwnerServerController(
     [HttpGet("/dashboard/server")]
     public async Task<IActionResult> Index(CancellationToken ct)
     {
+        if (config.GetBoolean("adminpanel.demo_read_only"))
+            return View("~/Views/Owner/Server.cshtml", Demo.DemoMonitoring.Server());
         string? dbVersion = null;
         double? latency = null;
         try
@@ -80,6 +104,8 @@ public sealed class OwnerServerController(
     public IActionResult Stats([FromQuery] string? viewer, [FromQuery] int interval = 500, [FromQuery] long after = 0)
     {
         if (string.IsNullOrEmpty(viewer) || viewer.Length > 64) return BadRequest();
+        if (config.GetBoolean("adminpanel.demo_read_only"))
+            return Json(Demo.DemoMonitoring.Stats(interval, after));
         var granted = sampler.Watch(viewer, TimeSpan.FromMilliseconds(interval));
         var slow = sampler.Slow;
         return Json(new
@@ -94,13 +120,17 @@ public sealed class OwnerServerController(
     /// <summary>History for the charts: <c>15m</c> full resolution, <c>24h</c> one-minute rollups.</summary>
     [HttpGet("/dashboard/server/history")]
     public IActionResult History([FromQuery] string? range)
-        => range == "24h"
-            ? Json(new { range = "24h", rollups = sampler.Rollups() })
-            : Json(new { range = "15m", samples = sampler.Recent(MetricsSampler.LiveRetention) });
+        => config.GetBoolean("adminpanel.demo_read_only")
+            ? Json(Demo.DemoMonitoring.History(range))
+            : range == "24h"
+                ? Json(new { range = "24h", rollups = sampler.Rollups() })
+                : Json(new { range = "15m", samples = sampler.Recent(MetricsSampler.LiveRetention) });
 
     [HttpGet(AlertsUrl)]
     public async Task<IActionResult> Alerts([FromQuery] string? rule, [FromQuery] string? channel, CancellationToken ct)
     {
+        if (config.GetBoolean("adminpanel.demo_read_only"))
+            return View("~/Views/Owner/Alerts.cshtml", Demo.DemoMonitoring.Alerts(await ProjectsAsync(ct)));
         var editingChannel = store.Channels.FirstOrDefault(c => c.Id == channel);
         return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(
             store.Rules.FirstOrDefault(r => r.Id == rule), editingChannel, editingChannel is not null && store.HasSecret(editingChannel.Id), ct));
@@ -170,13 +200,168 @@ public sealed class OwnerServerController(
         return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct) with { TestResult = [delivery] });
     }
 
+    /// <summary>Shows exactly what a provider setup will create. Creates nothing and needs no network.</summary>
+    [HttpPost(AlertsUrl + "/providers/plan")]
+    public async Task<IActionResult> PlanProvider([FromForm] ProviderSetupForm form, CancellationToken ct)
+    {
+        var provider = providers.Find(form.ProviderId ?? "");
+        if (provider is null) return NotFound();
+        if (provider.CheckAvailability() is { Available: false, Reason: { } reason })
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct) with { ProviderError = reason });
+        var inputs = form.ToInputs();
+        if (provider.ValidateInputs(inputs) is { } error)
+        {
+            Response.StatusCode = 400;
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct)
+                with { ProviderError = error, PendingInputs = form.Redacted(), PendingProviderId = provider.Id });
+        }
+
+        var plan = await provider.PlanSetupAsync(inputs, ct);
+        return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct)
+            with
+            {
+                PendingPlan = plan, PendingInputs = form.Redacted(), PendingHasToken = inputs.Token.Length > 0,
+                PendingProviderId = provider.Id,
+                ProviderNotice = "Review what will be created, then enter the token again to confirm. Tokens are never shown back.",
+            });
+    }
+
+    /// <summary>Validates credentials, creates the planned resources, and adds a provider channel.</summary>
+    [HttpPost(AlertsUrl + "/providers/apply")]
+    public async Task<IActionResult> ApplyProvider([FromForm] ProviderSetupForm form, CancellationToken ct)
+    {
+        var provider = providers.Find(form.ProviderId ?? "");
+        if (provider is null) return NotFound();
+        if (provider.CheckAvailability() is { Available: false, Reason: { } reason })
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct) with { ProviderError = reason });
+        var stored = store.ReadProviderSecrets(provider.Id);
+        var inputs = form.ToInputs() with { Token = form.ToInputs().Token.Length > 0 ? form.ToInputs().Token : stored.Token ?? "" };
+        if (provider.ValidateInputs(inputs) is { } error)
+        {
+            Response.StatusCode = 400;
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct)
+                with { ProviderError = error, PendingInputs = form.Redacted(), PendingProviderId = provider.Id });
+        }
+
+        ProviderApplyResult result;
+        try
+        {
+            result = await provider.ApplySetupAsync(inputs, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Response.StatusCode = 502;
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct)
+                with { ProviderError = "Setup failed unexpectedly; see the server log.", PendingInputs = form.Redacted(), PendingProviderId = provider.Id });
+        }
+
+        if (result.Created.Count > 0)
+        {
+            store.SaveProviderSetup(new ProviderSetup(provider.Id, result.Ok,
+                inputs.AccountId, inputs.ZoneId, inputs.Subdomain, result.FromAddress ?? inputs.FromAddress,
+                inputs.ForwardTo.Length > 0, result.Created, result.Detail ?? result.Error, DateTimeOffset.UtcNow),
+                new ProviderSecrets(Token: inputs.Token, AccountId: inputs.AccountId, ZoneId: inputs.ZoneId,
+                    Subdomain: inputs.Subdomain, FromAddress: result.FromAddress ?? inputs.FromAddress, ForwardTo: inputs.ForwardTo));
+            EnsureProviderChannel(provider);
+        }
+
+        if (!result.Ok)
+        {
+            Response.StatusCode = 502;
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct)
+                with
+                {
+                    ProviderError = result.Error ?? "Setup failed.",
+                    ProviderNotice = result.Created.Count == 0 ? null : "Some resources were created before the failure; tearing down removes them.",
+                    PendingInputs = form.Redacted(),
+                    PendingProviderId = provider.Id,
+                });
+        }
+
+        OwnerFlash.Success(this, $"{provider.DisplayName} is set up.");
+        return Redirect(AlertsUrl + "#providers");
+    }
+
+    /// <summary>Re-checks a configured provider and stores the status text.</summary>
+    [HttpPost(AlertsUrl + "/providers/verify")]
+    public async Task<IActionResult> VerifyProvider([FromForm] string? id, CancellationToken ct)
+    {
+        var provider = providers.Find(id ?? "");
+        var setup = provider is null ? null : store.GetProviderSetup(provider.Id);
+        if (provider is null || setup is null) return NotFound();
+        ProviderVerifyResult result;
+        try
+        {
+            result = await provider.VerifyAsync(ProviderContext(setup, store.ReadProviderSecrets(provider.Id)), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            result = new ProviderVerifyResult(false, "The check failed unexpectedly; see the server log.");
+        }
+
+        store.SaveProviderSetup(setup with { Detail = result.Detail, UpdatedAt = DateTimeOffset.UtcNow }, secrets: null);
+        OwnerFlash.Success(this, result.Ok ? $"{provider.DisplayName}: {result.Detail}" : $"{provider.DisplayName} check failed: {result.Detail}");
+        return Redirect(AlertsUrl + "#providers");
+    }
+
+    /// <summary>Deletes only the recorded provider resources, then forgets the setup and its secret.</summary>
+    [HttpPost(AlertsUrl + "/providers/teardown")]
+    public async Task<IActionResult> TeardownProvider([FromForm] string? id, CancellationToken ct)
+    {
+        var provider = providers.Find(id ?? "");
+        var setup = provider is null ? null : store.GetProviderSetup(provider.Id);
+        if (provider is null || setup is null) return NotFound();
+        ProviderTeardownResult result;
+        try
+        {
+            result = await provider.TeardownAsync(
+                new ProviderTeardownContext(ProviderContext(setup, store.ReadProviderSecrets(provider.Id)), setup.Created), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Response.StatusCode = 502;
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct)
+                with { ProviderError = "Teardown failed unexpectedly; see the server log." });
+        }
+
+        if (!result.Ok)
+        {
+            Response.StatusCode = 502;
+            return View("~/Views/Owner/Alerts.cshtml", await ModelAsync(null, null, false, ct) with { ProviderError = result.Error });
+        }
+
+        store.DeleteProviderSetup(provider.Id);
+        OwnerFlash.Success(this, $"{provider.DisplayName} removed ({result.Removed} resource(s)). Its channel stays but cannot send until set up again.");
+        return Redirect(AlertsUrl + "#providers");
+    }
+
+    private ProviderSendContext ProviderContext(ProviderSetup setup, ProviderSecrets secrets) => new(
+        setup.AccountId, setup.ZoneId, setup.Subdomain, setup.FromAddress, secrets.ForwardTo ?? "", secrets.Token ?? "");
+
+    private void EnsureProviderChannel(IAlertProvider provider)
+    {
+        if (store.Channels.Any(c => c.Kind == provider.Id)) return;
+        store.SaveChannel(new ChannelDefinition(NewId("c"), provider.DisplayName, provider.Id,
+            "generic", AlertSeverity.Info, null, true), secrets: null);
+    }
+
     private async Task<OwnerAlertsModel> ModelAsync(AlertRule? rule, ChannelDefinition? channel, bool channelHasSecret, CancellationToken ct)
     {
         var statuses = new Dictionary<string, RuleStatus>(StringComparer.Ordinal);
         foreach (var r in store.Rules)
             if (engine.Status(r.Id) is { } status) statuses[r.Id] = status;
         return new OwnerAlertsModel(dispatcher.Channels(), store.Rules.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList(),
-            statuses, store.History.Take(100).ToList(), await ProjectsAsync(ct), rule, channel, channelHasSecret);
+            statuses, store.History.Take(100).ToList(), await ProjectsAsync(ct), rule, channel, channelHasSecret,
+            Providers: providers.All.Select(ViewOf).ToList());
+    }
+
+    private OwnerProviderView ViewOf(IAlertProvider provider)
+    {
+        var (available, reason) = provider.CheckAvailability();
+        var setup = store.GetProviderSetup(provider.Id);
+        return new OwnerProviderView(provider.Id, provider.DisplayName, provider.OriginLabel, provider.CapabilitiesLabel,
+            provider.Description, available, reason, setup?.Configured == true, setup?.Detail, setup?.FromAddress,
+            setup?.Created.Select(c => c.Description).ToList() ?? [], store.HasProviderSecret(provider.Id));
     }
 
     private async Task<IReadOnlyList<OwnerProjectOption>> ProjectsAsync(CancellationToken ct)
@@ -291,5 +476,23 @@ public sealed class OwnerServerController(
                 return "Enter 1-20 valid recipient addresses, separated by commas.";
             return null;
         }
+    }
+
+    public sealed class ProviderSetupForm
+    {
+        public string? ProviderId { get; set; }
+        public string? Token { get; set; }
+        public string? AccountId { get; set; }
+        public string? ZoneId { get; set; }
+        public string? Subdomain { get; set; }
+        public string? FromAddress { get; set; }
+        public string? ForwardTo { get; set; }
+
+        public ProviderInputs ToInputs() => new(
+            (Token ?? "").Trim(), (AccountId ?? "").Trim(), (ZoneId ?? "").Trim(),
+            (Subdomain ?? "").Trim(), (FromAddress ?? "").Trim(), (ForwardTo ?? "").Trim());
+
+        /// <summary>Echoable back to the form. The token is never rendered: confirm asks for it again.</summary>
+        public ProviderInputs Redacted() => ToInputs() with { Token = "" };
     }
 }

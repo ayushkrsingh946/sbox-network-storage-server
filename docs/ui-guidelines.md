@@ -51,10 +51,11 @@ brackets match the Gesso catalog so findings can be cross-referenced.
 
 ## Color
 
-- One primary accent per theme (Sky: `#7bd7ef` on dark, `#08617e` on light),
-  used for primary actions, links, focus, code and the unboxed logo only. The
-  header brand mark is a fixed P5 primary (`#0f6a86`) tile with a white glyph
-  in every theme.
+- One primary accent per theme (green: `#5ad68a` on Dark, `#17703c` on Light;
+  Sky blue in the Cool themes), used for primary actions, links, focus, code
+  and the unboxed logo only. The logo is the shipped `ns` icon
+  (`favicon.svg`, P5 primary `#0f6a86` tile with a white glyph) in every
+  theme; never redraw it in CSS.
 - One restrained secondary token (`--accent-2`, muted purple) for small
   wayfinding markers only: project avatars, the current section icon, pinned
   project pins and the demo notice marker. No purple washes, gradients or
@@ -72,17 +73,17 @@ brackets match the Gesso catalog so findings can be cross-referenced.
 Minimum is WCAG AA (4.5 for text). Accent pairs are checked both ways because
 the accent is used as link text on surfaces and as a button background.
 
-| Pair | Dark | Mint | Light | Slate | Warm |
-| --- | --- | --- | --- | --- | --- |
-| Text on background | 15.89 | 16.19 | 14.69 | 13.46 | 13.52 |
-| Muted text on background | 7.50 | 7.63 | 5.45 | 8.41 | 8.23 |
-| Muted text on card | 6.85 | 6.89 | 6.01 | 7.47 | 7.35 |
-| Accent link text on background | 11.41 (`#7bd7ef`) | 9.60 (`#34d399`) | 6.30 (`#08617e`) | 9.01 (`#a7c5b5`) | 9.09 (`#b5c5a7`) |
-| Button text on accent background | 9.95 (`#06232e` on `#7bd7ef`) | 9.96 (`#04120c` on `#34d399`) | 6.95 (`#ffffff` on `#08617e`) | 8.09 | 8.05 |
-| Success on background | 10.17 | 10.03 | 5.50 | 9.45 | 9.35 |
-| Warning on background | 10.08 | 9.95 | 4.99 | 9.03 | 8.94 |
-| Danger on background | 8.46 | 8.35 | 5.11 | 7.58 | 7.50 |
-| Info (`#9cc4e8` dark themes, `#1f5fa8` light) on background | 10.22 | 10.08 | 5.84 | 9.15 | 9.06 |
+| Pair | Dark | Light | Cool dark | Cool light | Mint | Slate | Warm |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Text on background | 15.85 | 15.20 | 15.89 | 14.69 | 16.19 | 13.46 | 13.52 |
+| Muted text on background | 8.04 | 5.93 | 7.50 | 5.45 | 7.63 | 8.41 | 8.23 |
+| Muted text on card | 7.40 | 6.53 | 6.85 | 6.01 | 6.89 | 7.47 | 7.35 |
+| Accent link text on background | 10.06 (`#5ad68a`) | 5.58 (`#17703c`) | 11.41 (`#7bd7ef`) | 6.30 (`#08617e`) | 9.60 (`#34d399`) | 9.01 (`#a7c5b5`) | 9.09 (`#b5c5a7`) |
+| Button text on accent background | 10.21 (`#05150b` on `#5ad68a`) | 6.14 (`#ffffff` on `#17703c`) | 9.95 (`#06232e` on `#7bd7ef`) | 6.95 (`#ffffff` on `#08617e`) | 9.96 (`#04120c` on `#34d399`) | 8.09 | 8.05 |
+| Success on background | 10.05 | 5.51 | 10.17 | 5.50 | 10.03 | 9.45 | 9.35 |
+| Warning on background | 9.97 | 5.00 | 10.08 | 4.99 | 9.95 | 9.03 | 8.94 |
+| Danger on background | 8.37 | 5.12 | 8.46 | 5.11 | 8.35 | 7.58 | 7.50 |
+| Info (`#9cc4e8` dark themes, `#1f5fa8` light) on background | 10.10 | 5.85 | 10.22 | 5.84 | 10.08 | 9.15 | 9.06 |
 
 ## Dialogs and toasts
 
@@ -123,23 +124,27 @@ the accent is used as link text on surfaces and as a button background.
 
 ## Themes
 
-Theme list, in picker order: System (default), Dark, Light, Mint and orchid,
-Slate, Warm. Storage keys are `system`, `dark`, `light`, `mint`, `slate`,
-`warm`. The `mint` key is kept stable as an opt-in so stored preferences
-survive the "Mint and orchid" relabel; it is never the default.
+Theme list, in picker order: System, Dark (default), Light, Cool dark, Cool
+light, Mint and orchid, Slate, Warm. Storage keys are `system`, `dark`,
+`light`, `cooldark`, `coollight`, `mint`, `slate`, `warm`. Dark and Light are
+green; Cool dark and Cool light are the former blue Sky themes. The `mint` key
+is kept stable as an opt-in so stored preferences survive the "Mint and
+orchid" relabel. Without a stored choice the dashboard uses Dark; System
+resolves to Dark or Light from the operating system.
 
-| Token | Dark "Sky" (default dark) | Mint "Mint and orchid" (opt-in) | Light "Sky" (default light) |
-| --- | --- | --- | --- |
-| `--bg` | `#111217` | `#101512` | `#f2f4f6` |
-| `--card` | `#191c22` | `#182019` | `#ffffff` |
-| `--surface-2` | `#22262f` | `#222c22` | `#e6e9ee` |
-| `--border` | `#343b48` | `#3a4a3c` | `#c6cdd5` |
-| `--text` | `#e8edf3` | `#ebf2ea` | `#1b2129` |
-| `--muted` | `#9aa5b5` | `#9aab9c` | `#5a6470` |
-| `--accent` | `#7bd7ef` | `#34d399` | `#08617e` |
-| `--accent-text` | `#06232e` | `#04120c` | `#ffffff` |
-| `--accent-2` | `#8b7fd4` | `#c084fc` | `#7c3aed` |
-| `--brand-tile` / `--brand-glyph` | `#0f6a86` / `#ffffff` (fixed in every theme) | same | same |
+| Token | Dark (green, default) | Light (green) | Cool dark (blue) | Cool light (blue) | Mint "Mint and orchid" (opt-in) |
+| --- | --- | --- | --- | --- | --- |
+| `--bg` | `#0f1511` | `#f1f5f2` | `#111217` | `#f2f4f6` | `#101512` |
+| `--card` | `#161e19` | `#ffffff` | `#191c22` | `#ffffff` | `#182019` |
+| `--surface-2` | `#1f2a23` | `#e2eae5` | `#22262f` | `#e6e9ee` | `#222c22` |
+| `--border` | `#32443a` | `#bfcdc4` | `#343b48` | `#c6cdd5` | `#3a4a3c` |
+| `--text` | `#e6f0e9` | `#16201a` | `#e8edf3` | `#1b2129` | `#ebf2ea` |
+| `--muted` | `#9bb0a2` | `#52615a` | `#9aa5b5` | `#5a6470` | `#9aab9c` |
+| `--accent` | `#5ad68a` | `#17703c` | `#7bd7ef` | `#08617e` | `#34d399` |
+| `--accent-text` | `#05150b` | `#ffffff` | `#06232e` | `#ffffff` | `#04120c` |
+| `--accent-2` | `#8b7fd4` | `#7c3aed` | `#8b7fd4` | `#7c3aed` | `#c084fc` |
+| `--brand-tile` | `#1f9d55` | same | `#0f6a86` | `#0f6a86` | `#1f9d55` |
+| `--discord` / `--discord-text` | `#5865f2` / `#ffffff` (fixed; Discord community link) | same | same | same | same |
 
 Slate and Warm stay as alternate dark themes using the same token names.
 State tokens (`--success`, `--warning`, `--danger`, `--info`, `--code-bg`,
@@ -148,9 +153,9 @@ in [Contrast](#contrast). No raw hex outside theme blocks.
 - Themes are `[data-theme="…"]` blocks on `<html>` that only redefine tokens.
   Components never branch on the theme name. Dark is also the `:root`
   default, with an explicit `[data-theme="dark"]` alias block.
-- System is the default selection: with nothing stored, a dark color scheme
-  resolves to Dark and a light scheme resolves to Light. A user choice is
-  stored in `localStorage` and applied before first paint from an external
+- Dark is the default selection: with nothing stored the dashboard renders
+  Dark. System resolves to Dark or Light from the color scheme. A user choice
+  is stored in `localStorage` and applied before first paint from an external
   script (no inline script).
 
 ## Assets
@@ -176,9 +181,12 @@ in [Contrast](#contrast). No raw hex outside theme blocks.
 
 ## Shell conventions (compact owner shell)
 
-- Topbar: 56px, sticky, brand mark 28px. Contains only the brand, theme
-  picker, version and logout. A hamburger toggle (`#nav-toggle`) shows
-  below 760px and opens `#owner-nav`; behavior lives in `owner-theme.js`.
+- Topbar: 56px, sticky, with a 2px brand gradient underline. Contains the
+  logo (32px `/owner-assets/favicon.svg`) and wordmark, a "Join Discord" pill
+  (icon-only below 760px), theme picker, version and logout. The Discord
+  invite is a single constant in `Views/Owner/_Layout.cshtml`. A hamburger
+  toggle (`#nav-toggle`) shows below 760px and opens `#owner-nav`; behavior
+  lives in `owner-theme.js`.
 - Sidebar: 232px (200px below 1100px), sticky under the topbar with its
   own scroll. Groups use plain sentence-case labels (Workspace, Project,
   Build, Manage, Observe) that stay visible on mobile; the panel opens

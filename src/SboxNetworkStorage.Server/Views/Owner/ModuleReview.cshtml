@@ -1,0 +1,60 @@
+@model SboxNetworkStorage.Server.Owner.OwnerReviewQueueModel
+@using SboxNetworkStorage.Server.Owner
+@using System.Text.Json
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    string Text(JsonElement row, string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+    string When(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+    long Number(JsonElement row, string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var n) ? n : 0;
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Integrity review queue</h1><p>@Model.OpenCount open flags for @Model.ProjectName, newest first. Detectors only observe; blocking a player is always your explicit decision.</p></div><a class="button secondary" href="@url/modules">Modules</a></div>
+@if (Model.Error is not null) { <div class="notice error" role="alert">@Model.Error</div> }
+<section class="card">
+    <form method="get" action="@url/modules/integrity/review" class="filters">
+        <label>Detector <input type="text" name="detector" value="@Model.Detector" /></label>
+        <label>Severity <input type="text" name="severity" value="@Model.Severity" /></label>
+        <div class="actions"><button type="submit">Filter</button></div>
+    </form>
+    @if (Model.Flags.Count == 0) { <p class="muted">No open flags match.</p> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Time (UTC)</th><th>Player</th><th>Detector</th><th>Severity</th><th>Evidence</th><th>Actions</th></tr></thead>
+        <tbody>
+        @foreach (var flag in Model.Flags)
+        {
+            <tr>
+                <td>@When(Number(flag, "created_at_unix_ms"))</td>
+                <td><a href="@url/modules/insights/players/@Uri.EscapeDataString(Text(flag, "steam_id"))"><code>@Text(flag, "steam_id")</code></a></td>
+                <td><code>@Text(flag, "detector")</code></td>
+                <td>@Text(flag, "severity")</td>
+                <td><code>@Text(flag, "evidence_json")</code></td>
+                <td class="actions">
+                    <form method="post" action="@url/modules/integrity/flags/@Text(flag, "flag_id")/dismiss">@Html.AntiForgeryToken()<input type="text" name="note" placeholder="Note (optional)" /><button type="submit">Dismiss</button></form>
+                    <form method="post" action="@url/modules/integrity/flags/@Text(flag, "flag_id")/confirm">@Html.AntiForgeryToken()<input type="text" name="note" placeholder="Note (optional)" /><button type="submit">Confirm</button></form>
+                </td>
+            </tr>
+        }
+        </tbody>
+        </table></div>
+    }
+</section>
+<section class="card">
+    <h2>Block a player</h2>
+    <form method="post" action="@url/modules/integrity/block">
+        @Html.AntiForgeryToken()
+        <label>Steam ID <input type="text" name="steamId" required /></label>
+        <label>Scope <select name="scope"><option value="writes">Writes (mutating requests blocked, reads succeed)</option><option value="all">All requests</option></select></label>
+        <label>Reason (public, shown to the player) <input type="text" name="reason" /></label>
+        <label>Expires after (hours, empty = never) <input type="number" name="hours" min="1" max="720" /></label>
+        <div class="actions"><button class="danger" type="submit">Block player</button></div>
+    </form>
+    <h2>Unblock a player</h2>
+    <form method="post" action="@url/modules/integrity/unblock">
+        @Html.AntiForgeryToken()
+        <label>Steam ID <input type="text" name="steamId" required /></label>
+        <div class="actions"><button type="submit">Unblock now</button></div>
+    </form>
+</section>

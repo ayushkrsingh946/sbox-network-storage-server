@@ -3,13 +3,16 @@ using System.Collections.ObjectModel;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
+ using Microsoft.Extensions.DependencyInjection;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
+using SboxNetworkStorage.Server.Compat;
+using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 
 
 namespace SboxNetworkStorage.Server.Endpoints;
@@ -135,6 +138,30 @@ public static class EndpointExecutionEndpoints
             return;
         }
 
+        // Phase 4 (game-version-policy): pinned snapshot resolution and
+        // _revisionStatus. Fail-open: any lookup failure keeps today's live
+        // behavior. Enforcement runs below, after the secret-key decision.
+        var revisionClientId = ClientIdentityContext.Get(context).RevisionId;
+        RevisionSnapshots.SnapshotDocument? pinnedSnapshot = null;
+        try
+        {
+            var workspace = context.RequestServices.GetService<IWorkspaceStore>();
+            var memoryCache = context.RequestServices.GetService<IMemoryCache>();
+            if (workspace is not null && memoryCache is not null && VersionPolicyEvaluator.HasExplicitPolicy(access.Project))
+            {
+                var snapshotCache = new RevisionSnapshotCache(memoryCache);
+                var index = await RevisionSnapshots.ReadIndexAsync(workspace, auth.UserId, projectId, context.RequestAborted);
+                var now = DateTimeOffset.UtcNow;
+                var decision = VersionPolicyEvaluator.Evaluate(access.Project, index, revisionClientId, now, index.LiveRevisionId);
+                if (decision.IsOutdated && !decision.GraceExpired && revisionClientId.HasValue)
+                    pinnedSnapshot = await snapshotCache.GetAsync(workspace, auth.UserId, projectId, revisionClientId.Value, context.RequestAborted);
+                var status = RevisionStatusInjector.Build(access.Project, decision, revisionClientId);
+                if (status is not null) context.Items["RevisionStatus"] = status;
+            }
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { return; }
+        catch { /* fail open: live behavior */ }
+
         JsonElement body;
         try
         {
@@ -171,6 +198,31 @@ public static class EndpointExecutionEndpoints
         var claimedSteamId = PlayerIdentity.ClaimedSteamId(context.Request, body);
         var hasSecretKey = string.Equals(auth.KeyType, "secret", StringComparison.OrdinalIgnoreCase);
 
+        // Phase 4: opt-in server enforcement, after auth. Secret-key callers
+        // (dedicated servers) are exempt; requests without a known revision
+        // fall back to live. Fail-open: lookup failures allow the request.
+        try
+        {
+            var workspace = context.RequestServices.GetService<IWorkspaceStore>();
+            var memoryCache = context.RequestServices.GetService<IMemoryCache>();
+            if (!hasSecretKey && workspace is not null && memoryCache is not null
+                && access.Project.RevisionServerEnforcementEnabled == true
+                && VersionPolicyEvaluator.HasExplicitPolicy(access.Project))
+            {
+                var denial = await VersionPolicyEnforcement.CheckAsync(
+                    access.Project, auth.UserId, projectId, revisionClientId, isSecretCaller: false,
+                    VersionPolicyEnforcement.IsMutating(context.Request),
+                    workspace, new RevisionSnapshotCache(memoryCache), DateTimeOffset.UtcNow, context.RequestAborted);
+                if (denial is not null)
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    await context.Response.WriteAsJsonAsync(VersionPolicyEnforcement.DenialBody(denial), JsonOptions);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { return; }
+        catch { /* fail open */ }
         // Host proxies act for another player via x-on-behalf-of. Matching legacy server,
         // that delegation is trusted without s&box verification only for secret
         // keys (dedicated servers) and auth-disabled projects; required public-key
@@ -245,6 +297,15 @@ public static class EndpointExecutionEndpoints
                 dataSource = staged;
                 executor = executor.WithDataSource(staged);
                 valuesProvider = context.RequestServices.GetRequiredService<StoreQueryValuesContextProvider>().WithRevisionOverlay(overlay);
+            }
+            else if (pinnedSnapshot is not null)
+            {
+                // Pinned execution: an old build inside its support window runs
+                // its own revision's definitions and values. Records stay live.
+                var pinned = context.RequestServices.GetRequiredService<StoreEndpointDataSource>().WithRevisionSnapshot(pinnedSnapshot);
+                dataSource = pinned;
+                executor = executor.WithDataSource(pinned);
+                valuesProvider = context.RequestServices.GetRequiredService<StoreQueryValuesContextProvider>().WithRevisionSnapshot(pinnedSnapshot);
             }
             if (valuesProvider is not null)
                 gameValues = await valuesProvider.GetValuesAsync(projectId, context.RequestAborted);
@@ -392,8 +453,15 @@ public static class EndpointExecutionEndpoints
             }
         }
 
+        // _revisionStatus rides success and error bodies (the library reads it
+        // on every endpoint response, including ok:false). Absent without an
+        // explicit policy, so legacy bodies are unchanged.
+        var revisionStatus = context.Items["RevisionStatus"] as Dictionary<string, object?>;
+        object responseBody = result.Body ?? new { ok = result.Ok };
+        if (revisionStatus is not null)
+            responseBody = RevisionStatusInjector.WithStatus(responseBody, revisionStatus);
         context.Response.StatusCode = result.Status > 0 ? result.Status : StatusCodes.Status200OK;
-        await context.Response.WriteAsJsonAsync(result.Body ?? new { ok = result.Ok }, JsonOptions);
+        await context.Response.WriteAsJsonAsync(responseBody, JsonOptions);
     }
 
     private static async Task ReportNativeEndpointFailureAsync(
@@ -422,7 +490,10 @@ public static class EndpointExecutionEndpoints
     private static Task WriteEndpointErrorAsync(HttpContext context, int status, string code, string message)
     {
         context.Response.StatusCode = status;
-        return context.Response.WriteAsJsonAsync(new { ok = false, error = new { code, message } }, JsonOptions);
+        object body = new { ok = false, error = new { code, message } };
+        if (context.Items["RevisionStatus"] is Dictionary<string, object?> revisionStatus)
+            body = RevisionStatusInjector.WithStatus(body, revisionStatus);
+        return context.Response.WriteAsJsonAsync(body, JsonOptions);
     }
 
     private static async Task<string?> ResolvePlayerIdentityAsync(

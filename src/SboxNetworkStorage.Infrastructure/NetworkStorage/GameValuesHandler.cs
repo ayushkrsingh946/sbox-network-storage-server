@@ -126,8 +126,22 @@ public sealed class GameValuesHandler : INetworkStorageHandler
         var colTask = _networkStore.ListCollectionsAsync(projectId, ct);
         await Task.WhenAll(gvTask, colTask);
 
+        var clientData = ToClientFormatFromStoreRows(gvTask.Result, colTask.Result, CanReadPrivateCollections(auth));
+
+        return NetworkStorageResult.Ok(
+            clientData,
+            storagePathsRead: new[] { $"store://{projectId}/game_values", $"store://{projectId}/collections" },
+            authDecision: keyType);
+    }
+
+    /// <summary>
+    /// Builds the client values payload from store rows (live or from a
+    /// retained snapshot: snapshots capture the same row shapes, so pinned
+    /// old-revision values reuse the exact live merge).
+    /// </summary>
+    public static object ToClientFormatFromStoreRows(JsonElement? gvRow, IReadOnlyList<JsonElement> colRows, bool includePrivate)
+    {
         // Parse game-values payload
-        var gvRow = gvTask.Result;
         JsonElement gv;
         if (gvRow is { } row && row.TryGetProperty("payload_json", out var payload)
             && payload.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
@@ -143,7 +157,6 @@ public sealed class GameValuesHandler : INetworkStorageHandler
 
         // Reconstruct collections array in the shape ToClientFormat expects:
         // [{ id, name, visibility, constants?, tables?, ... }]
-        var colRows = colTask.Result;
         var collectionsArray = new List<object>();
         foreach (var col in colRows)
         {
@@ -186,12 +199,7 @@ public sealed class GameValuesHandler : INetworkStorageHandler
         }
 
         var collectionsElement = JsonSerializer.SerializeToElement(collectionsArray);
-        var clientData = ToClientFormatCore(gv, collectionsElement, CanReadPrivateCollections(auth));
-
-        return NetworkStorageResult.Ok(
-            clientData,
-            storagePathsRead: new[] { $"store://{projectId}/game_values", $"store://{projectId}/collections" },
-            authDecision: keyType);
+        return ToClientFormatCore(gv, collectionsElement, includePrivate);
     }
 
     private async Task<NetworkStorageResult> ReadFromWorkspaceAsync(
@@ -240,10 +248,12 @@ public sealed class GameValuesHandler : INetworkStorageHandler
 
     /// <summary>
     /// Port of legacy server's <c>toClientFormat(gv, collections)</c>.
-    /// Merges legacy game-values.json items with collection-level constants/tables.
+    /// Merges legacy game-values items with collection-level constants/tables.
     /// Collection constants/tables take precedence over legacy game-values.
+    /// Public so pinned snapshot serving (game-version-policy) reuses the
+    /// exact live merge for old-revision values.
     /// </summary>
-    internal static object ToClientFormat(JsonElement gv, JsonElement collections) =>
+    public static object ToClientFormat(JsonElement gv, JsonElement collections) =>
         ToClientFormatCore(gv, collections, includePrivate: false);
 
     private static bool CanReadPrivateCollections(StorageApiKeyAuthResult auth) =>

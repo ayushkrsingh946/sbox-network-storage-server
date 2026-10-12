@@ -119,11 +119,10 @@ to every channel that accepts `error`.
 rule or channel changes, newest first, with the delivery result (for
 example which channel failed and why).
 
-| File | Content |
-| --- | --- |
-| `<data>/state/monitoring.json` | rules and channels without secrets |
+| `<data>/state/monitoring.json` | rules, channels and provider setups without secrets |
 | `<data>/state/monitoring-history.json` | the history |
 | `<data>/state/secrets/monitoring/channel-<id>.json` | one channel's secrets, owner-only |
+| `<data>/state/secrets/monitoring/provider-<id>.json` | one provider's token and settings, owner-only |
 
 A damaged `monitoring.json` is moved aside as
 `monitoring.json.damaged-<timestamp>` and the server starts without rules

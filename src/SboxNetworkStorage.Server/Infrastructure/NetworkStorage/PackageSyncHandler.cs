@@ -94,21 +94,36 @@ public sealed class PackageSyncHandler(
             && prevRev.ValueKind == JsonValueKind.Number ? prevRev.GetInt64() : (long?)null;
 
         var gamePackage = MergeGamePackage(previous, body);
-        await WriteGamePackageAsync(ownerUserId, projectId, gamePackage, cancellationToken);
-
         var currentRevisionId = gamePackage.TryGetValue("currentRevisionId", out var curRev) && curRev.ValueKind == JsonValueKind.Number
             ? curRev.GetInt64() : (long?)null;
         var revisionChanged = previousRevisionId.HasValue && currentRevisionId.HasValue
             && previousRevisionId.Value != currentRevisionId.Value;
 
+        // Grace anchor: the hosted reference derives grace from
+        // revisionPublishedAt, but the old merge only set it once, so after
+        // the first sync it never moved on revision change and every grace
+        // countdown computed from it was wrong. Reset it on the actual
+        // revision change (first-ever publish keeps its initial value).
+        if (revisionChanged)
+            gamePackage["revisionPublishedAt"] = JsonSerializer.SerializeToElement(DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+
+        await WriteGamePackageAsync(ownerUserId, projectId, gamePackage, cancellationToken);
+
         var promoted = new PackageSyncPromotionResult(0, 0, false);
 
+        // The first publish (no previous revision) also writes its snapshot:
+        // "three publishes keep three snapshots", and live needs an index
+        // entry for grace anchoring. Re-syncs of the same revision write
+        // nothing (snapshots are write-once; the grace anchor must not move).
+        var firstPublish = !previousRevisionId.HasValue && currentRevisionId.HasValue;
         if (revisionChanged)
         {
             promoted = await PromoteRevisionOverridesAsync(ownerUserId, projectId, cancellationToken);
         }
+        if ((revisionChanged || firstPublish) && currentRevisionId.HasValue)
+            await CaptureRevisionSnapshotAsync(context, ownerUserId, projectId, currentRevisionId.Value, cancellationToken);
         metadataCache.Invalidate(projectId);
-        var responseGamePackage = WithUnixTimestamps(gamePackage);
+         var responseGamePackage = WithUnixTimestamps(gamePackage);
         context.Response.StatusCode = StatusCodes.Status200OK;
         return Results.Json(new
         {
@@ -197,6 +212,10 @@ public sealed class PackageSyncHandler(
                     var existing = liveEndpoints.FirstOrDefault(e => e.TryGetValue("slug", out var s) && s.ValueKind == JsonValueKind.String && s.GetString() == slug);
                     if (existing is not null)
                     {
+                        // MODULE HOOK (ModulesIntegrity): a package sync never
+                        // overwrites module-owned definitions; they are kept as-is.
+                        if (IsModuleOwnedRow(existing))
+                            continue;
                         foreach (var prop in stagedObject.EnumerateObject())
                         {
                             if (prop.NameEquals("id")) continue;
@@ -230,6 +249,10 @@ public sealed class PackageSyncHandler(
                     var existing = liveCollections.FirstOrDefault(c => c.TryGetValue("name", out var n) && n.ValueKind == JsonValueKind.String && n.GetString() == name);
                     if (existing is not null)
                     {
+                        // MODULE HOOK (ModulesIntegrity): a package sync never
+                        // overwrites module-owned definitions; they are kept as-is.
+                        if (IsModuleOwnedRow(existing))
+                            continue;
                         foreach (var prop in stagedObject.EnumerateObject())
                         {
                             if (prop.NameEquals("id")) continue;
@@ -263,7 +286,78 @@ public sealed class PackageSyncHandler(
         }
     }
 
+    /// <summary>
+    /// Writes the immutable <c>revisions/{id}.json</c> snapshot (full merged
+    /// definition sets captured from the store, including module-owned
+    /// entries verbatim) and records the publish in <c>revisions/index.json</c>
+    /// with retention pruning that preserves supported grace windows.
+    /// Best-effort: snapshot failures never fail the package sync.
+    /// </summary>
+    private async Task CaptureRevisionSnapshotAsync(HttpContext context, long ownerUserId, string projectId, long revisionId, CancellationToken ct)
+    {
+        try
+        {
+            var store = context.RequestServices.GetService<SboxNetworkStorage.Storage.INetworkStorageStore>();
+            if (store is null) return;
+            var now = DateTimeOffset.UtcNow;
+            var endpoints = await store.ListEndpointsAsync(projectId, ct);
+            var workflows = await store.ListWorkflowsAsync(projectId, ct);
+            var collections = await store.ListCollectionsAsync(projectId, ct);
+            var queries = await store.ListQueriesAsync(projectId, ct);
+            var gameValues = await store.ReadGameValuesAsync(projectId, ct);
+            await RevisionSnapshots.TryWriteSnapshotAsync(workspaceClient, ownerUserId, projectId,
+                new RevisionSnapshots.SnapshotDocument(revisionId, now, endpoints, workflows, collections, queries, gameValues), ct);
+            WorkspaceProject? project = null;
+            try
+            {
+                var projects = context.RequestServices.GetService<INetworkStorageProjectService>();
+                if (projects is not null)
+                {
+                    var access = await projects.ResolveProjectAccessAsync(ownerUserId, projectId, ct);
+                    project = access?.Project;
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch { /* default retention */ }
+            var retention = VersionPolicyEvaluator.RetentionFor(project);
+            // Preserve supported grace windows past the retention count: an
+            // earlier revision still in grace (or with no provable expiry) is
+            // kept even when it falls outside live + N.
+            var preview = await RevisionSnapshots.ReadIndexAsync(workspaceClient, ownerUserId, projectId, ct);
+            var previewEntries = preview.Revisions.Where(e => e.RevisionId != revisionId).ToList();
+            previewEntries.Add(new RevisionIndexEntry(revisionId, now, now));
+            var previewIndex = new RevisionIndex(previewEntries, revisionId, now);
+            await RevisionSnapshots.RecordPublishAsync(workspaceClient, ownerUserId, projectId,
+                revisionId, now, retention,
+                stillSupported: id =>
+                {
+                    if (project is null) return false;
+                    try
+                    {
+                        var decision = VersionPolicyEvaluator.Evaluate(project, previewIndex, id, now, revisionId);
+                        return decision.IsOutdated && !decision.GraceExpired;
+                    }
+                    catch { return false; }
+                },
+                ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Revision snapshot capture failed for project {ProjectId} revision {RevisionId}; sync still succeeded", projectId, revisionId);
+        }
+    }
     private sealed record PackageSyncPromotionResult(int EndpointCount, int CollectionCount, bool Promoted);
+
+    /// <summary>
+    /// True when a live <c>endpoints.json</c>/<c>collections.json</c> row is
+    /// owned by an installed module (the <c>module</c> field the module
+    /// lifecycle stamps). Module-owned rows survive package sync untouched.
+    /// </summary>
+    private static bool IsModuleOwnedRow(Dictionary<string, JsonElement> row)
+        => row.TryGetValue("module", out var owner) && owner.ValueKind == JsonValueKind.String
+            && !string.IsNullOrEmpty(owner.GetString());
+
 
     private static Dictionary<string, object?> WithUnixTimestamps(Dictionary<string, JsonElement> gamePackage)
     {

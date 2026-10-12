@@ -5,10 +5,10 @@ using Microsoft.Extensions.Logging;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Domain.Workspace;
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Middleware;
-
-namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
+ namespace SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
 
 /// <summary>
 /// Native .NET implementation of POST /v3/manage/{projectId}/revision-init.
@@ -103,10 +103,37 @@ public sealed class RevisionInitHandler(
             : currentRevision;
 
         var outdated = clientRevision.HasValue && currentRevision.HasValue && clientRevision.Value < currentRevision.Value;
+        // Phase 4 (game-version-policy, 9.3): additive player-action fields.
+        // Computed best-effort and read-only: any failure falls back to the
+        // legacy handshake below, so policy can never fail the handshake.
+        string? policyAction = null;
+        string? ownerMessage = null;
+        long? graceEndsAt = null;
+        long? minimumRevisionId = access.Project.RevisionMinimumRevisionId;
+        try
+        {
+            if (VersionPolicyEvaluator.HasExplicitPolicy(access.Project) && clientRevision.HasValue && currentRevision.HasValue)
+            {
+                var index = await RevisionSnapshots.ReadIndexAsync(workspaceClient, auth.UserId, projectId, cancellationToken);
+                var decision = VersionPolicyEvaluator.Evaluate(access.Project, index, clientRevision, DateTimeOffset.UtcNow, currentRevision);
+                policyAction = decision.Action;
+                ownerMessage = decision.IsOutdated ? decision.Message : null;
+                graceEndsAt = decision.GraceEndsAt?.ToUnixTimeSeconds();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Version policy evaluation failed for project {ProjectId}; answering legacy handshake", projectId);
+            policyAction = null;
+            ownerMessage = null;
+            graceEndsAt = null;
+        }
         string? message = (clientRevision, currentRevision) switch
         {
             (null, _) => "Client revision unknown; reporting the server's latest revision.",
             (_, null) => "No synced game package; nothing to compare against.",
+            _ when outdated && ownerMessage is not null => ownerMessage,
             _ when outdated => $"Revision {clientRevision} is outdated. Latest is {currentRevision}.",
             _ => "Revision is current.",
         };
@@ -120,6 +147,9 @@ public sealed class RevisionInitHandler(
             latestRevisionId = latestRevision,
             revisionOutdated = outdated,
             message,
+            action = policyAction,
+            graceEndsAt,
+            minimumRevisionId,
         }, ResponseJson);
     }
 

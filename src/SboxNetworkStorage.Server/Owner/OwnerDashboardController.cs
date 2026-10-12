@@ -145,8 +145,12 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
             return BadRequest("Invalid player key mode.");
         if (tab == "revisions" && (values.GetValueOrDefault("revisionEnforcementMode") is not ("force_upgrade" or "allow_continue")
             || values.GetValueOrDefault("revisionPostGraceAction") is not ("block_writes" or "block_all")
-            || values.GetValueOrDefault("revisionNotifyMessage")?.Length > 500))
-            return await ProjectErrorAsync(projectId, "Choose an enforcement mode and post-grace action; the notice may contain at most 500 characters.", ct);
+            || values.GetValueOrDefault("revisionInGraceAction") is not (null or "" or "continue" or "notify" or "rejoin")
+            || values.GetValueOrDefault("revisionNotifyMessage")?.Length > 500
+            || !IsOptionalLong(values.GetValueOrDefault("revisionMinimumRevisionId"))
+            || !IsOptionalIntRange(values.GetValueOrDefault("revisionGracePeriodMinutes"), 0, 10080)
+            || !IsOptionalIntRange(values.GetValueOrDefault("revisionRetentionCount"), 0, 20)))
+            return await ProjectErrorAsync(projectId, "Choose an enforcement mode, in-grace and post-grace action, a minimum revision, a grace period of 0-10080 minutes and retention of 0-20; the notice may contain at most 500 characters.", ct);
         await projects.UpdateProjectSettingsAsync(Owner, projectId, tab, values, ct);
         await AuditAsync(projectId, "project.settings", new { tab }, ct);
         OwnerFlash.Success(this, "Settings saved");
@@ -277,5 +281,14 @@ public sealed class OwnerDashboardController(INetworkStorageProjectService proje
 
     private static string RawKeyCacheKey(string notice) => "owner-dashboard:raw-key:" + notice;
 
-    private static string ProjectUrl(string projectId) => $"/dashboard/projects/{Uri.EscapeDataString(projectId)}";
+    // Phase 4 (game-version-policy): empty means unset; otherwise a bounded integer.
+    private static bool IsOptionalIntRange(string? value, int min, int max)
+        => string.IsNullOrWhiteSpace(value) || string.Equals(value, "disabled", StringComparison.OrdinalIgnoreCase)
+            || (int.TryParse(value, out var parsed) && parsed >= min && parsed <= max);
+
+    private static bool IsOptionalLong(string? value)
+        => string.IsNullOrWhiteSpace(value) || string.Equals(value, "disabled", StringComparison.OrdinalIgnoreCase)
+            || (long.TryParse(value, out var parsed) && parsed >= 0);
+
+     private static string ProjectUrl(string projectId) => $"/dashboard/projects/{Uri.EscapeDataString(projectId)}";
 }

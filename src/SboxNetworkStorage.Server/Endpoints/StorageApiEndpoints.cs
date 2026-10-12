@@ -13,7 +13,8 @@ using SboxNetworkStorage.Domain.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.Observability;
 using SboxNetworkStorage.Server.Compat;
-using SboxNetworkStorage.Server.Middleware;
+using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
+ using SboxNetworkStorage.Server.Middleware;
 using System.Text.RegularExpressions;
 using System.Linq;
 
@@ -117,7 +118,12 @@ public static partial class StorageApiEndpoints
         if (!await AuthorizePublicDocumentAccessAsync(context, auth, apiKey, projectId, collectionId, recordKey, DocumentAccess.Read))
             return;
 
-        var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
+        // Phase 4 (game-version-policy): opt-in server enforcement (reads
+        // block only under block_all). Secret keys are exempt.
+        if (await VersionPolicyEnforcement.EnforceAsync(context, projectId, auth, isMutating: false))
+            return;
+
+         var dataPlane = context.RequestServices.GetRequiredService<INetworkStorageDataPlane>();
         RecordReadResult read;
         try
         {
@@ -181,6 +187,11 @@ public static partial class StorageApiEndpoints
             await context.Response.WriteAsJsonAsync(new { error = "FORBIDDEN", detail = "This secret key does not have execute access to collections." }, JsonOptions);
             return;
         }
+
+        // Phase 4 (game-version-policy): opt-in server enforcement for expired
+        // revisions (mutating write). Secret keys are exempt.
+        if (await VersionPolicyEnforcement.EnforceAsync(context, projectId, auth, isMutating: true))
+            return;
 
         // Malformed client identifiers (e.g. an encoded "..%2F..%2Fetc" collection
         // or "a%2Fb" key) can never address a stored record. Reject them here as
@@ -364,6 +375,11 @@ public static partial class StorageApiEndpoints
         }
 
         if (!await AuthorizePublicDocumentAccessAsync(context, auth, apiKey, projectId, collectionId, recordKey, DocumentAccess.Delete))
+            return;
+
+        // Phase 4 (game-version-policy): opt-in server enforcement (mutating
+        // delete). Secret keys are exempt.
+        if (await VersionPolicyEnforcement.EnforceAsync(context, projectId, auth, isMutating: true))
             return;
 
         // Record analytics event

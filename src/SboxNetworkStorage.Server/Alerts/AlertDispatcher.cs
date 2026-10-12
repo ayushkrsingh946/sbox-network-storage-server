@@ -111,6 +111,14 @@ public sealed class AlertDispatcher(
     /// <summary>Webhook retry delays; tests shorten them.</summary>
     public IReadOnlyList<TimeSpan> WebhookRetryDelays { get; init; } = WebhookChannel.DefaultRetryDelays;
 
+    /// <summary>
+    /// Provider wiring, set by DI. Null in older tests and when no provider is registered;
+    /// provider code never runs without a configured provider channel.
+    /// </summary>
+    public IProviderStore? ProviderStore { get; init; }
+
+    public ProviderRegistry? Providers { get; init; }
+
     public IReadOnlyList<ChannelInfo> Channels()
     {
         var list = new List<ChannelInfo>();
@@ -130,11 +138,21 @@ public sealed class AlertDispatcher(
         foreach (var channel in store.Channels.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
         {
             list.Add(new ChannelInfo(channel.Id, channel.Name, channel.Kind, channel.Preset, channel.MinSeverity, channel.ProjectId,
-                channel.Enabled, "console", channel.Kind == "smtp" && (channel.SmtpTo is null || channel.SmtpTo.Count == 0) ? "No recipients." : null));
+                channel.Enabled, "console", ProviderProblem(channel.Kind)
+                    ?? (channel.Kind == "smtp" && (channel.SmtpTo is null || channel.SmtpTo.Count == 0) ? "No recipients." : null)));
         }
 
         return list;
     }
+
+    private string? ProviderProblem(string kind) => kind switch
+    {
+        "cloudflare" or "sboxns" => Providers?.Find(kind) is null ? $"The {kind} provider is not registered."
+            : ProviderStore?.GetProviderSetup(kind) is not { Configured: true } ? $"Set up the {kind} provider below first."
+            : null,
+        _ => null,
+    };
+
 
     /// <summary>
     /// Sends to every enabled channel whose minimum severity and project scope accept the alert, or,
@@ -200,6 +218,8 @@ public sealed class AlertDispatcher(
 
         var channel = store.Channels.First(c => c.Id == info.Id);
         var secrets = store.ReadSecrets(channel.Id);
+        if (channel.Kind is "cloudflare" or "sboxns")
+            return ProviderChannel(channel.Kind);
         return channel.Kind switch
         {
             "discord" => new DiscordChannel(Required(secrets.Url, "webhook URL"), channel.DiscordUsername, discord),
@@ -208,6 +228,16 @@ public sealed class AlertDispatcher(
             "webhook" => new WebhookChannel(Required(secrets.Url, "webhook URL"), channel.Preset, secrets.SigningSecret, webhooks, time, WebhookRetryDelays),
             _ => throw new InvalidOperationException($"Unknown channel kind {channel.Kind}."),
         };
+    }
+
+    private IAlertChannel ProviderChannel(string kind)
+    {
+        var provider = Providers?.Find(kind) ?? throw new InvalidOperationException($"The {kind} provider is not registered.");
+        var setup = ProviderStore?.GetProviderSetup(kind) ?? throw new InvalidOperationException($"The {kind} provider is not set up.");
+        if (!setup.Configured) throw new InvalidOperationException($"The {kind} provider is not set up.");
+        var secrets = ProviderStore.ReadProviderSecrets(kind);
+        return new ProviderChannel(provider, new ProviderSendContext(
+            setup.AccountId, setup.ZoneId, setup.Subdomain, setup.FromAddress, secrets.ForwardTo ?? "", secrets.Token ?? ""));
     }
 
     private static string Required(string? value, string what)
