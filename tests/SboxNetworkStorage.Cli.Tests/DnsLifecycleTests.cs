@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -172,6 +173,59 @@ public sealed class DnsLifecycleTests : IDisposable
         Assert.Equal("203.0.113.99", Load().GetString("dns.ipv4"));
         Assert.Equal("update", registry.LastAction);
         Assert.True(Load().IsValid);
+    }
+
+    [Fact]
+    public async Task Auto_detect_publishes_IPv4_when_the_outbound_family_is_IPv6_but_the_server_listens_on_IPv4_only()
+    {
+        Configure();
+        var registry = new RegistryHandler { PublicIp = "2001:db8::7" };
+        using var http = new HttpClient(registry);
+        var ipv4Lookup = new RegistryHandler { PublicIp = "203.0.113.7" };
+        using var v4 = new HttpClient(ipv4Lookup);
+        var client = new DnsRegistryClient(http) { CreateFamilyClient = family => family == AddressFamily.InterNetwork ? v4 : throw new HttpRequestException("no route") };
+
+        await new DnsManager(client).EnableAsync(Load(), Terms, CancellationToken.None);
+
+        Assert.Equal("203.0.113.7", Load().GetString("dns.ipv4"));
+        Assert.Equal("", Load().GetString("dns.ipv6"));
+        Assert.Equal(1, registry.Registers);
+    }
+
+    [Fact]
+    public async Task Auto_detect_refuses_to_publish_a_family_the_server_does_not_listen_on()
+    {
+        Configure();
+        var registry = new RegistryHandler { PublicIp = "2001:db8::7" };
+        using var http = new HttpClient(registry);
+        var client = new DnsRegistryClient(http) { CreateFamilyClient = _ => throw new HttpRequestException("no route") };
+        var before = Snapshot();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => new DnsManager(client).EnableAsync(Load(), Terms, CancellationToken.None));
+
+        Assert.Contains("does not accept IPv6", ex.Message);
+        Assert.Contains("[::]", ex.Message);
+        Assert.Equal(0, registry.Registers);
+        AssertUnchanged(before);
+    }
+
+    [Fact]
+    public async Task Auto_detect_publishes_both_families_when_both_listeners_are_dual_stack()
+    {
+        ConfigFiles.WriteAll(_dir, new Dictionary<string, object>
+        {
+            ["server.listen"] = "[::]:4488", ["tls.https_listen"] = "[::]:443", ["server.public_url"] = "https://own.example.test",
+            ["tls.mode"] = "certificate", ["tls.certificate_path"] = "cert.pem", ["tls.key_path"] = "key.pem"
+        });
+        var registry = new RegistryHandler { PublicIp = "2001:db8::7" };
+        using var http = new HttpClient(registry);
+        using var v4 = new HttpClient(new RegistryHandler { PublicIp = "203.0.113.7" });
+        var client = new DnsRegistryClient(http) { CreateFamilyClient = _ => v4 };
+
+        await new DnsManager(client).EnableAsync(Load(), Terms, CancellationToken.None);
+
+        Assert.Equal("2001:db8::7", Load().GetString("dns.ipv6"));
+        Assert.Equal("203.0.113.7", Load().GetString("dns.ipv4"));
     }
 
     [Fact]

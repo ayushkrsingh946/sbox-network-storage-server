@@ -58,7 +58,7 @@ public sealed class DnsManager(DnsRegistryClient registry)
         var ipv6 = DnsRegistryClient.NormalizeAddress(options.Ipv6, AddressFamily.InterNetworkV6);
         var explicitAddress = ipv4.Length > 0 || ipv6.Length > 0;
         if (!explicitAddress)
-            (ipv4, ipv6) = WithAddress("", "", await registry.WhoAmIAsync(registryUrl, ct));
+            (ipv4, ipv6) = await DetectAddressesAsync(config, registryUrl, "", "", ct);
 
         var registration = await registry.RegisterAsync(registryUrl, identity.SignDns("register", ipv4, ipv6, port), ct);
         WriteOverlay(config, EnabledValues(config, registration.Hostname, ipv4, ipv6,
@@ -98,7 +98,7 @@ public sealed class DnsManager(DnsRegistryClient registry)
         EnsureWritable(config);
         var registryUrl = config.GetString("dns.registry");
         var current = (config.GetString("dns.ipv4"), config.GetString("dns.ipv6"));
-        var next = WithAddress(current.Item1, current.Item2, await registry.WhoAmIAsync(registryUrl, ct));
+        var next = await DetectAddressesAsync(config, registryUrl, current.Item1, current.Item2, ct);
         if (next == current) return false;
         var identity = TunnelIdentity.LoadExisting(TunnelManager.IdentityPath(config))
             ?? throw new InvalidOperationException("The identity key is missing; the DNS name cannot be updated.");
@@ -109,6 +109,54 @@ public sealed class DnsManager(DnsRegistryClient registry)
                 config.GetString("tls.acme_email"), alreadyEnabled: true));
         }
         return true;
+    }
+
+    /// <summary>
+    /// The public addresses to publish: one per family the server actually serves. The registry reports the
+    /// family this host's outbound connection prefers, which on a dual-stack host is usually IPv6 even when
+    /// the server only listens on IPv4. Publishing an address the server does not serve fails the ownership
+    /// proof and leaves IPv4-only players without a name, so a family is published only when both listeners
+    /// accept it, and the other family is looked up over a connection forced to that family. A family whose
+    /// lookup fails keeps its current value (empty on first enable).
+    /// </summary>
+    private async Task<(string Ipv4, string Ipv6)> DetectAddressesAsync(EffectiveConfig config, string registryUrl,
+        string currentIpv4, string currentIpv6, CancellationToken ct)
+    {
+        var detected = await registry.WhoAmIAsync(registryUrl, ct);
+        var result = (Ipv4: "", Ipv6: "");
+        if (ServesFamily(config, detected.AddressFamily)) result = WithAddress(result.Ipv4, result.Ipv6, detected);
+        var other = detected.AddressFamily == AddressFamily.InterNetworkV6 ? AddressFamily.InterNetwork : AddressFamily.InterNetworkV6;
+        if (ServesFamily(config, other))
+        {
+            try
+            {
+                result = WithAddress(result.Ipv4, result.Ipv6, await registry.WhoAmIAsync(registryUrl, other, ct));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or SocketException or InvalidDataException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                // No route in that family: keep what is configured for it.
+                if (other == AddressFamily.InterNetwork) result.Ipv4 = currentIpv4;
+                else result.Ipv6 = currentIpv6;
+            }
+        }
+
+        if (result.Ipv4.Length > 0 || result.Ipv6.Length > 0) return result;
+        var name = detected.AddressFamily == AddressFamily.InterNetworkV6 ? "IPv6" : "IPv4";
+        throw new InvalidOperationException(
+            $"The registry sees this host at {detected} ({name}), but server.listen ({config.GetString("server.listen")}) or tls.https_listen ({config.GetString("tls.https_listen")}) does not accept {name} connections. "
+            + $"Listen on [::]:<port> to serve both families, or pass --ipv4 / --ipv6 with an address this server serves.");
+    }
+
+    /// <summary>True when both the HTTP and HTTPS listeners accept connections of the family (0.0.0.0 is IPv4 only, [::] is both).</summary>
+    internal static bool ServesFamily(EffectiveConfig config, AddressFamily family)
+        => Serves(config.GetString("server.listen"), family) && Serves(config.GetString("tls.https_listen"), family);
+
+    private static bool Serves(string listen, AddressFamily family)
+    {
+        if (!ListenAddress.TryParse(listen, out var parsed) || parsed.Address is not { } address) return true;
+        if (address.Equals(IPAddress.Any)) return family == AddressFamily.InterNetwork;
+        if (address.Equals(IPAddress.IPv6Any)) return true;
+        return address.AddressFamily == family;
     }
 
     private static Dictionary<string, object> EnabledValues(EffectiveConfig config, string hostname, string ipv4, string ipv6,
