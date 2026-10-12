@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-12
+
+### Upgrade notes
+
+- This release adds an additive database migration (schema v6: three tables
+  for integrity flags, player blocks and an action log). Take a
+  `sbox-ns db backup` before updating. Existing game requests, responses and
+  save behavior are unchanged; every new behavior below is off until an owner
+  turns it on.
+
+### Fixed
+
+- `sbox-ns dns enable` and the installer's `SBOX_NS_DNS=1` mode no longer fail
+  the ownership proof on dual-stack hosts. A name is published only for the
+  address families the server listens on, and the other family is looked up
+  over a connection forced to it, so an IPv4-only listener registers IPv4 even
+  when the host prefers IPv6, and `[::]` listeners register both addresses.
+
+### Added
+
+- Owner **Server** page with live host stats (CPU, memory, disk, network,
+  request rate, latency), alert rules, and console-managed email, Discord and
+  webhook notification channels with a shared throttle. Optional provider
+  adapters for Cloudflare Email and an sboxns.com client contract; see
+  `docs/monitoring.md` and `docs/alerting.md`.
+- Game version policy: retained revision snapshots, pinning of older
+  revisions inside their support window, `_revisionStatus` on responses and
+  an optional, off-by-default server-side enforcement switch per project.
+  See `docs/version-policy.md`.
+- Optional module kits (economy, progression, inventory, leaderboards),
+  integrity monitoring and player insights, installed per project. See
+  `docs/modules.md`.
+- The read-only demo shows generated sample data on more pages, including
+  monitoring.
+
 ### Changed
 
 - Use the Demo-green, interlocking `ns` icon for the owner console, browser
