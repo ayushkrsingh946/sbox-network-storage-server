@@ -53,6 +53,46 @@ renames without translation, shortened notice, patch-only syntax changes, and
 any fundamental change without new certification rows. When in doubt, keep the
 old form and add side-by-side.
 
+## When an s&box editor test is required
+
+An editor or game run is the most expensive evidence there is, and it only proves something when the
+change can alter what the library sends or how it interprets a reply. So the rule is about the **wire and
+the library**, not about how big or risky a server change feels.
+
+**Classify every PR's client-visible surface** (the PR template asks for it):
+
+| Class | Meaning | Editor test |
+| --- | --- | --- |
+| **None** | Request and response bytes, headers, status codes, error codes and defaults the library sees are identical to the previous release for every request it can send. Owner console, CLI, installers, updater, DNS/tunnel, monitoring and alerting, demo, storage internals, additive migrations whose reads and writes return the same results, performance, docs. | **Not required.** Required evidence is that the claim is true (below). |
+| **Additive, off by default** | New fields, headers, endpoints, capabilities or behaviors that appear **only** when the owner turns something on. The default-off path is byte-identical. | **Not required for the default-off path.** The new client-visible behavior needs an editor test once, before it is documented as supported to game developers. Until then label the issue/PR `pending-sbox-editor-test` and describe the feature as server-side only. |
+| **Changed** | Any difference for a request the library can already send: shapes, field meanings, error codes or envelopes, auth/session/encryption handling, save/endpoint/query/value semantics, rate-limit or revision behavior, defaults, status-header or capability values the library reads. | **Required** (a `pass` row in [`compat/library-matrix.json`](../compat/library-matrix.json)) before release, plus the old-client replay in [Every compatibility-affecting PR](#every-compatibility-affecting-pr). Label `pending-sbox-editor-test` until then. |
+| **Library code** | Any change in the library repo's `Code/` or `Editor/` (runtime, Sync Tool, Setup). | **Required** for the paths changed. Pure logic is covered by library unit tests, but only an editor run covers the engine APIs (`Http`, `Package`, windows). |
+
+**"Identical" must be shown, not asserted.** For a **None** or default-off claim attach:
+
+1. the parity diff against `tests/parity/stable-reference.json` with no unrecorded differences
+   (`scripts/smoke.sh --out ...`, then `sbox-ns-parity diff ...`), and a note if
+   `tests/parity/intentional-differences.json` changed;
+2. SQLite and PostgreSQL both green for the touched storage path, and `scripts/smoke.sh` clean;
+3. for an additive migration, the `additive` tag in both drivers and a legacy-request replay against
+   the migrated database (docs/database.md, "Rollback-safe migrations");
+4. a regression test for the default-off path when new behavior is gated by a project or server setting
+   (for example: a legacy request with no `x-ns-revision-id` performs no extra lookup and returns the
+   same body).
+
+If any of these cannot be produced, the change is not **None**; classify it honestly and require the test.
+Unknown clients and older libraries are always in scope: "the current library behaves the same" is not
+enough when an older published game could see a difference.
+
+**Do not substitute a server-only run for the editor when the class says editor.** HTTP tests, the
+parity corpus and fake-handler tests are `ci-only`. A `ci-only` row can release a **None** or
+**Additive, off by default** change (`--allow-ci-only`); it can never certify a **Changed** or **Library
+code** change.
+
+**Blocked on an editor run?** Add the label `pending-sbox-editor-test` to the issue and the PR at the time
+you know. Do not close the issue as done and do not describe the behavior as certified; say exactly which
+rows are missing. Remove the label only when the `tested` row exists.
+
 ## Client identity and response contract
 
 The wire headers are described in [game-client.md](game-client.md#library-compatibility):

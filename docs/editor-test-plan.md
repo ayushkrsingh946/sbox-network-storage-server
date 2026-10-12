@@ -5,6 +5,14 @@ Everything here needs the s&box editor and the real
 so CI cannot run it. Server-only behavior (HTTP contract, SQLite and
 PostgreSQL, installers) is covered by CI and the parity corpus.
 
+**Run only the sections a change can affect.** Whether a change needs an editor run at all is decided by
+[When an s&box editor test is required](compatibility.md#when-an-sbox-editor-test-is-required): changes
+with identical request and response bytes for everything the library can send (owner console, CLI,
+installers, DNS, monitoring, storage internals, additive migrations) need none; changed wire behavior
+and library code do. When a run is needed, run the sections that cover the changed pattern (A: install,
+B: Sync Tool, C: play mode, D: security modes, E: revision handling, F: hosted name, G: independent
+releases) and record only those. A `pass` row covers the exercised pattern, not the whole plan.
+
 Each run ends with one `tested` row in [`compat/library-matrix.json`](../compat/library-matrix.json)
 (see [Recording the result](#recording-the-result)). Tick the boxes in the PR that
 records the run, and link that PR from the row's `evidence`.

@@ -61,6 +61,18 @@ a fundamental wire/semantic/storage change invalidates affected certifications
 and must be re-tested before release. Library methods and endpoint support are
 LTS surface: no silent rename/removal/narrowing.
 
+## When an s&box editor test is needed
+
+Decide by the client-visible surface, not by size or risk (`docs/compatibility.md`,
+"When an s&box editor test is required"). Identical request/response bytes, headers, status and
+error codes and defaults for everything the library can send (owner console, CLI, installers, DNS,
+monitoring, storage internals, additive migrations) need **no** editor run, but you must attach the
+proof: parity diff, SQLite/PostgreSQL, smoke, and a default-off regression test. Anything that
+changes what the library already sends or reads, and any library `Code/`/`Editor/` change, needs a
+real editor run and a `tested` row; HTTP tests are `ci-only` and never stand in for it. Whenever an
+issue or PR is blocked on an editor run, add the label `pending-sbox-editor-test` immediately and do
+not call the behavior certified or close the issue.
+
 ## Reporting test results
 
 Any result you report for the s&box editor or a real game client (a PR, an issue, a
