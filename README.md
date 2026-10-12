@@ -1,9 +1,14 @@
-# sbox Network Storage Server: open-source, self-hosted s&box game backend
+<img src="src/SboxNetworkStorage.Server/wwwroot/img/sbox-network-storage-icon.svg" alt="s&box Network Storage icon: step-blend s and b monogram" width="64" height="64" />
+
+# s&box Network Storage
+
+**Open-source, self-hosted s&box game backend for player-hosted (P2P) and dedicated games: player saves, inventory, purchases, reward logic and endpoints on infrastructure you own.**
 
 **The central server your s&box game was missing. Player-hosted or dedicated, point your saves, leaderboards and stats at a backend you own.**
 Your players host the game. You host the truth. No sboxcool signup, payment, or mandatory telemetry.
 One self-contained `sbox-ns` binary runs player saves, leaderboards, endpoints
 and workflows on your own machine or VPS, with SQLite or PostgreSQL.
+This repository is the server component; games connect to it through the separate Network Storage client library.
 
 **Try it without installing:** explore the read-only
 [live demo](https://demo.sboxns.com) running generated sample data.

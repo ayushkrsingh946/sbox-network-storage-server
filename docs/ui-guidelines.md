@@ -51,8 +51,10 @@ brackets match the Gesso catalog so findings can be cross-referenced.
 
 ## Color
 
-- One primary accent per theme (emerald green), used for primary actions,
-  links, focus, code and the brand mark only.
+- One primary accent per theme (Sky: `#7bd7ef` on dark, `#08617e` on light),
+  used for primary actions, links, focus, code and the unboxed logo only. The
+  header brand mark is a fixed P5 primary (`#0f6a86`) tile with a white glyph
+  in every theme.
 - One restrained secondary token (`--accent-2`, muted purple) for small
   wayfinding markers only: project avatars, the current section icon, pinned
   project pins and the demo notice marker. No purple washes, gradients or
@@ -72,15 +74,15 @@ the accent is used as link text on surfaces and as a button background.
 
 | Pair | Dark | Mint | Light | Slate | Warm |
 | --- | --- | --- | --- | --- | --- |
-| Text on background | 16.23 | 16.19 | 14.62 | 13.46 | 13.52 |
-| Muted text on background | 7.65 | 7.63 | 5.52 | 8.41 | 8.23 |
-| Muted text on card | 7.02 | 6.89 | 5.99 | 7.47 | 7.35 |
-| Accent link text on background | 7.32 (`#10b981`) | 9.60 (`#34d399`) | 4.62 (`#15803d`) | 9.01 (`#a7c5b5`) | 9.09 (`#b5c5a7`) |
-| Button text on accent background | 7.55 (`#04120c` on `#10b981`) | 9.96 (`#04120c` on `#34d399`) | 4.79 (`#f0fdf4` on `#15803d`) | 8.09 | 8.05 |
-| Success on background | 10.10 | 10.03 | 5.58 | 9.45 | 9.35 |
-| Warning on background | 10.01 | 9.95 | 5.06 | 9.03 | 8.94 |
-| Danger on background | 8.41 | 8.35 | 5.19 | 7.58 | 7.50 |
-| Info (`#9cc4e8` dark themes, `#1f5fa8` light) on background | 10.15 | 10.08 | 5.93 | 9.15 | 9.06 |
+| Text on background | 15.89 | 16.19 | 14.69 | 13.46 | 13.52 |
+| Muted text on background | 7.50 | 7.63 | 5.45 | 8.41 | 8.23 |
+| Muted text on card | 6.85 | 6.89 | 6.01 | 7.47 | 7.35 |
+| Accent link text on background | 11.41 (`#7bd7ef`) | 9.60 (`#34d399`) | 6.30 (`#08617e`) | 9.01 (`#a7c5b5`) | 9.09 (`#b5c5a7`) |
+| Button text on accent background | 9.95 (`#06232e` on `#7bd7ef`) | 9.96 (`#04120c` on `#34d399`) | 6.95 (`#ffffff` on `#08617e`) | 8.09 | 8.05 |
+| Success on background | 10.17 | 10.03 | 5.50 | 9.45 | 9.35 |
+| Warning on background | 10.08 | 9.95 | 4.99 | 9.03 | 8.94 |
+| Danger on background | 8.46 | 8.35 | 5.11 | 7.58 | 7.50 |
+| Info (`#9cc4e8` dark themes, `#1f5fa8` light) on background | 10.22 | 10.08 | 5.84 | 9.15 | 9.06 |
 
 ## Dialogs and toasts
 
@@ -123,20 +125,21 @@ the accent is used as link text on surfaces and as a button background.
 
 Theme list, in picker order: System (default), Dark, Light, Mint and orchid,
 Slate, Warm. Storage keys are `system`, `dark`, `light`, `mint`, `slate`,
-`warm`. The `mint` key is kept stable so stored preferences survive the
-"Mint and orchid" relabel.
+`warm`. The `mint` key is kept stable as an opt-in so stored preferences
+survive the "Mint and orchid" relabel; it is never the default.
 
-| Token | Dark "Deep emerald" (default dark) | Mint "Mint and orchid" | Light "Paper" (default light) |
+| Token | Dark "Sky" (default dark) | Mint "Mint and orchid" (opt-in) | Light "Sky" (default light) |
 | --- | --- | --- | --- |
-| `--bg` | `#0b1512` | `#101512` | `#f4f6f3` |
-| `--card` | `#101f1a` | `#182019` | `#ffffff` |
-| `--surface-2` | `#16281f` | `#222c22` | `#e9ede6` |
-| `--border` | `#2a4436` | `#3a4a3c` | `#c9d1c4` |
-| `--text` | `#e8f2ec` | `#ebf2ea` | `#1d241c` |
-| `--muted` | `#93aca0` | `#9aab9c` | `#5c665a` |
-| `--accent` | `#10b981` | `#34d399` | `#15803d` |
-| `--accent-text` | `#04120c` | `#04120c` | `#f0fdf4` |
+| `--bg` | `#111217` | `#101512` | `#f2f4f6` |
+| `--card` | `#191c22` | `#182019` | `#ffffff` |
+| `--surface-2` | `#22262f` | `#222c22` | `#e6e9ee` |
+| `--border` | `#343b48` | `#3a4a3c` | `#c6cdd5` |
+| `--text` | `#e8edf3` | `#ebf2ea` | `#1b2129` |
+| `--muted` | `#9aa5b5` | `#9aab9c` | `#5a6470` |
+| `--accent` | `#7bd7ef` | `#34d399` | `#08617e` |
+| `--accent-text` | `#06232e` | `#04120c` | `#ffffff` |
 | `--accent-2` | `#8b7fd4` | `#c084fc` | `#7c3aed` |
+| `--brand-tile` / `--brand-glyph` | `#0f6a86` / `#ffffff` (fixed in every theme) | same | same |
 
 Slate and Warm stay as alternate dark themes using the same token names.
 State tokens (`--success`, `--warning`, `--danger`, `--info`, `--code-bg`,

@@ -82,8 +82,8 @@
     <script src="/owner-assets/theme.js"></script>
     <script src="/owner-assets/dialog.js" defer></script>
     <script src="/owner-assets/toast.js" defer></script>
-    <title>Network Storage · Owner console</title>
-    <link rel="stylesheet" href="/owner-assets/vendor/bootstrap.min.css" />
+    <title>s&amp;box Network Storage · Owner console</title>
+    <link rel="icon" type="image/svg+xml" href="/owner-assets/favicon.svg" />
     <link rel="stylesheet" href="/owner-assets/management.css" />
     <link rel="stylesheet" href="/owner-assets/workbench.css" />
     <script src="/owner-assets/vendor/bootstrap.js" defer></script>
@@ -100,7 +100,7 @@
     </div>
 }
 <header class="topbar">
-    <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg></button><a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">ns</span><span>Network Storage</span></a></div>
+    <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg></button><a href="/dashboard" class="brand" aria-label="s&amp;box Network Storage"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><path fill="currentColor" d="M6 42V6H34V22H58V30H34V34H58V58H26V50H50V42H26V14H14V42H6Z"/></svg></span><span aria-hidden="true">s&amp;box Network Storage</span></a></div>
     <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="mint">Mint and orchid</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
     @if (authenticated && !demo) { <form method="post" action="/logout">@Html.AntiForgeryToken()<button class="secondary" type="submit">Log out</button></form> }</div>
 </header>

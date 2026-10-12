@@ -1,7 +1,7 @@
-/* Theme preference. "system" is the default: it resolves to "dark" (Deep
-   emerald) in a dark color scheme and to "light" (Paper) in a light one.
-   The "mint" key renders as "Mint and orchid" and is kept stable so stored
-   preferences keep working across relabels. */
+/* Theme preference. "system" is the default: it resolves to "dark" (Sky on a
+   neutral canvas) in a dark color scheme and to "light" (Sky on light) in a
+   light one. The "mint" key renders as "Mint and orchid" and is kept stable
+   as an opt-in so stored preferences keep working across relabels. */
 "use strict";
 (function () {
   var themes = ["system", "dark", "light", "mint", "slate", "warm"];

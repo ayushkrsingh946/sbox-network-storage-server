@@ -98,10 +98,10 @@ public static class ServiceCommands
 
         if (OperatingSystem.IsWindows())
         {
-            var exit = await RunAsync("sc.exe", ["create", ServiceName, "binPath=", $"\"{binary}\" {arguments}", "start=", "auto", "DisplayName=", "sbox Network Storage Server"]);
+            var exit = await RunAsync("sc.exe", ["create", ServiceName, "binPath=", $"\"{binary}\" {arguments}", "start=", "auto", "DisplayName=", "s&box Network Storage"]);
             if (exit == 0)
             {
-                await RunAsync("sc.exe", ["description", ServiceName, "Self-hosted s&box Network Storage server"]);
+                await RunAsync("sc.exe", ["description", ServiceName, "s&box Network Storage (self-hosted server)"]);
                 Console.WriteLine("Installed Windows service sbox-ns. Start it with: sbox-ns service start");
             }
 

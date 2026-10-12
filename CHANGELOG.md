@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Use the Sky-blue, interlocking `ns` icon for the owner console, browser
+  favicon, reusable app assets and repository branding. Keep product labels
+  compact in the UI; describe the self-hosted s&box game backend in supporting
+  documentation.
+- Default dark and light themes use Sky accents on neutral backgrounds.
+  Alternate themes and semantic success/error colours remain available.
+- Serve the embedded favicon with other owner assets so it also works in the
+  read-only demo. Owner pages allow same-origin images without permitting
+  third-party image sources.
+
 ## [0.5.0] - 2026-10-12
 
 ### Upgrade notes

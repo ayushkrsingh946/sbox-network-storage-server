@@ -13,7 +13,7 @@ public static class CliApp
     public const int Usage = 2;
 
     public const string HelpText = """
-        sbox-ns - self-hosted s&box Network Storage server
+        sbox-ns - s&box Network Storage (self-hosted server)
 
         Usage: sbox-ns <command> [options]
 

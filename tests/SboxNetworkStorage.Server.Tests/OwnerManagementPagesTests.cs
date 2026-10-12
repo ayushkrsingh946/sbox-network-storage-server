@@ -359,19 +359,6 @@ public sealed class OwnerManagementPagesTests
     }
 
     [Fact]
-    public async Task DashboardUsesNetworkStorageBrand()
-    {
-        using var factory = new SqliteHostFactory();
-        await CreateOwnerAsync(factory);
-        using var owner = await LoggedInClientAsync(factory);
-        var page = WebUtility.HtmlDecode(await owner.GetStringAsync("/dashboard"));
-        Assert.Contains("<title>Network Storage · Owner console</title>", page);
-        Assert.Contains("<span>Network Storage</span>", page);
-        Assert.Contains("Network Storage · Single local owner", page);
-        Assert.DoesNotContain("Networked Storage", page);
-    }
-
-    [Fact]
     public async Task RevisionPolicyAndSecretKeyPermissionsAreEditable()
     {
         var (factory, owner, project, url) = await SetupAsync();

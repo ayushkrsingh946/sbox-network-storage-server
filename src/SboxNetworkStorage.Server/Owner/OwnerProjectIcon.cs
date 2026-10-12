@@ -81,7 +81,7 @@ public static class OwnerProjectIcon
     }
 
     // Full 0-359 hue from the hash; saturation 42-58% and lightness 38-46%
-    // keep the tile mid-tone on both the dark (#0b1512) and light (#f4f6f3) themes.
+    // keep the tile mid-tone on both the dark (#111217) and light (#f2f4f6) themes.
     private static void AutoBand(uint hash, out double hue, out double saturation, out double lightness)
     {
         hue = hash % 360;

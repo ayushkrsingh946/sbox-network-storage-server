@@ -43,6 +43,9 @@
     <EmbeddedResource Include="wwwroot/css/owner-manage.css" LogicalName="SboxNetworkStorage.Server.Owner.manage.css" />
     <EmbeddedResource Include="wwwroot/css/owner-workbench.css" LogicalName="SboxNetworkStorage.Server.Owner.workbench.css" />
     <EmbeddedResource Include="wwwroot/js/owner-workbench.js" LogicalName="SboxNetworkStorage.Server.Owner.workbench.js" />
+    <EmbeddedResource Include="wwwroot/img/sbox-network-storage-icon.svg" LogicalName="SboxNetworkStorage.Server.Owner.brand-icon.svg" />
+    <EmbeddedResource Include="wwwroot/img/sbox-network-storage-favicon.svg" LogicalName="SboxNetworkStorage.Server.Owner.brand-favicon.svg" />
+    <EmbeddedResource Include="wwwroot/img/sbox-network-storage-icon-512.png" LogicalName="SboxNetworkStorage.Server.Owner.brand-icon-512.png" />
     <EmbeddedResource Include="wwwroot/js/owner-table-sort.js" LogicalName="SboxNetworkStorage.Server.Owner.table-sort.js" />
     <EmbeddedResource Include="wwwroot/vendor/bootstrap/bootstrap.min.css" LogicalName="SboxNetworkStorage.Server.Owner.vendor-bootstrap.css" />
     <EmbeddedResource Include="wwwroot/vendor/bootstrap/bootstrap.bundle.min.js" LogicalName="SboxNetworkStorage.Server.Owner.vendor-bootstrap.js" />

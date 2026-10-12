@@ -113,8 +113,8 @@ public static class OwnerHostingExtensions
                 context.Response.Headers["X-Content-Type-Options"] = "nosniff";
                 var turnstile = context.RequestServices.GetRequiredService<OwnerTurnstile>().Enabled;
                 context.Response.Headers["Content-Security-Policy"] = turnstile
-                    ? "default-src 'none'; style-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-                    : "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+                    ? "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+                    : "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
             }
             await next(context);
         });
@@ -155,6 +155,12 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.workbench.js")!, "text/javascript"));
         app.MapGet("/owner-assets/table-sort.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.table-sort.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/icon.svg", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.brand-icon.svg")!, "image/svg+xml"));
+        app.MapGet("/owner-assets/icon-512.png", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.brand-icon-512.png")!, "image/png"));
+        app.MapGet("/owner-assets/favicon.svg", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.brand-favicon.svg")!, "image/svg+xml"));
         return app;
     }
 }
