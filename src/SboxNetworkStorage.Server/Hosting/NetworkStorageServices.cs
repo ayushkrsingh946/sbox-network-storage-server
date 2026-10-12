@@ -44,7 +44,8 @@ public static class NetworkStorageServices
         services.AddProjectMetadataCache();
 
         services.AddHttpClient("endpoint-webhook", client => { client.Timeout = TimeSpan.FromSeconds(5); });
-        services.AddHttpClient("alerts-discord", client => { client.Timeout = TimeSpan.FromSeconds(10); });
+        services.AddHttpClient("alerts-discord", client => { client.Timeout = TimeSpan.FromSeconds(10); })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddHttpClient(HttpWebhookClient.ClientName, client => { client.Timeout = TimeSpan.FromSeconds(10); })
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddResponseCompression();
@@ -193,6 +194,7 @@ public static class NetworkStorageServices
         services.AddSingleton<IModuleHookSubscriber>(sp => sp.GetRequiredService<IntegrityModuleService>());
         services.AddSingleton<IModuleHookSubscriber>(sp => sp.GetRequiredService<InsightsActionLogSubscriber>());
         services.AddScoped<ModuleStateStore>();
+        services.AddSingleton<ModuleStateCache>();
         services.AddScoped<ModuleInstaller>();
         services.AddScoped<InsightsService>();
         services.AddHostedService<ModuleHookService>();

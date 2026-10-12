@@ -48,7 +48,8 @@ public sealed partial class ManagementMutationHandler
     /// <summary>
     /// True when a live definition with this id or display name is owned by an
     /// installed module. Module-owned definitions are only changed by the module
-    /// lifecycle; every other write keeps them untouched.
+    /// lifecycle; every other write keeps them untouched. Fail-closed: when
+    /// module state cannot be read, every definition is treated as owned.
     /// </summary>
     private async Task<bool> IsModuleOwnedAsync(long? ownerUserId, string projectId, string kind, string id, string? name, CancellationToken ct)
     {
@@ -63,25 +64,22 @@ public sealed partial class ManagementMutationHandler
         }
         catch
         {
-            return false;
+            return true;
         }
     }
 
-    /// <summary>Live definition names owned by installed modules, for bulk-write preservation.</summary>
+    /// <summary>
+    /// Live definition names owned by installed modules, for bulk-write
+    /// preservation. Fail-closed: a state read failure throws, so the request
+    /// fails loudly instead of silently overwriting module-owned definitions.
+    /// </summary>
     private async Task<HashSet<string>> ModuleOwnedNamesAsync(long? ownerUserId, string projectId, string kind, CancellationToken ct)
     {
         if (ownerUserId is null) return [];
-        try
-        {
-            var states = new Modules.ModuleStateStore(_workspaceClient);
-            var state = await states.LoadAsync(ownerUserId.Value, projectId, ct);
-            return Modules.ModuleStateStore.OwnedNames(state).TryGetValue(kind, out var owned) && owned.Count > 0
-                ? new HashSet<string>(owned, StringComparer.Ordinal) : [];
-        }
-        catch
-        {
-            return [];
-        }
+        var states = new Modules.ModuleStateStore(_workspaceClient);
+        var state = await states.LoadAsync(ownerUserId.Value, projectId, ct);
+        return Modules.ModuleStateStore.OwnedNames(state).TryGetValue(kind, out var owned) && owned.Count > 0
+            ? new HashSet<string>(owned, StringComparer.Ordinal) : [];
     }
 
     /// <summary>Refuses to delete a module-owned definition (only the module lifecycle removes those).</summary>

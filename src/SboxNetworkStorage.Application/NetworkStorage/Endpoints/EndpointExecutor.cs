@@ -90,16 +90,9 @@ public sealed partial class EndpointExecutor
         // internal and disabled endpoints, and must not be gated.
         if (enforcePublicAccessGates)
         {
-            var denial = CheckPublicAccess(endpointDef, endpointSlug, hasSecretKey);
+            var denial = EvaluatePublicGates(endpointDef, endpointSlug, hasSecretKey, isModuleDisabled);
             if (denial is not null) return denial;
-            // A disabled module stops its endpoints with ENDPOINT_DISABLED. Data and
-            // settings are kept; re-enabling restores them. Internal callers (test
-            // runner, dry-run) still execute, so only public gates check here.
-            if (isModuleDisabled is not null
-                && ModuleOwner(endpointDef) is { } ownedModule && isModuleDisabled(ownedModule))
-                return Denied(403, "ENDPOINT_DISABLED", $"Endpoint \"{endpointSlug}\" is disabled.");
         }
-
         // Live cutover serving has no legacy server in the loop. Record writes/deletes the
         // endpoint queues are flushed durably below, so they are safe to serve. The
         // only operation we cannot fulfill without help is a Discord webhook: if the
@@ -673,6 +666,27 @@ public sealed partial class EndpointExecutor
             ["ok"] = false,
             ["error"] = new Dictionary<string, object?> { ["code"] = code, ["message"] = message },
         });
+
+    /// <summary>
+    /// Public-HTTP access gates over an endpoint definition: enabled,
+    /// deprecated, internal exposure, secret-key requirement and module
+    /// disablement. The handler evaluates this against the LIVE definition so
+    /// stale pinned snapshots cannot bypass a disable; the executor applies
+    /// the same check on the definition it actually runs.
+    /// </summary>
+    public static EndpointExecutionResult? EvaluatePublicGates(
+        Dictionary<string, object?> endpointDef, string endpointSlug, bool hasSecretKey,
+        Func<string, bool>? isModuleDisabled = null)
+    {
+        var denial = CheckPublicAccess(endpointDef, endpointSlug, hasSecretKey);
+        if (denial is not null) return denial;
+        // A disabled module stops its endpoints with ENDPOINT_DISABLED. Data and
+        // settings are kept; re-enabling restores them.
+        if (isModuleDisabled is not null
+            && ModuleOwner(endpointDef) is { } ownedModule && isModuleDisabled(ownedModule))
+            return Denied(403, "ENDPOINT_DISABLED", $"Endpoint \"{endpointSlug}\" is disabled.");
+        return null;
+    }
 
     private static double ToDouble(object? v)
     {

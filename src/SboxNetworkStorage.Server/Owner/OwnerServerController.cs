@@ -460,8 +460,12 @@ public sealed class OwnerServerController(
             else if (kind == "smtp") error = SmtpError(channel);
             else if (kind == "discord" && !(Uri.TryCreate(url, UriKind.Absolute, out var discord) && discord.Scheme == Uri.UriSchemeHttps))
                 error = "Enter the Discord webhook URL (https://).";
+            else if (kind == "discord" && Uri.TryCreate(url, UriKind.Absolute, out var discordUrl) && AlertWebhookUrlPolicy.UnsafeReason(discordUrl) is { } discordUnsafe)
+                error = discordUnsafe;
             else if (kind == "webhook" && !(Uri.TryCreate(url, UriKind.Absolute, out var hook) && (hook.Scheme == Uri.UriSchemeHttps || hook.Scheme == Uri.UriSchemeHttp)))
                 error = "Enter the webhook URL (http:// or https://).";
+            else if (kind == "webhook" && Uri.TryCreate(url, UriKind.Absolute, out var hookUrl) && AlertWebhookUrlPolicy.UnsafeReason(hookUrl) is { } hookUnsafe)
+                error = hookUnsafe;
             else if ((url?.Length ?? 0) > 2048 || (signing?.Length ?? 0) > 256 || (password?.Length ?? 0) > 1024)
                 error = "The URL, signing secret or password is too long.";
             return (channel, error is null ? secrets : null, error);

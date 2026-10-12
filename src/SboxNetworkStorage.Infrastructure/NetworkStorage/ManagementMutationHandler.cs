@@ -368,20 +368,17 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "game-values", action = "upsert" });
     }
 
-    /// <summary>Game-values item ids owned by installed modules (kept across full-document replaces).</summary>
+    /// <summary>
+    /// Game-values item ids owned by installed modules (kept across
+    /// full-document replaces). Fail-closed: a state read failure throws, so
+    /// the request fails loudly instead of dropping owned items.
+    /// </summary>
     private async Task<HashSet<string>> ModuleOwnedValuesItemsAsync(long? ownerUserId, string projectId, CancellationToken ct)
     {
         if (ownerUserId is null) return [];
-        try
-        {
-            var states = new Modules.ModuleStateStore(_workspaceClient);
-            var state = await states.LoadAsync(ownerUserId.Value, projectId, ct);
-            return new HashSet<string>(state.Modules.SelectMany(module => module.ValuesItems), StringComparer.Ordinal);
-        }
-        catch
-        {
-            return [];
-        }
+        var states = new Modules.ModuleStateStore(_workspaceClient);
+        var state = await states.LoadAsync(ownerUserId.Value, projectId, ct);
+        return new HashSet<string>(state.Modules.SelectMany(module => module.ValuesItems), StringComparer.Ordinal);
     }
 
     private static JsonElement? UnwrapPayload(JsonElement? row)

@@ -36,26 +36,17 @@ public sealed class ModuleStateStore(IWorkspaceStore workspace)
 {
     public const string ResourcePath = "modules.json";
 
+    /// <summary>
+    /// Reads <c>modules.json</c>. Absent (or a non-object document) reads as
+    /// empty — nothing is installed. A read failure THROWS so callers fail
+    /// closed: ownership checks must refuse and lifecycle writes must abort
+    /// rather than act on unknown state.
+    /// </summary>
     public async Task<ModuleProjectState> LoadAsync(long userId, string projectId, CancellationToken ct)
     {
-        JsonElement? doc;
-        try
-        {
-            doc = await workspace.GetProjectResourceAsync<JsonElement>(userId, projectId, ResourcePath, ct);
-        }
-        catch
-        {
-            return ModuleProjectState.Empty;
-        }
-        if (doc is not { ValueKind: JsonValueKind.Object }) return ModuleProjectState.Empty;
-        try
-        {
-            return Parse(doc.Value);
-        }
-        catch
-        {
-            return ModuleProjectState.Empty;
-        }
+        var doc = await workspace.GetProjectResourceAsync<JsonElement>(userId, projectId, ResourcePath, ct);
+        if (doc.ValueKind != JsonValueKind.Object) return ModuleProjectState.Empty;
+        return Parse(doc);
     }
 
     public Task SaveAsync(long userId, string projectId, ModuleProjectState state, CancellationToken ct)

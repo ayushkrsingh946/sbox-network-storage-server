@@ -124,6 +124,15 @@ folder. Discord URLs must use `https://`. The message is a single embed
 (title, description and fields; red for errors, yellow for warnings, blue
 for info, green for resolved).
 
+### Webhook target safety
+
+Console-saved Discord and generic webhook URLs must not point at this server
+itself: loopback, link-local (including the `169.254.169.254` cloud metadata
+address), unspecified addresses and `localhost` are refused at save time.
+RFC 1918 private addresses stay allowed for self-hosters whose alert
+receiver lives on their own network. Alert sends never follow HTTP
+redirects.
+
 ## SMTP setup
 
 Add an email channel in the console (host, port, STARTTLS, optional user

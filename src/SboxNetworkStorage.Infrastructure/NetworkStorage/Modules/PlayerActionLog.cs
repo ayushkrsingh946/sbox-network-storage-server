@@ -118,6 +118,9 @@ public sealed class PlayerActionLogWriter
 
     internal ChannelReader<PlayerActionLogEntry> Reader => _channel.Reader;
 
+    /// <summary>Entries waiting for the background drain (surfaced for diagnostics and tests).</summary>
+    public int QueuedEntries => Reader.Count;
+
     /// <summary>Enqueues an entry; false when the queue was full (dropped and counted).</summary>
     public bool TryEnqueue(PlayerActionLogEntry entry)
     {

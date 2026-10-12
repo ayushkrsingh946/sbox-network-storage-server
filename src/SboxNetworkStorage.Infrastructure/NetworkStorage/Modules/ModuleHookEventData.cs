@@ -21,25 +21,20 @@ public static class ModuleHookEventData
 
     /// <summary>Changed-field paths from an endpoint definition's write/delete steps.</summary>
     public static IReadOnlyList<string> ChangedFieldsOf(JsonElement? definition)
+        => ChangedFieldsOf(definition.HasValue ? (object?)definition.Value : null);
+
+    /// <summary>Changed-field paths from a stored endpoint definition (JSON or materialized).</summary>
+    public static IReadOnlyList<string> ChangedFieldsOf(object? definition)
     {
         var fields = new List<string>();
         try
         {
-            if (!definition.HasValue || definition.Value.ValueKind != JsonValueKind.Object) return fields;
-            if (!definition.Value.TryGetProperty("steps", out var steps) || steps.ValueKind != JsonValueKind.Array)
-                return fields;
-            foreach (var step in steps.EnumerateArray())
+            foreach (var step in WriteStepsOf(definition))
             {
-                if (step.ValueKind != JsonValueKind.Object) continue;
-                if (!step.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String) continue;
-                if (type.GetString() is not ("write" or "delete")) continue;
-                if (!step.TryGetProperty("ops", out var ops) || ops.ValueKind != JsonValueKind.Array) continue;
-                foreach (var op in ops.EnumerateArray())
+                foreach (var path in OpPaths(step))
                 {
-                    if (op.ValueKind == JsonValueKind.Object && op.TryGetProperty("path", out var path)
-                        && path.ValueKind == JsonValueKind.String && path.GetString() is { } field
-                        && !fields.Contains(field, StringComparer.Ordinal))
-                        fields.Add(field);
+                    if (!fields.Contains(path, StringComparer.Ordinal))
+                        fields.Add(path);
                 }
             }
         }
@@ -50,7 +45,92 @@ public static class ModuleHookEventData
         return fields;
     }
 
-    public static Dictionary<string, object?> ForEndpointExecution(JsonElement? definition, bool ok, string? errorCode)
+    /// <summary>True when an endpoint definition performs writes (write/delete steps).</summary>
+    public static bool HasWriteSteps(object? definition)
+    {
+        try
+        {
+            return WriteStepsOf(definition).Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static IEnumerable<object?> WriteStepsOf(object? definition)
+    {
+        var steps = StepsOf(definition);
+        foreach (var step in steps)
+        {
+            if (TypeOf(step) is "write" or "delete")
+                yield return step;
+        }
+    }
+
+    private static IEnumerable<object?> StepsOf(object? definition)
+    {
+        switch (definition)
+        {
+            case JsonElement element when element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty("steps", out var steps) && steps.ValueKind == JsonValueKind.Array:
+                foreach (var step in steps.EnumerateArray())
+                    yield return step;
+                break;
+            case IReadOnlyDictionary<string, object?> map when map.TryGetValue("steps", out var raw):
+                foreach (var step in AsList(raw))
+                    yield return step;
+                break;
+        }
+    }
+
+    private static IEnumerable<object?> AsList(object? value)
+    {
+        if (value is System.Collections.IEnumerable sequence && value is not string)
+        {
+            foreach (var item in sequence)
+                yield return item;
+        }
+    }
+
+    private static string? TypeOf(object? step) => step switch
+    {
+        JsonElement element when element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String
+            => type.GetString(),
+        IReadOnlyDictionary<string, object?> map when map.TryGetValue("type", out var raw)
+            => raw as string,
+        _ => null,
+    };
+
+    private static IEnumerable<string> OpPaths(object? step)
+    {
+        var ops = step switch
+        {
+            JsonElement element when element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty("ops", out var list) && list.ValueKind == JsonValueKind.Array
+                => list.EnumerateArray().Cast<object?>(),
+            IReadOnlyDictionary<string, object?> map when map.TryGetValue("ops", out var raw)
+                => AsList(raw),
+            _ => [],
+        };
+        foreach (var op in ops)
+        {
+            var path = op switch
+            {
+                JsonElement element when element.ValueKind == JsonValueKind.Object
+                    && element.TryGetProperty("path", out var value) && value.ValueKind == JsonValueKind.String
+                    => value.GetString(),
+                IReadOnlyDictionary<string, object?> map when map.TryGetValue("path", out var raw)
+                    => raw as string,
+                _ => null,
+            };
+            if (!string.IsNullOrEmpty(path))
+                yield return path;
+        }
+    }
+
+    public static Dictionary<string, object?> ForEndpointExecution(object? definition, bool ok, string? errorCode)
         => new(StringComparer.Ordinal)
         {
             [Outcome] = ok ? "ok" : errorCode ?? "error",

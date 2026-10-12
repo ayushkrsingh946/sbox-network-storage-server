@@ -10,6 +10,7 @@ using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Modules;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
@@ -246,6 +247,56 @@ public static class EndpointExecutionEndpoints
                 claimedSteamId);
         if (steamId is null) return;
 
+        // Module integrity (docs/modules.md): player blocks and hook emission.
+        // The block check runs after identity resolution on the live endpoint
+        // definition (write steps classify mutating calls). Secret-key
+        // (dedicated-server) callers are exempt. Hook emission is
+        // fire-and-forget through the bounded channel: it never blocks or
+        // fails the request.
+        var moduleEmitter = context.RequestServices.GetService<IModuleHookEmitter>();
+        Dictionary<string, object?>? liveEndpointDef = null;
+        Func<string, bool>? isModuleDisabled = null;
+        try
+        {
+            var liveSource = context.RequestServices.GetService<StoreEndpointDataSource>();
+            if (liveSource is not null)
+                liveEndpointDef = await liveSource.ReadEndpointDefinitionAsync(projectId, endpointSlug, context.RequestAborted);
+            var stateCache = context.RequestServices.GetService<ModuleStateCache>();
+            if (stateCache is not null)
+                isModuleDisabled = await stateCache.GetDisabledLookupAsync(projectId, context.RequestAborted);
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            return;
+        }
+        catch { /* live-definition failure: the executor's own gates still apply below */ }
+        var moduleBlocker = context.RequestServices.GetService<PlayerBlockService>();
+        if (moduleBlocker is not null)
+        {
+            PlayerBlockDenial? blockDenial = null;
+            try
+            {
+                blockDenial = await moduleBlocker.CheckAsync(projectId, steamId,
+                    ModuleHookEventData.HasWriteSteps(liveEndpointDef), hasSecretKey, context.RequestAborted);
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                return;
+            }
+            catch { /* block-store failure: fail open to the request path */ }
+            if (blockDenial is not null)
+            {
+                moduleEmitter?.TryEmit(ModuleHookDispatcher.Describe("request.rejected", projectId, DateTimeOffset.UtcNow,
+                    steamId, endpointSlug, revisionClientId, hasSecretKey,
+                    new Dictionary<string, object?>(StringComparer.Ordinal) { ["reason"] = "player-blocked" }));
+                var blockMessage = blockDenial.Reason is { Length: > 0 } reason ? reason
+                    : blockDenial.Scope == PlayerBlockService.AllScope
+                        ? "This player is blocked from all requests."
+                        : "This player is blocked from mutating requests.";
+                await WriteEndpointErrorAsync(context, StatusCodes.Status403Forbidden, "PLAYER_BLOCKED", blockMessage);
+                return;
+            }
+        }
         // Projects with enableEncryptedRequests advertise it in the signed security
         // config; the library then sends only {security, encrypted, envelope}.
         if (HttpMethods.IsPost(context.Request.Method) && EncryptedEndpointEnvelope.TryRead(body, out var envelope))
@@ -326,7 +377,12 @@ public static class EndpointExecutionEndpoints
         EndpointExecutionResult? result;
         try
         {
-            result = await executor.TryExecuteAsync(
+            // Access gates run against the LIVE definition even when a staged
+            // or pinned snapshot supplies the steps, so disabling an endpoint
+            // (or its module) takes effect for every revision immediately.
+            var liveDenial = liveEndpointDef is null ? null
+                : EndpointExecutor.EvaluatePublicGates(liveEndpointDef, endpointSlug, hasSecretKey, isModuleDisabled);
+            result = liveDenial ?? await executor.TryExecuteAsync(
                 projectId,
                 endpointSlug,
                 input,
@@ -340,7 +396,8 @@ public static class EndpointExecutionEndpoints
                 playerKeyMode: access.Project.PlayerKeyMode,
                 // Public HTTP request: honour exposure/enabled/deprecated and the
                 // endpoint's requiresSecretKey flag.
-                enforcePublicAccessGates: true);
+                enforcePublicAccessGates: true,
+                isModuleDisabled: isModuleDisabled);
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
@@ -380,6 +437,8 @@ public static class EndpointExecutionEndpoints
             }
             if (definition is null)
             {
+                EmitEndpointExecuted(moduleEmitter, projectId, steamId, endpointSlug, revisionClientId,
+                    hasSecretKey, liveEndpointDef, ok: false, errorCode: "ENDPOINT_NOT_FOUND");
                 await WriteEndpointErrorAsync(context, StatusCodes.Status404NotFound,
                     "ENDPOINT_NOT_FOUND", $"Endpoint \"{endpointSlug}\" was not found.");
                 return;
@@ -388,10 +447,15 @@ public static class EndpointExecutionEndpoints
             // definition, and there is no legacy server fallback. Surface a clear, reported
             // error so the gap gets filled in .NET — never silently proxied to legacy server.
             await ReportNativeEndpointUnsupportedAsync(context, projectId, endpointSlug, steamId);
+            EmitEndpointExecuted(moduleEmitter, projectId, steamId, endpointSlug, revisionClientId,
+                hasSecretKey, liveEndpointDef, ok: false, errorCode: "ENDPOINT_NOT_SUPPORTED");
             await WriteEndpointErrorAsync(context, StatusCodes.Status501NotImplemented,
                 "ENDPOINT_NOT_SUPPORTED", "This endpoint is not yet supported by the .NET runtime.");
             return;
         }
+
+        EmitEndpointExecuted(moduleEmitter, projectId, steamId, endpointSlug, revisionClientId,
+            hasSecretKey, liveEndpointDef, result.Ok, ErrorCodeOf(result.Body));
 
         // The native executor is authoritative now (no legacy server in the success path), so a
         // native 5xx must still reach /admin/errors + Discord + the per-project
@@ -496,6 +560,29 @@ public static class EndpointExecutionEndpoints
         return context.Response.WriteAsJsonAsync(body, JsonOptions);
     }
 
+    /// <summary>
+    /// Fire-and-forget <c>endpoint.executed</c> hook emission for module
+    /// detectors and the insights action log. Never throws and never blocks.
+    /// </summary>
+    private static void EmitEndpointExecuted(IModuleHookEmitter? emitter, string projectId, string steamId,
+        string endpointSlug, long? revisionId, bool hasSecretKey, Dictionary<string, object?>? liveDefinition,
+        bool ok, string? errorCode)
+    {
+        if (emitter is null) return;
+        try
+        {
+            emitter.TryEmit(ModuleHookDispatcher.Describe("endpoint.executed", projectId, DateTimeOffset.UtcNow,
+                steamId, endpointSlug, revisionId, hasSecretKey,
+                ModuleHookEventData.ForEndpointExecution(liveDefinition, ok, errorCode)));
+        }
+        catch { /* emission never breaks the request */ }
+    }
+
+    private static string? ErrorCodeOf(object? body)
+        => body is Dictionary<string, object?> dict
+            && dict.TryGetValue("error", out var errObj)
+            && errObj is Dictionary<string, object?> err
+            && err.TryGetValue("code", out var code) ? code?.ToString() : null;
     private static async Task<string?> ResolvePlayerIdentityAsync(
         HttpContext context, JsonElement body, string projectId, string endpointSlug, string apiKey,
         long ownerUserId, bool required, bool sessionsEnabled, string claimedSteamId)

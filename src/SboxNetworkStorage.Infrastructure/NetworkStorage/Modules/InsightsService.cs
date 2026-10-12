@@ -204,8 +204,15 @@ public sealed class InsightsService(
         row.TryGetProperty("changed_fields_json", out var changed) && changed.ValueKind != JsonValueKind.Null
             ? changed.ValueKind == JsonValueKind.String ? changed.GetString() : changed.GetRawText() : null);
 
+    /// <summary>
+    /// CSV-escapes one cell. Quoting handles separators; a leading single
+    /// quote additionally neutralizes spreadsheet formula injection
+    /// (cells starting with =, +, -, @, tab or carriage return).
+    /// </summary>
     private static string Escape(string value)
     {
+        if (value.Length > 0 && (value[0] is '=' or '+' or '-' or '@' or '\t' or '\r' or '\n'))
+            value = "'" + value;
         if (value.IndexOfAny(['"', ',', '\n', '\r']) < 0) return value;
         return $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
     }
