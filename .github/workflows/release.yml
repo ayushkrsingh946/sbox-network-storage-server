@@ -133,7 +133,7 @@ jobs:
         run: |
           dotnet tool install --tool-path "$RUNNER_TEMP/sbom-tools" CycloneDX --version 6.2.0
           mkdir -p dist
-          "$RUNNER_TEMP/sbom-tools/dotnet-CycloneDX" "$SERVER_PROJECT" -r "$RID" -o dist -fn "sbox-ns-$VERSION-$RID.sbom.json" -j
+          "$RUNNER_TEMP/sbom-tools/dotnet-CycloneDX" "$SERVER_PROJECT" -rt "$RID" -o dist -fn "sbox-ns-$VERSION-$RID.sbom.json" -F Json
 
       - name: Archive (tar.gz)
         if: runner.os != 'Windows'

@@ -12,6 +12,8 @@ dist
 data
 docs
 install
+!install/*.service
+!install/*.timer
 tests
 *.md
 !README.md
