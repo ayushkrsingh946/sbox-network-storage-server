@@ -1,12 +1,12 @@
 /* Theme tokens. Dark is the default (:root); System resolves to Dark in a dark
    color scheme and to Light in a light scheme (see owner-theme.js). The
-   default dark and light themes use the Sky accent (light `#7bd7ef` on dark,
-   dark `#08617e` on light) on a neutral `#111217`-family canvas. The "mint"
+   default dark and light themes use the Demo green accent (`#10b981` on dark,
+   `#15803d` on light) on a neutral `#111217`-family canvas. The "mint"
    key is kept so stored preferences survive the "Mint and orchid" relabel;
    mint stays opt-in, never the default. `--brand-*` is the fixed header tile:
-   P5 primary `#0f6a86` with a `#ffffff` glyph, identical in every theme. */
-:root, :root[data-theme="dark"] { color-scheme: dark; --bg: #111217; --card: #191c22; --surface: var(--card); --surface-2: #22262f; --border: #343b48; --text: #e8edf3; --muted: #9aa5b5; --accent: #7bd7ef; --accent-text: #06232e; --accent-2: #8b7fd4; --green: #aac6b0; --success: var(--green); --warning: #d2bc8d; --danger: #d7a1a1; --danger-bg: #382b2d; --info: #9cc4e8; --code-bg: #121419; --brand-tile: #0f6a86; --brand-glyph: #ffffff; --brand-edge: #0a5066; --radius: 6px; --radius-sm: 4px; }
-:root[data-theme="light"] { color-scheme: light; --bg: #f2f4f6; --card: #ffffff; --surface-2: #e6e9ee; --border: #c6cdd5; --text: #1b2129; --muted: #5a6470; --accent: #08617e; --accent-text: #ffffff; --accent-2: #7c3aed; --green: #456b4c; --warning: #80652f; --danger: #a34d4d; --danger-bg: #f5e9e7; --info: #1f5fa8; --code-bg: #eef1f4; }
+   Demo green `#10b981` with a `#04120c` glyph, identical in every theme. */
+:root, :root[data-theme="dark"] { color-scheme: dark; --bg: #111217; --card: #191c22; --surface: var(--card); --surface-2: #22262f; --border: #343b48; --text: #e8edf3; --muted: #9aa5b5; --accent: #10b981; --accent-text: #04120c; --accent-2: #8b7fd4; --green: #aac6b0; --success: var(--green); --warning: #d2bc8d; --danger: #d7a1a1; --danger-bg: #382b2d; --info: #9cc4e8; --code-bg: #121419; --brand-tile: #10b981; --brand-glyph: #04120c; --brand-edge: #15803d; --radius: 6px; --radius-sm: 4px; }
+:root[data-theme="light"] { color-scheme: light; --bg: #f2f4f6; --card: #ffffff; --surface-2: #e6e9ee; --border: #c6cdd5; --text: #1b2129; --muted: #5a6470; --accent: #15803d; --accent-text: #f0fdf4; --accent-2: #7c3aed; --green: #456b4c; --warning: #80652f; --danger: #a34d4d; --danger-bg: #f5e9e7; --info: #1f5fa8; --code-bg: #eef1f4; }
 :root[data-theme="mint"] { color-scheme: dark; --bg: #101512; --card: #182019; --surface-2: #222c22; --border: #3a4a3c; --text: #ebf2ea; --muted: #9aab9c; --accent: #34d399; --accent-text: #04120c; --accent-2: #c084fc; --green: #aac6b0; --warning: #d2bc8d; --danger: #d7a1a1; --danger-bg: #382b2d; --info: #9cc4e8; --code-bg: #121812; }
 :root[data-theme="slate"] { color-scheme: dark; --bg: #1a1e23; --card: #22282e; --surface-2: #2d343c; --border: #424c57; --text: #e2e7ec; --muted: #aeb9c5; --accent: #a7c5b5; --accent-text: #1a2a20; --accent-2: #bbb5ce; --green: #afc9b5; --warning: #d2bc8d; --danger: #d7a1a1; --danger-bg: #382b2d; --info: #9cc4e8; --code-bg: #1d2228; }
 :root[data-theme="warm"] { color-scheme: dark; --bg: #211e1b; --card: #2b2723; --surface-2: #38322c; --border: #574d43; --text: #eee7de; --muted: #c0b5a8; --accent: #b5c5a7; --accent-text: #222b1c; --accent-2: #c7b6cc; --green: #afc9b5; --warning: #d2bc8d; --danger: #d7a1a1; --danger-bg: #382b2d; --info: #9cc4e8; --code-bg: #231f1b; }

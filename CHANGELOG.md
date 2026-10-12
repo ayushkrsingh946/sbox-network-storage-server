@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Use the Sky-blue, interlocking `ns` icon for the owner console, browser
+- Use the Demo-green, interlocking `ns` icon for the owner console, browser
   favicon, reusable app assets and repository branding. Keep product labels
   compact in the UI; describe the self-hosted s&box game backend in supporting
   documentation.
-- Default dark and light themes use Sky accents on neutral backgrounds.
+- Default dark and light themes use Demo green accents (`#10b981` on dark,
+  `#15803d` on light) on neutral backgrounds.
   Alternate themes and semantic success/error colours remain available.
 - Serve the embedded favicon with other owner assets so it also works in the
   read-only demo. Owner pages allow same-origin images without permitting
