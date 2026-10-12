@@ -15,7 +15,7 @@ COPY src/SboxNetworkStorage.Storage.Sqlite/*.csproj src/SboxNetworkStorage.Stora
 COPY src/SboxNetworkStorage.Storage.Postgres/*.csproj src/SboxNetworkStorage.Storage.Postgres/
 RUN dotnet restore src/SboxNetworkStorage.Server/SboxNetworkStorage.Server.csproj -a "$TARGETARCH"
 COPY src/ src/
- COPY install/ install/
+COPY install/ install/
 COPY compat/ compat/
 RUN dotnet publish src/SboxNetworkStorage.Server/SboxNetworkStorage.Server.csproj \
     -c Release -a "$TARGETARCH" --self-contained false --no-restore \
