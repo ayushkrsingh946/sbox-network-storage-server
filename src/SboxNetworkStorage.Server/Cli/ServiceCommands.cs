@@ -20,7 +20,7 @@ public static class ServiceCommands
             "install" => await InstallAsync(context),
             "uninstall" when context.Args.Option("instance") is { } instance => await InstanceServiceCommands.UninstallAsync(instance),
             "uninstall" => await UninstallAsync(),
-            "start" => await ControlAsync("start"),
+            "start" => await WaitUntilServingAsync(context, await ControlAsync("start")),
             "stop" => await ControlAsync("stop"),
             "restart" => await RestartAsync(context),
             "status" => await ControlAsync("status"),
@@ -153,7 +153,39 @@ public static class ServiceCommands
                 await RunAsync("systemctl", ["daemon-reload"]);
         }
 
-        return await ControlAsync("restart");
+        return await WaitUntilServingAsync(context, await ControlAsync("restart"));
+    }
+
+    /// <summary>
+    /// systemd, launchd and the Windows service manager report "started" before Kestrel is listening. A command
+    /// run right after <c>service start</c> (the installer's <c>dns enable</c>, whose registry proof calls back into
+    /// this server) would otherwise race the startup. Wait up to 60 seconds for <c>/health</c>; a server that does
+    /// not answer in time is reported but does not change the exit code, so callers keep today's behavior.
+    /// </summary>
+    private static async Task<int> WaitUntilServingAsync(CliContext context, int exitCode)
+    {
+        if (exitCode != CliApp.Ok) return exitCode;
+        var config = context.LoadConfig();
+        if (!config.IsValid) return exitCode;
+        var url = new SboxNetworkStorage.Server.Updates.ServerInstance(SboxNetworkStorage.Server.Updates.ServerInstance.DefaultName,
+            ServiceName, config).HealthUrl;
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(60);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                using var response = await http.GetAsync(url);
+                if (response.IsSuccessStatusCode) return exitCode;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                // Not listening yet.
+            }
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+        }
+        Console.Error.WriteLine($"warning: the service started but {url} did not answer within 60 seconds; check 'sbox-ns logs'.");
+        return exitCode;
     }
 
     public static async Task<int> ControlAsync(string action)
