@@ -1,0 +1,212 @@
+@model SboxNetworkStorage.Server.Owner.OwnerAlertsModel
+@using System.Globalization
+@using SboxNetworkStorage.Server.Alerts
+@using SboxNetworkStorage.Server.Monitoring
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    const string url = "/dashboard/server/alerts";
+    var rule = Model.EditingRule;
+    var channel = Model.EditingChannel;
+    var severities = new[] { AlertSeverity.Info, AlertSeverity.Warning, AlertSeverity.Error, AlertSeverity.Critical };
+    string Sev(AlertSeverity value) => AlertMessage.SeverityName(value);
+    string When(DateTimeOffset at) => at.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    string ChannelNames(IReadOnlyList<string> ids) => ids.Count == 0
+        ? "Every channel"
+        : string.Join(", ", ids.Select(id => Model.Channels.FirstOrDefault(c => c.Id == id)?.Name ?? id));
+    string Kind(ChannelInfo c) => c.Kind switch { "smtp" => "Email", "discord" => "Discord", _ => "Webhook (" + c.Preset + ")" };
+    string Scope(string? projectId) => projectId is null ? "All projects" : Model.Projects.FirstOrDefault(p => p.Id == projectId)?.Name ?? projectId;
+    var editingRuleId = rule is not null && Model.Rules.Any(r => r.Id == rule.Id) ? rule.Id : null;
+    var editingChannelId = channel is not null && Model.Channels.Any(c => c.Id == channel.Id) ? channel.Id : null;
+    var chosenKind = channel?.Kind is { Length: > 0 } k ? k : "webhook";
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<link rel="stylesheet" href="/owner-assets/server.css" />
+<div class="page-heading"><div><h1>Alerts</h1><p>Rules that watch this server, the channels notifications go to, and what was sent. Every alert source shares one limit: the same alert at most once per 10 minutes and at most @AlertThrottle.MaxPerMinute alerts per minute.</p></div><a class="button secondary" href="/dashboard/server">Server</a></div>
+
+<section class="card" id="rules" aria-labelledby="rules-title">
+    <div class="section-heading"><h2 id="rules-title">Rules <span class="badge">@(Model.Rules.Count + 1)</span></h2><a class="button secondary" href="@url#rule-form">Add a rule</a></div>
+    <div class="table-scroll"><table><caption class="sr-only">Alert rules and their current state</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col">Condition</th><th scope="col">Severity</th><th scope="col">Channels</th><th scope="col">State</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+        <tr><td>Captured errors <span class="badge">Built in</span></td><td>Request 5xx, endpoint and storage errors, library traffic alerts (<a href="https://github.com/sbox-cool/sbox-network-storage-server/blob/main/docs/alerting.md" rel="noreferrer">what triggers them</a>)</td><td>error</td><td>Every channel that accepts error</td><td>Always on</td><td></td></tr>
+        @foreach (var r in Model.Rules)
+        {
+            var status = Model.Statuses.GetValueOrDefault(r.Id);
+            var metric = MonitoringMetrics.Find(r.Metric);
+            var state = !r.Enabled ? "Disabled" : metric?.Kind == MetricKind.Event ? "On start" : status is null ? "Waiting for data" : status.State switch
+            {
+                "firing" => "Firing",
+                "pending" => "Pending",
+                "no data" => "No data",
+                _ => "OK",
+            };
+            <tr>
+                <td>@r.Name</td>
+                <td>@MonitoringMetrics.Describe(r)</td>
+                <td>@Sev(r.Severity)</td>
+                <td>@ChannelNames(r.ChannelIds)</td>
+                <td><span class="badge @(state == "Firing" ? "server-firing" : state == "OK" ? "positive" : "")">@state</span>@if (status?.Value is { } value) { <span class="muted"> @value.ToString("0.##", CultureInfo.InvariantCulture) @(metric?.Unit)</span> }</td>
+                <td><div class="actions">
+                    <a class="button secondary" href="@(url)?rule=@Uri.EscapeDataString(r.Id)#rule-form">Edit</a>
+                    <form method="post" action="@url/rules/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@r.Id" /><button class="danger" type="submit" data-confirm-title="Delete rule" data-confirm="Delete the alert rule &quot;@r.Name&quot;?">Delete</button></form>
+                </div></td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    @if (Model.Rules.Count == 0) { <div class="empty-state"><h3>No custom rules yet</h3><p>Add a rule such as CPU use above 90 % for 2 minutes, free disk below 5 GB, or a request error rate above 5 % over 5 minutes.</p></div> }
+</section>
+
+<section class="card" id="rule-form" aria-labelledby="rule-form-title">
+    <h2 id="rule-form-title">@(editingRuleId is null ? "Add a rule" : "Edit " + rule!.Name)</h2>
+    @if (Model.RuleError is not null) { <p class="error" role="alert">@Model.RuleError</p> }
+    <form method="post" action="@url/rules" data-rule-form>
+        @Html.AntiForgeryToken()
+        @if (editingRuleId is not null) { <input type="hidden" name="id" value="@editingRuleId" /> }
+        <div class="form-grid">
+            <label>Name <input name="name" value="@rule?.Name" required maxlength="80" placeholder="CPU high" /></label>
+            <label>Metric <select name="metric" required data-rule-metric>
+                @foreach (var metric in MonitoringMetrics.All)
+                {
+                    <option value="@metric.Id" data-kind="@metric.Kind.ToString().ToLowerInvariant()" data-unit="@metric.Unit" selected="@(rule?.Metric == metric.Id)">@metric.Label@(metric.Unit.Length > 0 ? $" ({metric.Unit})" : "")</option>
+                }
+            </select></label>
+            <label data-rule-threshold>Comparison <select name="comparison">
+                @foreach (var comparison in MonitoringMetrics.Comparisons)
+                {
+                    <option value="@comparison" selected="@((rule?.Comparison ?? ">") == comparison)">@comparison</option>
+                }
+            </select></label>
+            <label data-rule-threshold>Threshold <input name="threshold" inputmode="decimal" value="@(rule is null ? "" : rule.Threshold.ToString(CultureInfo.InvariantCulture))" placeholder="90" /></label>
+            <label data-rule-threshold>Duration or window (seconds) <input name="forSeconds" type="number" min="0" max="86400" value="@(rule?.ForSeconds ?? 120)" /></label>
+            <label>Severity <select name="severity">
+                @foreach (var severity in severities)
+                {
+                    <option value="@Sev(severity)" selected="@((rule?.Severity ?? AlertSeverity.Warning) == severity)">@Sev(severity)</option>
+                }
+            </select></label>
+            <label>Cooldown (minutes) <input name="cooldownMinutes" type="number" min="0" max="10080" value="@(rule?.CooldownMinutes ?? 10)" /></label>
+        </div>
+        <p class="muted" data-rule-help>Gauges (CPU, memory, disk) fire after the condition holds for the duration; 0 fires on the first sample. Request metrics are measured over the window (at least 60 seconds) and need @MonitoringMetrics.MinimumRequests requests in it. Rules are checked every 5 seconds.</p>
+        <fieldset><legend>Channels (none ticked: every channel that accepts the severity)</legend>
+            @if (Model.Channels.Count == 0) { <p class="muted">No channels yet. Add one below or in <code>alerts.toml</code>.</p> }
+            @foreach (var c in Model.Channels)
+            {
+                <label class="check"><input type="checkbox" name="channels" value="@c.Id" checked="@(rule?.ChannelIds.Contains(c.Id) == true)" /> @c.Name</label>
+            }
+        </fieldset>
+        <label class="check"><input type="checkbox" name="enabled" value="true" checked="@(rule?.Enabled ?? true)" /> Enabled</label>
+        <div class="actions"><button type="submit">@(editingRuleId is null ? "Add rule" : "Save rule")</button>@if (editingRuleId is not null) { <a class="button secondary" href="@url#rules">Cancel</a> }</div>
+    </form>
+</section>
+
+<section class="card" id="channels" aria-labelledby="channels-title">
+    <div class="section-heading"><h2 id="channels-title">Channels <span class="badge">@Model.Channels.Count</span></h2><a class="button secondary" href="@url#channel-form">Add a channel</a></div>
+    @if (Model.TestResult is { } results)
+    {
+        foreach (var result in results)
+        {
+            if (result.Ok) { <p class="notice" role="status">Test notification sent to @result.ChannelName.</p> }
+            else { <p class="error" role="alert">Test notification to @result.ChannelName failed: @result.Error</p> }
+        }
+    }
+    <div class="table-scroll"><table><caption class="sr-only">Notification channels</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Minimum severity</th><th scope="col">Scope</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+        @foreach (var c in Model.Channels)
+        {
+            <tr>
+                <td>@c.Name @if (c.Source == "config") { <span class="badge">alerts.toml</span> }</td>
+                <td>@Kind(c)</td>
+                <td>@Sev(c.MinSeverity)</td>
+                <td>@Scope(c.ProjectId)</td>
+                <td>@if (c.Problem is not null) { <span class="badge server-firing">Incomplete</span> <span class="muted">@c.Problem</span> } else { <span class="badge @(c.Enabled ? "positive" : "")">@(c.Enabled ? "Enabled" : "Disabled")</span> }</td>
+                <td><div class="actions">
+                    <form method="post" action="@url/channels/test">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@c.Id" /><button class="secondary" type="submit">Send test</button></form>
+                    @if (c.Source == "console")
+                    {
+                        <a class="button secondary" href="@(url)?channel=@Uri.EscapeDataString(c.Id)#channel-form">Edit</a>
+                        <form method="post" action="@url/channels/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@c.Id" /><button class="danger" type="submit" data-confirm-title="Delete channel" data-confirm="Delete the channel &quot;@c.Name&quot;? Rules that named it send to every channel instead.">Delete</button></form>
+                    }
+                </div></td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    @if (Model.Channels.Count == 0) { <div class="empty-state"><h3>No channels yet</h3><p>Add an email, Discord or webhook channel below. Channels in <code>alerts.toml</code> also appear here.</p></div> }
+</section>
+
+<section class="card" id="channel-form" aria-labelledby="channel-form-title">
+    <h2 id="channel-form-title">@(editingChannelId is null ? "Add a channel" : "Edit " + channel!.Name)</h2>
+    @if (Model.ChannelError is not null) { <p class="error" role="alert">@Model.ChannelError</p> }
+    <form method="post" action="@url/channels" data-channel-form autocomplete="off">
+        @Html.AntiForgeryToken()
+        @if (editingChannelId is not null) { <input type="hidden" name="id" value="@editingChannelId" /> }
+        <div class="form-grid">
+            <label>Name <input name="name" value="@channel?.Name" required maxlength="80" placeholder="Ops email" /></label>
+            <label>Type <select name="kind" data-channel-kind>
+                <option value="webhook" selected="@(chosenKind == "webhook")">Webhook</option>
+                <option value="discord" selected="@(chosenKind == "discord")">Discord</option>
+                <option value="smtp" selected="@(chosenKind == "smtp")">Email (SMTP)</option>
+            </select></label>
+            <label>Minimum severity <select name="minSeverity">
+                @foreach (var severity in severities)
+                {
+                    <option value="@Sev(severity)" selected="@((channel?.MinSeverity ?? AlertSeverity.Info) == severity)">@Sev(severity)</option>
+                }
+            </select></label>
+            <label>Scope <select name="projectId">
+                <option value="">All alerts (server-wide)</option>
+                @foreach (var project in Model.Projects)
+                {
+                    <option value="@project.Id" selected="@(channel?.ProjectId == project.Id)">Only project @project.Name</option>
+                }
+            </select></label>
+        </div>
+        <fieldset data-channel-section="webhook discord"><legend>Webhook</legend>
+            <div class="form-grid">
+                <label>URL <input name="url" type="url" maxlength="2048" placeholder="@(Model.EditingChannelHasSecret ? "Saved. Leave blank to keep it." : "https://")" /></label>
+                <label data-channel-section="webhook">Payload <select name="preset">
+                    <option value="generic" selected="@(channel?.Preset is null or "generic")">JSON (sbox-ns.alert/v1)</option>
+                    <option value="slack" selected="@(channel?.Preset == "slack")">Slack-compatible</option>
+                    <option value="teams" selected="@(channel?.Preset == "teams")">Microsoft Teams</option>
+                    <option value="ntfy" selected="@(channel?.Preset == "ntfy")">ntfy</option>
+                    <option value="gotify" selected="@(channel?.Preset == "gotify")">Gotify (token in the URL)</option>
+                </select></label>
+                <label data-channel-section="webhook">Signing secret (JSON payload only) <input name="signingSecret" type="password" maxlength="256" placeholder="@(Model.EditingChannelHasSecret ? "Leave blank to keep the saved one" : "Optional")" /></label>
+                <label data-channel-section="discord">Discord bot name <input name="discordUsername" value="@(channel?.DiscordUsername ?? "sbox-ns")" maxlength="80" /></label>
+            </div>
+            @if (Model.EditingChannelHasSecret) { <label class="check" data-channel-section="webhook"><input type="checkbox" name="clearSigningSecret" value="true" /> Remove the saved signing secret</label> }
+        </fieldset>
+        <fieldset data-channel-section="smtp"><legend>Email</legend>
+            <div class="form-grid">
+                <label>SMTP host <input name="smtpHost" value="@channel?.SmtpHost" maxlength="253" placeholder="mail.example.com" /></label>
+                <label>Port <input name="smtpPort" type="number" min="1" max="65535" value="@(channel?.SmtpPort ?? 587)" /></label>
+                <label>User name <input name="smtpUsername" value="@channel?.SmtpUsername" maxlength="256" placeholder="Empty: no authentication" /></label>
+                <label>Password <input name="smtpPassword" type="password" maxlength="1024" placeholder="@(Model.EditingChannelHasSecret ? "Saved. Leave blank to keep it." : "")" /></label>
+                <label>From <input name="smtpFrom" value="@channel?.SmtpFrom" maxlength="256" placeholder="sbox-ns@example.com" /></label>
+                <label>To (comma-separated) <input name="smtpTo" value="@(channel?.SmtpTo is { } to ? string.Join(", ", to) : "")" maxlength="2000" placeholder="ops@example.com" /></label>
+            </div>
+            <label class="check"><input type="checkbox" name="smtpUseTls" value="true" checked="@(channel?.SmtpUseTls ?? true)" /> Use STARTTLS</label>
+        </fieldset>
+        <label class="check"><input type="checkbox" name="enabled" value="true" checked="@(channel?.Enabled ?? true)" /> Enabled</label>
+        <p class="muted">Secrets (URLs, passwords, signing secrets) are stored owner-only in the server's secrets folder and never shown again. A server export carries them only when you choose to include secrets.</p>
+        <div class="actions"><button type="submit">@(editingChannelId is null ? "Add channel" : "Save channel")</button>@if (editingChannelId is not null) { <a class="button secondary" href="@url#channels">Cancel</a> }</div>
+    </form>
+</section>
+
+<section class="card" id="history" aria-labelledby="history-title">
+    <h2 id="history-title">History</h2>
+    <div class="table-scroll"><table><caption class="sr-only">Sent alerts and configuration changes, newest first</caption>
+        <thead><tr><th scope="col">Time (UTC)</th><th scope="col">Type</th><th scope="col">What</th><th scope="col">Detail</th></tr></thead>
+        <tbody>
+        @foreach (var entry in Model.History)
+        {
+            <tr><td>@When(entry.At)</td><td>@(entry.Type == "alert" ? "Alert" : "Change")</td><td>@entry.Summary</td><td class="muted">@entry.Detail</td></tr>
+        }
+        </tbody>
+    </table></div>
+    @if (Model.History.Count == 0) { <div class="empty-state"><h3>Nothing yet</h3><p>Sent alerts, test notifications and rule or channel changes appear here.</p></div> }
+</section>
+<script src="/owner-assets/m/manage.js" defer></script>
+<script src="/owner-assets/server.js" defer></script>

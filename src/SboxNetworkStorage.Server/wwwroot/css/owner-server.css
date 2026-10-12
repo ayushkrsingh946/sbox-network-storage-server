@@ -1,0 +1,19 @@
+/* Server and Alerts pages (Views/Owner/Server.cshtml, Alerts.cshtml). Tokens only, see docs/ui-guidelines.md. */
+.server-controls { display: flex; align-items: end; gap: .75rem; flex-wrap: wrap; margin: 0; }
+.server-controls label { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; color: var(--muted); }
+.server-facts dd { font-size: .9rem; font-weight: 600; overflow-wrap: anywhere; }
+/* Hairlines between tiles come from each tile's outline overlapping the 1px gap, so an empty last-row cell stays card-coloured. */
+.server-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 1px; margin: .75rem 0 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); overflow: hidden; }
+.server-tile { background: var(--card); outline: 1px solid var(--border); padding: .65rem .9rem .5rem; min-width: 0; display: flex; flex-direction: column; }
+.server-tile dt { font-size: .78rem; color: var(--muted); }
+.server-tile dd { margin: 0; }
+.server-tile dd[data-metric] { margin-top: .15rem; font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.server-tile dd.muted-value { color: var(--muted); font-weight: 400; }
+.server-tile .server-hint { font-size: .74rem; color: var(--muted); }
+.server-spark { margin-top: .35rem; height: 32px; }
+.server-spark svg { display: block; width: 100%; height: 32px; overflow: visible; }
+.server-spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.badge.server-firing { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+[data-channel-form] fieldset, [data-rule-form] fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: .75rem; margin: .75rem 0; }
+[data-channel-form] legend, [data-rule-form] legend { padding: 0 .4rem; color: var(--muted); font-size: .8rem; }
+[hidden] { display: none !important; }

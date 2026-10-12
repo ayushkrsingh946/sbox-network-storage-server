@@ -155,6 +155,10 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.workbench.js")!, "text/javascript"));
         app.MapGet("/owner-assets/table-sort.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.table-sort.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/server.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.server.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/server.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.server.css")!, "text/css"));
         app.MapGet("/owner-assets/icon.svg", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.brand-icon.svg")!, "image/svg+xml"));
         app.MapGet("/owner-assets/icon-512.png", () => Results.Stream(

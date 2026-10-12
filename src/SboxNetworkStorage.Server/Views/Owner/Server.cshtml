@@ -1,0 +1,98 @@
+@model SboxNetworkStorage.Server.Owner.OwnerServerModel
+@using System.Globalization
+@using SboxNetworkStorage.Server.Monitoring
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var s = Model.Latest;
+    var slow = Model.Slow;
+    string Bytes(double? value)
+    {
+        if (value is null) return "Unavailable";
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var v = value.Value;
+        var i = 0;
+        while (Math.Abs(v) >= 1024 && i < units.Length - 1) { v /= 1024; i++; }
+        return v.ToString(i == 0 ? "0" : "0.0", CultureInfo.InvariantCulture) + " " + units[i];
+    }
+    string Rate(double? value) => value is null ? "Unavailable" : Bytes(value) + "/s";
+    string Percent(double? value) => value is null ? "Unavailable" : value.Value.ToString("0.0", CultureInfo.InvariantCulture) + " %";
+    string Ms(double? value) => value is null ? "No requests" : value.Value.ToString("0.#", CultureInfo.InvariantCulture) + " ms";
+    string Number(double? value, string format = "0.##") => value is null ? "Unavailable" : value.Value.ToString(format, CultureInfo.InvariantCulture);
+    var scope = Model.Scope == "container" ? "container limit" : "host";
+    var cores = Model.CpuCores.ToString("0.##", CultureInfo.InvariantCulture);
+    var tiles = new (string Key, string Label, string Value, string Hint)[]
+    {
+        ("cpu", "CPU", Percent(s?.Cpu), $"{scope}, {cores} cores"),
+        ("processCpu", "Server process CPU", Percent(s?.ProcessCpu), "sbox-ns only"),
+        ("load1", "Load average (1 min)", Number(s?.Load1), "not reported on Windows"),
+        ("memory", "Memory in use", s?.MemoryPercent is { } mp ? $"{Percent(mp)} of {Bytes(s.MemoryTotal)}" : "Unavailable", scope),
+        ("processMemory", "Server process memory", s is null ? "Unavailable" : Bytes(s.ProcessMemory), "working set"),
+        ("gcHeap", ".NET heap", s is null ? "Unavailable" : Bytes(s.GcHeap), "managed memory"),
+        ("netRx", "Network in", Rate(s?.NetRx), "all interfaces except loopback"),
+        ("netTx", "Network out", Rate(s?.NetTx), "all interfaces except loopback"),
+        ("connections", "Open connections", s?.Connections?.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", "Kestrel"),
+        ("rps", "Requests per second", s is null ? "Unavailable" : Number(s.RequestsPerSecond), "every route except this page's polling"),
+        ("errorRate", "5xx error rate", s?.ErrorRate is { } er ? Percent(er) : "No requests", "over the last sample"),
+        ("p50", "Latency p50", Ms(s?.P50), "bucketed upper bound"),
+        ("p95", "Latency p95", Ms(s?.P95), "bucketed upper bound"),
+        ("threads", "Thread pool threads", s?.Threads.ToString(CultureInfo.InvariantCulture) ?? "Unavailable", ".NET thread pool"),
+    };
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<link rel="stylesheet" href="/owner-assets/server.css" />
+<div class="page-heading"><div><h1>Server</h1><p>Live resource use of this sbox-ns process and its @(Model.Scope). Samples stay in memory: 15 minutes in full and 24 hours by minute.</p></div><a class="button secondary" href="/dashboard/server/alerts">Alerts (@Model.RuleCount active @(Model.RuleCount == 1 ? "rule" : "rules"))</a></div>
+<section class="card" aria-labelledby="server-process">
+    <h2 id="server-process">Process</h2>
+    <dl class="stat-strip cols-3 server-facts">
+        <div><dt>Version</dt><dd>@Model.Version</dd></div>
+        <div><dt>Uptime</dt><dd data-uptime="@Model.StartedAt.ToUnixTimeMilliseconds()">Started @Model.StartedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) UTC</dd></div>
+        <div><dt>Runtime</dt><dd>@Model.Runtime</dd></div>
+        <div><dt>Platform</dt><dd>@Model.Platform</dd></div>
+        <div><dt>Database</dt><dd>@Model.Database @(Model.DatabaseVersion ?? "(not reachable)")@(Model.DatabaseLatencyMs is { } ms ? $", {ms.ToString("0.#", CultureInfo.InvariantCulture)} ms ping" : "")</dd></div>
+        <div><dt>Data folder</dt><dd><code class="selectable">@Model.DataDirectory</code></dd></div>
+    </dl>
+</section>
+<section class="card" aria-labelledby="server-live" data-server-live>
+    <div class="section-heading">
+        <h2 id="server-live">Live</h2>
+        <form class="server-controls" method="get" action="/dashboard/server">
+            <label>Update every <select name="interval" data-server-interval>
+                <option value="250">250 ms</option>
+                <option value="500" selected>500 ms</option>
+                <option value="1000">1 s</option>
+                <option value="2000">2 s</option>
+                <option value="5000">5 s</option>
+            </select></label>
+            <label>Chart <select name="range" data-server-range>
+                <option value="live" selected>Last 2 minutes</option>
+                <option value="15m">Last 15 minutes</option>
+                <option value="24h">Last 24 hours (per minute)</option>
+            </select></label>
+            <button type="button" class="secondary" data-server-pause aria-pressed="false" hidden>Pause</button>
+            <noscript><button type="submit" class="secondary">Refresh</button></noscript>
+        </form>
+    </div>
+    <p class="muted" role="status" data-server-status>@(s is null ? "Collecting the first sample. Refresh in a moment." : "Values from the latest sample. Live updates need JavaScript; refresh the page without it.")</p>
+    <dl class="server-tiles">
+    @foreach (var tile in tiles)
+    {
+        <div class="server-tile">
+            <dt>@tile.Label</dt>
+            <dd data-metric="@tile.Key" class="@(tile.Value is "Unavailable" or "No requests" ? "muted-value" : "")">@tile.Value</dd>
+            <dd class="server-hint">@tile.Hint</dd>
+            <dd class="server-spark" aria-hidden="true"><svg viewBox="0 0 120 32" preserveAspectRatio="none" data-spark="@tile.Key"><polyline points="" /></svg></dd>
+        </div>
+    }
+    </dl>
+</section>
+<section class="card" aria-labelledby="server-disk">
+    <h2 id="server-disk">Disk and backups</h2>
+    <dl class="stat-strip cols-4">
+        <div><dt>Data volume free</dt><dd data-slow="dataFree">@(slow.DataFree is { } free && slow.DataTotal is { } total && total > 0 ? $"{Bytes(free)} of {Bytes(total)}" : "Unavailable")</dd></div>
+        <div><dt>Data folder size</dt><dd data-slow="dataSize">@(slow.DataSize is { } size ? Bytes(size) : "Measuring")</dd></div>
+        <div><dt>Backups folder size</dt><dd data-slow="backupSize">@(slow.BackupSize is { } backups ? Bytes(backups) : "Measuring")</dd></div>
+        <div><dt>Newest backup</dt><dd data-slow="newestBackup">@(slow.NewestBackup is { } newest ? newest.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC" : "None")</dd></div>
+    </dl>
+    <p class="stat-strip-caption muted">Folder sizes refresh every 5 minutes. Create a backup with <code>sbox-ns db backup</code>.</p>
+</section>
+<script src="/owner-assets/server.js" defer></script>
