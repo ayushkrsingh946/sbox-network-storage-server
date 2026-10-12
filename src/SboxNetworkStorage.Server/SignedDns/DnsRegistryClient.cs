@@ -61,10 +61,52 @@ public sealed partial class DnsRegistryClient(HttpClient http)
     }
 
     /// <summary>Asks the registry which public address this machine's outbound connection comes from.</summary>
-    public async Task<IPAddress> WhoAmIAsync(string registry, CancellationToken ct)
+    public Task<IPAddress> WhoAmIAsync(string registry, CancellationToken ct) => WhoAmIAsync(http, registry, ct);
+
+    /// <summary>
+    /// Asks the registry for this machine's public address of one family. The connection is forced to
+    /// <paramref name="family"/>, so a dual-stack host that prefers IPv6 can still learn its IPv4 address.
+    /// Fails when the host has no route in that family.
+    /// </summary>
+    public async Task<IPAddress> WhoAmIAsync(string registry, AddressFamily family, CancellationToken ct)
+    {
+        var client = CreateFamilyClient(family);
+        try
+        {
+            var address = await WhoAmIAsync(client, registry, ct);
+            if (address.AddressFamily != family)
+                throw new InvalidDataException($"The registry reported a {address.AddressFamily} address for a {family} lookup.");
+            return address;
+        }
+        finally
+        {
+            if (!ReferenceEquals(client, http)) client.Dispose();
+        }
+    }
+
+    /// <summary>Creates a client whose connections use only <c>family</c>. Tests replace this.</summary>
+    public Func<AddressFamily, HttpClient> CreateFamilyClient { get; init; } = family => new HttpClient(new SocketsHttpHandler
+    {
+        ConnectCallback = async (context, token) =>
+        {
+            var socket = new Socket(family, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                await socket.ConnectAsync(context.DnsEndPoint, token);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
+        },
+    }) { Timeout = TimeSpan.FromSeconds(15) };
+
+    private static async Task<IPAddress> WhoAmIAsync(HttpClient client, string registry, CancellationToken ct)
     {
         var uri = new Uri(ValidateRegistry(registry).AbsoluteUri.TrimEnd('/') + "/whoami");
-        using var response = await http.GetAsync(uri, ct);
+        using var response = await client.GetAsync(uri, ct);
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException($"Public address lookup failed (HTTP {(int)response.StatusCode}).", null, response.StatusCode);
         using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
