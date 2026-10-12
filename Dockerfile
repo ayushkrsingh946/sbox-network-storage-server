@@ -13,7 +13,8 @@ COPY src/SboxNetworkStorage.Storage/*.csproj src/SboxNetworkStorage.Storage/
 COPY src/SboxNetworkStorage.Storage.Relational/*.csproj src/SboxNetworkStorage.Storage.Relational/
 COPY src/SboxNetworkStorage.Storage.Sqlite/*.csproj src/SboxNetworkStorage.Storage.Sqlite/
 COPY src/SboxNetworkStorage.Storage.Postgres/*.csproj src/SboxNetworkStorage.Storage.Postgres/
-RUN dotnet restore src/SboxNetworkStorage.Server/SboxNetworkStorage.Server.csproj -a "$TARGETARCH"
+# Restore with the publish configuration: Release enables ReadyToRun, which needs the runtime packs.
+RUN dotnet restore src/SboxNetworkStorage.Server/SboxNetworkStorage.Server.csproj -a "$TARGETARCH" -p:Configuration=Release
 COPY src/ src/
 COPY install/ install/
 COPY compat/ compat/
