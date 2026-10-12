@@ -20,6 +20,7 @@ using SboxNetworkStorage.Server.Compat;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Infrastructure;
 using SboxNetworkStorage.Server.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Server.Monitoring;
 using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
 
@@ -43,6 +44,8 @@ public static class NetworkStorageServices
 
         services.AddHttpClient("endpoint-webhook", client => { client.Timeout = TimeSpan.FromSeconds(5); });
         services.AddHttpClient("alerts-discord", client => { client.Timeout = TimeSpan.FromSeconds(10); });
+        services.AddHttpClient(HttpWebhookClient.ClientName, client => { client.Timeout = TimeSpan.FromSeconds(10); })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddResponseCompression();
         services.AddMemoryCache();
 
@@ -63,18 +66,27 @@ public static class NetworkStorageServices
 
         // Errors are logged locally; the bounded in-memory archive backs correlation lookups.
         services.AddSingleton<IErrorArchive, InMemoryErrorArchive>();
-        // OperatorAlertSink fans every capture out to Discord/SMTP when configured (docs/alerting.md).
+        // Captured errors and alert rules share one throttle and one dispatcher over the alerts.toml
+        // channels and the channels added in the owner console (docs/alerting.md, docs/monitoring.md).
         services.AddSingleton(AlertOptions.Bind(config));
         services.AddSingleton<LoggingExceptionAlertSink>();
         services.AddSingleton<LoggingNetworkStorageErrorAlertSink>();
         services.AddSingleton<IDiscordWebhookClient, HttpDiscordWebhookClient>();
         services.AddSingleton<ISmtpTransport, SmtpTransport>();
-        services.AddSingleton<DiscordAlertSender>();
-        services.AddSingleton<SmtpAlertSender>();
+        services.AddSingleton<IWebhookClient, HttpWebhookClient>();
+        services.AddSingleton<MonitoringStore>();
+        services.AddSingleton<AlertThrottle>();
+        services.AddSingleton<AlertDispatcher>();
         // One instance behind both interfaces, so its alert limits cover every call site.
         services.AddSingleton<OperatorAlertSink>();
         services.AddSingleton<IExceptionAlertSink>(sp => sp.GetRequiredService<OperatorAlertSink>());
         services.AddSingleton<INetworkStorageErrorAlertSink>(sp => sp.GetRequiredService<OperatorAlertSink>());
+        // Server page and alert rules: one on-demand sampler (docs/monitoring.md).
+        services.AddSingleton<HostMetricsReader>();
+        services.AddSingleton(sp => new RequestMetrics(sp.GetService<System.Diagnostics.Metrics.IMeterFactory>()));
+        services.AddSingleton<AlertRuleEngine>();
+        services.AddSingleton<MetricsSampler>();
+        services.AddHostedService(sp => sp.GetRequiredService<MetricsSampler>());
         services.AddSingleton<EndpointConflictReportThrottle>();
         services.AddScoped<EndpointErrorReporter>();
         // Every error report that names a project is also kept for that project's Errors tab.

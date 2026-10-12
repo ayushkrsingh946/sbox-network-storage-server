@@ -17,7 +17,8 @@
 - [Databases](docs/database.md): SQLite/PostgreSQL storage, schema isolation and database administration.
 - [Owner dashboard](docs/admin-panel.md): Local-owner setup/sign-in, projects, keys, settings, schema-validated record mutations, resource authoring, runtime diagnostics and single-project migration.
 - [Export and import](docs/export.md): Portable server archives, secret inclusion and restore constraints.
-- [Alerting](docs/alerting.md): Operator alert configuration.
+- [Alerting](docs/alerting.md): Notification channels (SMTP, Discord, signed webhooks and presets), captured-error alerts and shared limits.
+- [Monitoring](docs/monitoring.md): Server page live stats, alert rules over host and request metrics, sampling cost and history.
 
 ## Official client and authoring references
 

@@ -8,6 +8,8 @@ signup or SSH tunnel is needed.
 - `/login/link`: single-use login links (see below)
 - `/dashboard`: projects, keys and settings
 - `/dashboard/projects/{projectId}/data`: data browser
+- `/dashboard/server`: live host and process stats ([monitoring](monitoring.md))
+- `/dashboard/server/alerts`: alert rules, notification channels and history ([monitoring](monitoring.md), [alerting](alerting.md))
 
 ## First login: `sbox-ns admin login-link`
 

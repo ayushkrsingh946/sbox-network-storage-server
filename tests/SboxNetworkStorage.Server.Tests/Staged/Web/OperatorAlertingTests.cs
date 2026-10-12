@@ -5,6 +5,7 @@ using SboxNetworkStorage.Contracts.Errors;
 using SboxNetworkStorage.Server.Alerts;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Server.Monitoring;
 using Xunit;
 
 namespace SboxNetworkStorage.Server.Tests;
@@ -161,7 +162,7 @@ public sealed class OperatorAlertingTests
         Assert.Single(discord.Sent);
         Assert.Single(smtp.Sent);
 
-        time.Now += OperatorAlertSink.RepeatWindow;
+        time.Now += AlertThrottle.RepeatWindow;
         await storage.NotifyAsync(new NetworkStorageError("proj1", "saves", "late", "save.unconfirmed", "SAVE_NOT_CONFIRMED", "not confirmed"), CancellationToken.None);
 
         Assert.Equal(2, discord.Sent.Count);
@@ -177,14 +178,14 @@ public sealed class OperatorAlertingTests
         var sink = BuildSink(EnabledOptions(DisabledOptions()), discord, smtp, time);
 
         // Distinct kinds, as a caller varying the collection would produce.
-        for (var i = 0; i < OperatorAlertSink.MaxPerMinute + 5; i++)
+        for (var i = 0; i < AlertThrottle.MaxPerMinute + 5; i++)
             await sink.NotifyAsync(SampleError() with { Path = $"/v3/records/proj123/c{i}" }, CancellationToken.None);
-        Assert.Equal(OperatorAlertSink.MaxPerMinute, discord.Sent.Count);
+        Assert.Equal(AlertThrottle.MaxPerMinute, discord.Sent.Count);
 
         time.Now += TimeSpan.FromMinutes(1);
         await sink.NotifyAsync(SampleError() with { Path = "/v3/records/proj123/after" }, CancellationToken.None);
 
-        Assert.Equal(OperatorAlertSink.MaxPerMinute + 1, smtp.Sent.Count);
+        Assert.Equal(AlertThrottle.MaxPerMinute + 1, smtp.Sent.Count);
         Assert.Contains("5 other alerts were not sent", smtp.Sent[^1].Body);
     }
 
@@ -197,7 +198,7 @@ public sealed class OperatorAlertingTests
             Path = "/v3/records/[x](https://evil.example)",
         };
 
-        using var payload = DiscordAlertSender.BuildPayload(error, "sbox-ns");
+        using var payload = DiscordChannel.BuildPayload(AlertMessage.FromCaptured(error), "sbox-ns");
 
         var root = payload.RootElement;
         Assert.Empty(root.GetProperty("allowed_mentions").GetProperty("parse").EnumerateArray());
@@ -331,12 +332,22 @@ public sealed class OperatorAlertingTests
     }
 
     private static OperatorAlertSink BuildSink(AlertOptions options, FakeDiscordClient discord, FakeSmtpTransport smtp, TimeProvider? time = null)
-        => new(
+    {
+        time ??= TimeProvider.System;
+        var dir = NewTempDir();
+        var store = new MonitoringStore(ConfigLoader.Load(dir, Path.Combine(dir, "data"), environment: _ => null), NullLogger<MonitoringStore>.Instance);
+        var dispatcher = new AlertDispatcher(options, store, discord, smtp, new NoWebhooks(), time, NullLogger<AlertDispatcher>.Instance);
+        return new OperatorAlertSink(
             new LoggingExceptionAlertSink(NullLogger<LoggingExceptionAlertSink>.Instance),
             new LoggingNetworkStorageErrorAlertSink(NullLogger<LoggingNetworkStorageErrorAlertSink>.Instance),
-            new DiscordAlertSender(options, discord, NullLogger<DiscordAlertSender>.Instance),
-            new SmtpAlertSender(options, smtp, NullLogger<SmtpAlertSender>.Instance),
-            time ?? TimeProvider.System);
+            new AlertThrottle(time), dispatcher, store, time);
+    }
+
+    private sealed class NoWebhooks : IWebhookClient
+    {
+        public Task<int> PostAsync(string url, string contentType, byte[] body, IReadOnlyList<KeyValuePair<string, string>> headers, CancellationToken cancellationToken)
+            => throw new InvalidOperationException("No webhook channel is configured in these tests.");
+    }
 
     private sealed class ManualTime : TimeProvider
     {

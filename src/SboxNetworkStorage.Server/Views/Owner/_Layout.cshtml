@@ -48,6 +48,17 @@
             crumbs.Add(("Projects", "/dashboard"));
             crumbs.Add(("Admin security", null));
         }
+        else if (path == "/dashboard/server")
+        {
+            crumbs.Add(("Projects", "/dashboard"));
+            crumbs.Add(("Server", null));
+        }
+        else if (path.StartsWith("/dashboard/server/alerts", StringComparison.Ordinal))
+        {
+            crumbs.Add(("Projects", "/dashboard"));
+            crumbs.Add(("Server", "/dashboard/server"));
+            crumbs.Add(("Alerts", null));
+        }
     }
     var icons = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -69,6 +80,8 @@
         ["rate-limits"] = "<path d=\"M2.5 4h11M2.5 8h7M2.5 12h4\"/>",
         ["webhooks"] = "<path d=\"M14 2 7 9M14 2l-4.5 12-2.5-5-5-2.5z\"/>",
         ["pages"] = "<path d=\"M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 11h4.5\"/>",
+        ["server"] = "<rect x=\"2\" y=\"2.5\" width=\"12\" height=\"4.5\" rx=\"1\"/><rect x=\"2\" y=\"9\" width=\"12\" height=\"4.5\" rx=\"1\"/><path d=\"M4.5 4.75h.01M4.5 11.25h.01\"/>",
+        ["alerts"] = "<path d=\"M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3\"/>",
     };
     string Icon(string name) => "<svg class=\"nav-icon\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">" + icons[name] + "</svg>";
     var demo = Context.Items.ContainsKey(SboxNetworkStorage.Server.Demo.DemoReadOnlyMiddleware.ContextKey);
@@ -108,7 +121,9 @@
 @if (authenticated)
 {
     <aside class="sidebar" id="owner-nav"><nav aria-label="Owner navigation"><p class="nav-label">Workspace</p><a href="/dashboard" aria-current="@(path == "/dashboard" ? "page" : null)">@Html.Raw(Icon("grid"))All projects</a>
-    @if (!demo) { <a href="/dashboard/security" aria-current="@(path == "/dashboard/security" ? "page" : null)">@Html.Raw(Icon("shield"))Admin security</a> }
+    @if (!demo) { <a href="/dashboard/security" aria-current="@(path == "/dashboard/security" ? "page" : null)">@Html.Raw(Icon("shield"))Admin security</a>
+        <a href="/dashboard/server" aria-current="@(path == "/dashboard/server" ? "page" : null)">@Html.Raw(Icon("server"))Server</a>
+        <a href="/dashboard/server/alerts" aria-current="@(path.StartsWith("/dashboard/server/alerts", StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon("alerts"))Alerts</a> }
     @if (projectUrl is not null)
     {
         <p class="nav-label">Project</p><a href="@projectUrl" aria-current="@(path == projectUrl ? "page" : null)">@Html.Raw(Icon("home"))Overview &amp; settings</a>
