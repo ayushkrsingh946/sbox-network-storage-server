@@ -41,7 +41,11 @@ Please do not test against servers you do not operate.
 
 ## Verifying releases
 
-Every release publishes `SHA256SUMS`, signed with Sigstore keyless signing
-(`SHA256SUMS.sig`, `SHA256SUMS.pem`). The install scripts verify checksums
-automatically. See [docs/self-hosting.md](docs/self-hosting.md#manual-install)
-for manual verification with `cosign verify-blob`.
+Releases from 0.5.0 publish `SHA256SUMS.p256.sig`, a mandatory P-256
+signature over `SHA256SUMS`, verified against the embedded current and
+rotation public keys. Installers and unattended updaters fail closed on
+missing or invalid signatures and archive checksum mismatches.
+Sigstore keyless assets (`SHA256SUMS.sig`, `SHA256SUMS.pem`) provide an
+additional provenance check, pinned to this repository's tag release workflow.
+See [docs/self-hosting.md](docs/self-hosting.md#manual-install) for manual
+verification. Checksums alone do not authenticate a release.

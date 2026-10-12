@@ -11,6 +11,7 @@ using SboxNetworkStorage.Application.Workspace;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Analytics;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Modules;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Usage;
 using SboxNetworkStorage.Infrastructure.Workspace;
@@ -43,7 +44,8 @@ public static class NetworkStorageServices
         services.AddProjectMetadataCache();
 
         services.AddHttpClient("endpoint-webhook", client => { client.Timeout = TimeSpan.FromSeconds(5); });
-        services.AddHttpClient("alerts-discord", client => { client.Timeout = TimeSpan.FromSeconds(10); });
+        services.AddHttpClient("alerts-discord", client => { client.Timeout = TimeSpan.FromSeconds(10); })
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddHttpClient(HttpWebhookClient.ClientName, client => { client.Timeout = TimeSpan.FromSeconds(10); })
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
         services.AddResponseCompression();
@@ -76,7 +78,28 @@ public static class NetworkStorageServices
         services.AddSingleton<IWebhookClient, HttpWebhookClient>();
         services.AddSingleton<MonitoringStore>();
         services.AddSingleton<AlertThrottle>();
-        services.AddSingleton<AlertDispatcher>();
+        // Optional one-click providers (issue #72, section 4): adapters only, behind the channel
+        // abstraction. Nothing runs until the owner sets a provider up; plain SMTP/webhooks are untouched.
+        services.AddHttpClient("alerts-cloudflare", client => { client.Timeout = TimeSpan.FromSeconds(30); });
+        services.AddHttpClient("alerts-sboxns", client => { client.Timeout = TimeSpan.FromSeconds(30); });
+        services.AddSingleton<IAlertProvider>(sp => new CloudflareAlertProvider(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("alerts-cloudflare")));
+        services.AddSingleton<IAlertProvider>(sp => new SboxNsAlertProvider(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("alerts-sboxns"),
+            sp.GetRequiredService<EffectiveConfig>()));
+        services.AddSingleton<ProviderRegistry>();
+        services.AddSingleton(sp => new AlertDispatcher(
+            sp.GetRequiredService<AlertOptions>(),
+            sp.GetRequiredService<MonitoringStore>(),
+            sp.GetRequiredService<IDiscordWebhookClient>(),
+            sp.GetRequiredService<ISmtpTransport>(),
+            sp.GetRequiredService<IWebhookClient>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<AlertDispatcher>>())
+        {
+            ProviderStore = sp.GetRequiredService<MonitoringStore>(),
+            Providers = sp.GetRequiredService<ProviderRegistry>(),
+        });
         // One instance behind both interfaces, so its alert limits cover every call site.
         services.AddSingleton<OperatorAlertSink>();
         services.AddSingleton<IExceptionAlertSink>(sp => sp.GetRequiredService<OperatorAlertSink>());
@@ -153,6 +176,29 @@ public static class NetworkStorageServices
         services.AddScoped<StoreQueryValuesContextProvider>();
         services.AddScoped<IQueryValuesContextProvider>(sp => sp.GetRequiredService<StoreQueryValuesContextProvider>());
         services.AddSingleton<IAppendRateLimiter, InMemoryAppendRateLimiter>();
+
+        // Module system, integrity monitoring and player insights (docs/modules.md).
+        // modules.json absent means nothing is installed; every behavior is opt-in per project.
+        services.AddSingleton(new ModuleOwnerOptions(LocalOwnerUserId));
+        services.AddSingleton<IModuleDataStore>(sp => sp.GetRequiredService<INetworkStorageStoreAdmin>() is IModuleDataStore modules
+            ? modules : new InMemoryModuleDataStore());
+        services.AddSingleton<ModuleHookDispatcher>();
+        services.AddSingleton<IModuleHookEmitter>(sp => sp.GetRequiredService<ModuleHookDispatcher>());
+        services.AddSingleton<IntegrityDetectors>();
+        services.AddSingleton<PlayerBlockService>();
+        services.AddSingleton<InsightsSettingsProvider>();
+        services.AddSingleton<PlayerActionLogWriter>();
+        services.AddSingleton<IntegrityModuleService>();
+        services.AddSingleton<IIntegrityAlertSink, IntegrityAlertForwarder>();
+        services.AddSingleton<InsightsActionLogSubscriber>();
+        services.AddSingleton<IModuleHookSubscriber>(sp => sp.GetRequiredService<IntegrityModuleService>());
+        services.AddSingleton<IModuleHookSubscriber>(sp => sp.GetRequiredService<InsightsActionLogSubscriber>());
+        services.AddScoped<ModuleStateStore>();
+        services.AddSingleton<ModuleStateCache>();
+        services.AddScoped<ModuleInstaller>();
+        services.AddScoped<InsightsService>();
+        services.AddHostedService<ModuleHookService>();
+        services.AddHostedService<PlayerActionLogService>();
 
         return services;
     }

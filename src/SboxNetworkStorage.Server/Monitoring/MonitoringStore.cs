@@ -7,7 +7,7 @@ using SboxNetworkStorage.Server.Tunnels;
 namespace SboxNetworkStorage.Server.Monitoring;
 
 /// <summary>A notification channel added in the owner console. Secrets live in a separate file.</summary>
-/// <param name="Kind"><c>smtp</c>, <c>discord</c> or <c>webhook</c>.</param>
+/// <param name="Kind"><c>smtp</c>, <c>discord</c>, <c>webhook</c>, or a provider id (<c>cloudflare</c>, <c>sboxns</c>).</param>
 /// <param name="Preset">Webhook payload: <c>generic</c>, <c>slack</c>, <c>teams</c>, <c>ntfy</c> or <c>gotify</c>.</param>
 /// <param name="ProjectId">Null for server-wide; otherwise only alerts about this project.</param>
 public sealed record ChannelDefinition(
@@ -55,9 +55,11 @@ public sealed record MonitoringEvent(DateTimeOffset At, string Type, string Summ
 /// live (no restart). Channel secrets are written owner-only under
 /// <c>&lt;secrets&gt;/monitoring/</c>, never into the settings file, never rendered back and never
 /// included in config exports. The history (sent alerts and changes) is a bounded list in
-/// <c>&lt;state&gt;/monitoring-history.json</c>.
+/// <c>&lt;state&gt;/monitoring-history.json</c>. Provider setups (section 4 of issue #72) are kept
+/// in the same files: non-secret setup state in <c>monitoring.json</c>, provider tokens in
+/// <c>&lt;secrets&gt;/monitoring/provider-&lt;id&gt;.json</c>.
 /// </summary>
-public sealed class MonitoringStore
+public sealed class MonitoringStore : IProviderStore
 {
     public const int MaxChannels = 50;
     public const int MaxRules = 100;
@@ -110,6 +112,56 @@ public sealed class MonitoringStore
         => Load<ChannelSecrets>(SecretPath(channelId)) ?? new ChannelSecrets();
 
     public bool HasSecret(string channelId) => File.Exists(SecretPath(channelId));
+
+    public IReadOnlyList<ProviderSetup> ProviderSetups
+    {
+        get { lock (_gate) return _settings.Providers ?? []; }
+    }
+
+    public ProviderSetup? GetProviderSetup(string providerId)
+    {
+        lock (_gate) return (_settings.Providers ?? []).FirstOrDefault(p => p.ProviderId == providerId);
+    }
+
+    public ProviderSecrets ReadProviderSecrets(string providerId)
+        => Load<ProviderSecrets>(ProviderSecretPath(providerId)) ?? new ProviderSecrets();
+
+    public bool HasProviderSecret(string providerId) => File.Exists(ProviderSecretPath(providerId));
+
+    /// <summary>
+    /// Adds or replaces a provider setup. Null <paramref name="secrets"/> keeps the stored ones.
+    /// The setup and the history entry never carry the token.
+    /// </summary>
+    public void SaveProviderSetup(ProviderSetup setup, ProviderSecrets? secrets)
+    {
+        lock (_gate)
+        {
+            if (secrets is not null)
+                TunnelFiles.WriteSecret(ProviderSecretPath(setup.ProviderId), JsonSerializer.Serialize(secrets, Json));
+            var providers = (_settings.Providers ?? []).Where(p => p.ProviderId != setup.ProviderId).Append(setup).ToList();
+            _settings = _settings with { Providers = providers };
+            SaveSettings();
+            AppendLocked(new MonitoringEvent(DateTimeOffset.UtcNow, "change",
+                $"Provider {(setup.Configured ? "set up" : "updated")}: {setup.ProviderId}", setup.FromAddress));
+        }
+    }
+
+    public bool DeleteProviderSetup(string providerId)
+    {
+        lock (_gate)
+        {
+            var setup = (_settings.Providers ?? []).FirstOrDefault(p => p.ProviderId == providerId);
+            var hadSecret = File.Exists(ProviderSecretPath(providerId));
+            if (setup is null && !hadSecret) return false;
+            _settings = _settings with { Providers = (_settings.Providers ?? []).Where(p => p.ProviderId != providerId).ToList() };
+            SaveSettings();
+            try { File.Delete(ProviderSecretPath(providerId)); }
+            catch (IOException ex) { _logger.LogWarning(ex, "Could not delete the secret file of provider {Provider}", providerId); }
+            AppendLocked(new MonitoringEvent(DateTimeOffset.UtcNow, "change", $"Provider removed: {providerId}", null));
+        }
+
+        return true;
+    }
 
     /// <summary>Adds or replaces a channel. Null <paramref name="secrets"/> keeps the stored ones.</summary>
     public void SaveChannel(ChannelDefinition channel, ChannelSecrets? secrets)
@@ -207,10 +259,15 @@ public sealed class MonitoringStore
     {
         "smtp" => "Email",
         "discord" => "Discord",
+        "cloudflare" => "Cloudflare",
+        "sboxns" => "sboxns.com",
         _ => $"Webhook ({channel.Preset})",
     };
 
     private string SecretPath(string channelId) => Path.Combine(_secretsDirectory, $"channel-{channelId}.json");
+
+    private string ProviderSecretPath(string providerId) => Path.Combine(_secretsDirectory, $"provider-{providerId}.json");
+
 
     private T? Load<T>(string path) where T : class
     {
@@ -233,5 +290,5 @@ public sealed class MonitoringStore
         }
     }
 
-    private sealed record Settings(IReadOnlyList<ChannelDefinition> Channels, IReadOnlyList<AlertRule> Rules);
+    private sealed record Settings(IReadOnlyList<ChannelDefinition> Channels, IReadOnlyList<AlertRule> Rules, IReadOnlyList<ProviderSetup>? Providers = null);
 }

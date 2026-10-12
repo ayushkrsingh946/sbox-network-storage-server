@@ -1,0 +1,9 @@
+id: inventory
+version: 1.0.0
+minServerVersion: 0.6.0
+name: Inventory starter kit
+description: Grant, consume and craft items with recipes stored in game values. Material costs are checked on the server and missing ingredients fail closed. Works in player-hosted projects with only a public key.
+permissions: []
+hooks: []
+panels: []
+settings: []

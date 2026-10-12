@@ -206,6 +206,30 @@ missing, invalid, or disabled key or an unknown project; 403
 non-JSON body. The client tolerates handshake failure, so a failed
 revision-init never blocks gameplay; it only skips the outdated notice.
 
+When the owner saved an explicit version policy (see
+[version-policy.md](version-policy.md)), the handshake additively returns
+`action` (`none`, `notify`, `rejoin`, `block_writes` or `block_all`), the
+owner's notice as `message` for outdated clients, `graceEndsAt` (unix
+seconds, when a grace window applies) and `minimumRevisionId` (when set).
+Without a policy these fields are omitted and the body above is unchanged.
+The handshake stays read-only and never fails because of policy.
+
+## Pinned execution and `_revisionStatus`
+
+Published game bundles send `x-ns-revision-id` on every runtime call. When
+it names a retained revision inside its support window, endpoints,
+workflows, queries, game values and collection definitions run from that
+revision's snapshot; anything else (no header, unknown or expired
+revision) runs against live. Player records are always live.
+
+When a version policy is configured, every endpoint response — success and
+error bodies alike — carries a top-level `_revisionStatus` object with the
+library's exact keys (`isOutdatedRevision`, `graceRemainingMinutes`,
+`graceExpired`, `action`, `message`, `playerRevision`, `currentRevision`,
+`enforcementMode`, `policy{...}`); queries and values responses carry it
+too. Without a policy it is absent. With server-side enforcement switched
+on, expired known revisions get HTTP 403 `REVISION_BLOCKED` (secret keys
+exempt). Details: [version-policy.md](version-policy.md).
 The game package the server compares against is synced from the editor Sync
 Tool (`POST /v3/manage/{projectId}/package-sync`), exactly as with the
 managed service. Sync your `Editor/Network Storage/` sources after pointing

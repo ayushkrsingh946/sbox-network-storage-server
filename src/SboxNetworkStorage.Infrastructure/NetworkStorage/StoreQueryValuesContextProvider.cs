@@ -19,21 +19,29 @@ public sealed class StoreQueryValuesContextProvider : IQueryValuesContextProvide
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreQueryValuesContextProvider> _logger;
     private readonly RevisionOverlay? _overlay;
+    // Phase 4: pinned retained revision. Collections and game values come
+    // from the immutable snapshot; records stay live (handled downstream).
+    private readonly RevisionSnapshots.SnapshotDocument? _snapshot;
 
     public StoreQueryValuesContextProvider(INetworkStorageStore store, ILogger<StoreQueryValuesContextProvider> logger)
-        : this(store, logger, overlay: null)
+        : this(store, logger, overlay: null, snapshot: null)
     {
     }
 
-    private StoreQueryValuesContextProvider(INetworkStorageStore store, ILogger<StoreQueryValuesContextProvider> logger, RevisionOverlay? overlay)
+    private StoreQueryValuesContextProvider(INetworkStorageStore store, ILogger<StoreQueryValuesContextProvider> logger, RevisionOverlay? overlay, RevisionSnapshots.SnapshotDocument? snapshot)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _overlay = overlay;
+        _snapshot = snapshot;
     }
 
     /// <summary>A provider for a request targeting the staged revision: staged collection constants and tables apply.</summary>
-    public StoreQueryValuesContextProvider WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay);
+    public StoreQueryValuesContextProvider WithRevisionOverlay(RevisionOverlay overlay) => new(_store, _logger, overlay, _snapshot);
+
+    /// <summary>A provider pinned to a retained revision: collection constants
+    /// and tables plus game values come from the snapshot.</summary>
+    public StoreQueryValuesContextProvider WithRevisionSnapshot(RevisionSnapshots.SnapshotDocument snapshot) => new(_store, _logger, _overlay, snapshot);
 
     public async Task<IReadOnlyDictionary<string, object?>> GetValuesAsync(string projectId, CancellationToken cancellationToken)
     {
@@ -41,11 +49,16 @@ public sealed class StoreQueryValuesContextProvider : IQueryValuesContextProvide
 
         try
         {
-            // Read game_values and collections from the store in parallel.
-            var gvTask = _store.ReadGameValuesAsync(projectId, cancellationToken);
-            var colTask = _store.ListCollectionsAsync(projectId, cancellationToken);
+            // Read game_values and collections from the store in parallel,
+            // or from the pinned snapshot when this request runs an old revision.
+            var gvTask = _snapshot?.GameValues is { } pinnedGv
+                ? Task.FromResult<JsonElement?>(pinnedGv)
+                : _store.ReadGameValuesAsync(projectId, cancellationToken);
+            var colTask = _snapshot is not null
+                ? Task.FromResult<IReadOnlyList<JsonElement>>(_snapshot.Collections)
+                : _store.ListCollectionsAsync(projectId, cancellationToken);
             await Task.WhenAll(gvTask, colTask);
-            var collections = _overlay is null ? colTask.Result : _overlay.MergeCollectionRows(colTask.Result);
+            var collections = _snapshot is not null ? colTask.Result : (_overlay is null ? colTask.Result : _overlay.MergeCollectionRows(colTask.Result));
 
             // ── Collection-level constants and tables take precedence ──
             foreach (var col in collections)

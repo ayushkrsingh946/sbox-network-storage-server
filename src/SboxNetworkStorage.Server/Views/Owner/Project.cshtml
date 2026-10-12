@@ -213,10 +213,26 @@
         </form>
     </details>
     <details class="card settings-advanced">
-        <summary>Revision policy (applied by the client library)</summary>
-        <p class="muted">This server does not block any request. It only reports these settings to the client library and the editor Sync Tool, and tells the client through revision-init when its game revision is outdated. What happens to an outdated player is up to the client library. <a href="@OwnerDocs.Url("admin-panel.md#revision-policy")" rel="noreferrer">Revision policy</a></p>
+        <summary>Revision policy (game versions)</summary>
+        <p class="muted">Published revisions are retained so older game builds keep working: an old build inside its support window runs its own revision's definitions and values, while player data stays shared. The client library learns the policy from endpoint responses and revision-init. Server-side blocking is off unless you switch it on below. <a href="@OwnerDocs.Url("admin-panel.md#revision-policy")" rel="noreferrer">Revision policy</a></p>
         <form method="post" action="@url/settings">
             @Html.AntiForgeryToken()<input type="hidden" name="tab" value="revisions" />
+            <fieldset class="manage-windows"><legend>Support rules</legend>
+            <div class="form-grid">
+            <label>Minimum supported revision <input type="number" name="revisionMinimumRevisionId" value="@project.RevisionMinimumRevisionId" min="0" placeholder="None" /></label>
+            <label>Grace period (minutes) <input type="number" name="revisionGracePeriodMinutes" value="@project.RevisionGracePeriodMinutes" min="0" max="10080" placeholder="None" /></label>
+            <label>While in grace <select name="revisionInGraceAction">
+                <option value="notify" selected="@(project.RevisionInGraceAction != "rejoin" && project.RevisionInGraceAction != "continue")">Notify players</option>
+                <option value="rejoin" selected="@(project.RevisionInGraceAction == "rejoin")">Ask players to rejoin</option>
+                <option value="continue" selected="@(project.RevisionInGraceAction == "continue")">Let players continue silently</option>
+            </select></label>
+            <label>After the grace period <select name="revisionPostGraceAction">
+                <option value="block_writes" selected="@(project.RevisionPostGraceAction != "block_all")">Client library blocks writes</option>
+                <option value="block_all" selected="@(project.RevisionPostGraceAction == "block_all")">Client library blocks all requests</option>
+            </select></label>
+            <label>Retained revisions besides live <input type="number" name="revisionRetentionCount" value="@project.RevisionRetentionCount" min="0" max="20" placeholder="3" /></label>
+            </div>
+            </fieldset>
             <fieldset class="manage-windows"><legend>Enforcement (applied by the client library)</legend>
             <div class="form-grid">
             <label class="check"><input type="checkbox" name="revisionEnforcementEnabled" value="true" checked="@(project.RevisionEnforcementEnabled == true)" /> Enforce the revision policy in the client library</label>
@@ -224,21 +240,21 @@
                 <option value="allow_continue" selected="@(project.RevisionEnforcementMode != "force_upgrade")">Let outdated players continue</option>
                 <option value="force_upgrade" selected="@(project.RevisionEnforcementMode == "force_upgrade")">Ask outdated players to upgrade</option>
             </select></label>
-            <label>Grace period (minutes) <input type="number" name="revisionGracePeriodMinutes" value="@project.RevisionGracePeriodMinutes" min="5" max="1440" placeholder="None" /></label>
-            <label>After the grace period <select name="revisionPostGraceAction">
-                <option value="block_writes" selected="@(project.RevisionPostGraceAction != "block_all")">Client library blocks writes</option>
-                <option value="block_all" selected="@(project.RevisionPostGraceAction == "block_all")">Client library blocks all requests</option>
-            </select></label>
             <label>Escalate after (minutes) <input type="number" name="revisionEscalateAfterMinutes" value="@project.RevisionEscalateAfterMinutes" min="60" max="1440" placeholder="Never" /></label>
             <label class="check"><input type="checkbox" name="revisionForceEndpointUpgrade" value="true" checked="@(project.RevisionForceEndpointUpgrade == true)" /> Require upgraded endpoints</label>
             </div>
+            </fieldset>
+            <fieldset class="manage-windows"><legend>Server-side enforcement (this server blocks requests)</legend>
+            <div class="form-grid">
+            <label class="check"><input type="checkbox" name="revisionServerEnforcementEnabled" value="true" checked="@(project.RevisionServerEnforcementEnabled == true)" /> Block expired revisions on the data plane (secret keys stay exempt)</label>
+            </div>
+            <p class="muted">Off by default. When on, requests from a known revision below the minimum or past its grace period are rejected with 403 <code>REVISION_BLOCKED</code> (<code>block_writes</code> rejects only mutating requests). Requests without a revision, or with an unknown one, still run against live.</p>
             </fieldset>
             <fieldset class="manage-windows"><legend>Player messaging</legend>
             <div class="form-grid">
             <label>Notice for outdated players <textarea name="revisionNotifyMessage" maxlength="500">@project.RevisionNotifyMessage</textarea></label>
             <label class="check"><input type="checkbox" name="revisionShowDefaultMessage" value="true" checked="@(project.RevisionShowDefaultMessage == true)" /> Show the default message</label>
             <label>New version banner <select name="revisionShowNewVersionBanner"><option value="true" selected="@(project.RevisionShowNewVersionBanner != false)">Show</option><option value="false" selected="@(project.RevisionShowNewVersionBanner == false)">Hide</option></select></label>
-            <label>Update options <select name="revisionShowUpdateOptions"><option value="true" selected="@(project.RevisionShowUpdateOptions != false)">Show</option><option value="false" selected="@(project.RevisionShowUpdateOptions == false)">Hide</option></select></label>
             <label>Outdated popup <select name="revisionShowPopupOnce"><option value="true" selected="@(project.RevisionShowPopupOnce != false)">Once per session</option><option value="false" selected="@(project.RevisionShowPopupOnce == false)">Every time</option></select></label>
             </div>
             </fieldset>
@@ -256,7 +272,7 @@
     <h2>Synced resources</h2>
     <p>Dashboard authoring and editor sync share the live store. Source-backed definitions keep their YAML/JSON source metadata; coordinate changes with your checked-in editor source.</p>
     <div class="actions resource-links"><a class="button secondary" href="@url/resources/collection">Collections &amp; schemas</a><a class="button secondary" href="@url/resources/endpoint">Endpoints</a><a class="button secondary" href="@url/resources/workflow">Workflows</a><a class="button secondary" href="@url/resources/query">Queries</a><a class="button secondary" href="@url/resources/game-values">Game values</a></div>
-    <div class="actions resource-links"><a class="button secondary" href="@url/tests">Endpoint tests</a><a class="button secondary" href="@url/versions">Version history</a><a class="button secondary" href="@url/rate-limits">Rate limit rules</a><a class="button secondary" href="@url/webhooks">Webhooks</a><a class="button secondary" href="@url/pages">Pages</a></div>
+    <div class="actions resource-links"><a class="button secondary" href="@url/tests">Endpoint tests</a><a class="button secondary" href="@url/versions">Version history</a><a class="button secondary" href="@url/modules">Modules</a><a class="button secondary" href="@url/rate-limits">Rate limit rules</a><a class="button secondary" href="@url/webhooks">Webhooks</a><a class="button secondary" href="@url/pages">Pages</a></div>
     <h3>Collections</h3>
     @if (Model.Resources?.Collections.Count is null or 0) { <p class="muted">No collections yet. Create one under Collections or push it with the editor Sync Tool.</p> }
     else { <ul class="rows">@foreach (var collection in Model.Resources.Collections) { <li><span class="row-label"><a href="@url/data/@Uri.EscapeDataString(collection.Id)">@collection.Name</a>@if (!string.IsNullOrEmpty(collection.Description)) { <span class="row-sub">@collection.Description</span> }</span><span class="row-value"><span class="muted">@collection.CollectionType</span><code>@collection.Id</code></span></li> }</ul> }

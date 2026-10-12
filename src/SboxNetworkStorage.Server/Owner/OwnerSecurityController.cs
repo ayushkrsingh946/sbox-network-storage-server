@@ -17,6 +17,8 @@ public sealed class OwnerSecurityController(OwnerAccountService accounts) : Cont
     [HttpGet("/dashboard/security")]
     public async Task<IActionResult> Index(CancellationToken ct)
     {
+        if (HttpContext.Items.ContainsKey(Demo.DemoReadOnlyMiddleware.ContextKey))
+            return View("~/Views/Owner/Security.cshtml", new OwnerSecurityModel(true));
         var owner = await accounts.GetAsync(ct);
         if (owner is null) return Unauthorized();
         if (owner.TotpSecret is not null) return View("~/Views/Owner/Security.cshtml", new OwnerSecurityModel(true));

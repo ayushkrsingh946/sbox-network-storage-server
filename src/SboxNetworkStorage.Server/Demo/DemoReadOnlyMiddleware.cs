@@ -16,7 +16,11 @@ public sealed class DemoReadOnlyMiddleware(RequestDelegate next, EffectiveConfig
         var controller = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>()?.ControllerTypeInfo;
         var dashboard = path.StartsWithSegments("/dashboard") && (controller == typeof(OwnerDashboardController)
             || controller == typeof(OwnerDataController) || controller == typeof(OwnerResourcesController)
-            || controller == typeof(OwnerActivityController));
+            || controller == typeof(OwnerActivityController)
+            || controller == typeof(OwnerClientsController) || controller == typeof(OwnerVersionsController)
+            || controller == typeof(OwnerPagesController) || controller == typeof(OwnerTestsController)
+            || controller == typeof(OwnerRateLimitsController) || controller == typeof(OwnerWebhooksController)
+            || controller == typeof(OwnerSecurityController) || controller == typeof(OwnerServerController));
         var allowed = dashboard || path.StartsWithSegments("/owner-assets") || path == "/health" || path == "/v3/server-info";
         if ((HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method)) &&
             (path == "/" || path == "/login"))

@@ -124,6 +124,15 @@ folder. Discord URLs must use `https://`. The message is a single embed
 (title, description and fields; red for errors, yellow for warnings, blue
 for info, green for resolved).
 
+### Webhook target safety
+
+Console-saved Discord and generic webhook URLs must not point at this server
+itself: loopback, link-local (including the `169.254.169.254` cloud metadata
+address), unspecified addresses and `localhost` are refused at save time.
+RFC 1918 private addresses stay allowed for self-hosters whose alert
+receiver lives on their own network. Alert sends never follow HTTP
+redirects.
+
 ## SMTP setup
 
 Add an email channel in the console (host, port, STARTTLS, optional user
@@ -148,6 +157,52 @@ addresses. Mail is plain text with a one-line subject (for errors
 `[sbox-ns] <Classification> <Method> <Path> (<CorrelationId>)`, for rules
 `[sbox-ns] FIRING <rule>` or `[sbox-ns] RESOLVED <rule>`) and a field-list
 body; delivery uses a 10-second timeout and STARTTLS when TLS is on.
+
+## Providers (optional, one-click)
+
+Providers are optional adapters behind the same channels above. The server is
+fully self-contained: plain SMTP and webhooks need no outside account, and a
+provider never runs until you set it up in **Alerts → Providers**. Setup
+first shows exactly what will be created on the provider; confirming checks
+the credentials, creates it, and adds a provider channel, so the severity
+and project filters, the test button and the shared limits apply unchanged.
+Tear down deletes only the resources the setup recorded, and misses count as
+already removed. The UI labels each provider **First party** (sboxns.com) or
+**Third party** (everyone else). Provider tokens live owner-only in
+`<data>/state/secrets/monitoring/provider-<id>.json` and are never shown
+back: the preview asks for the token again on confirm.
+
+### Cloudflare Email (third party)
+
+Outbound alerts through Cloudflare Email Sending, with optional forwarding
+through Email Routing. Create an API token with least-privilege scopes, all
+on the zone:
+
+- **Email Sending, Edit** (required: check the token, manage the sending
+  subdomain, send).
+- **Email Routing Rules, Edit** (only when forwarding to an operator address
+  is turned on).
+
+Setup creates the Email Sending subdomain and, when asked, the routing
+destination address and rule; it only reads the subdomain's DNS records back
+so you can add them at your DNS yourself. Alerts go to the forwarding
+address, or to the sender address when forwarding is off. Only these
+`https://api.cloudflare.com/client/v4` paths are called: `GET`
+`/user/tokens/verify`, `POST /zones/{zone_id}/email/sending/subdomains`,
+`GET` the subdomain's `/dns` and `/dns/status`, `POST`
+`/accounts/{account_id}/email/sending/send`, plus the routing
+`/addresses` and `/rules` paths when forwarding, deleted by teardown.
+
+### sboxns.com email (first party)
+
+Sends as your sboxns.com name and forwards replies to you, using the
+existing tunnel or DNS identity. It stays hidden until the server has one
+(`tunnel enable` or `dns enable`). This repo holds only the client side of
+the proposed, versioned `sboxns.email/v1` contract (`GET v1/status`, `POST`
+`v1/forwarding`, `POST v1/send`, `DELETE v1/forwarding/{id}`); the
+service-side endpoint, quotas and pricing are out of scope and are not
+claimed to exist. Until it does, every operation reports "service not
+available" and everything else keeps working.
 
 ## Webhooks
 

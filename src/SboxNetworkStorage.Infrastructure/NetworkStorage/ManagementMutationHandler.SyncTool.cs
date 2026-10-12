@@ -14,10 +14,15 @@ public sealed partial class ManagementMutationHandler
     private static readonly string[] SourceAuthoringFields =
         ["authoringMode", "sourceFormat", "sourcePath", "sourceText", "sourceVersion"];
 
-    /// <summary>Single upsert path for endpoints, collections and workflows; endpoint and workflow saves also snapshot a version.</summary>
-    private async Task UpsertDefinitionAsync(long ownerUserId, string projectId, string kind, string id, string name,
+    /// <summary>
+    /// Single upsert path for endpoints, collections and workflows; endpoint and workflow saves also snapshot a version.
+    /// Returns false when the live definition is module-owned and was kept untouched (see <see cref="ModuleOwnership"/>).
+    /// </summary>
+    private async Task<bool> UpsertDefinitionAsync(long ownerUserId, string projectId, string kind, string id, string name,
         JsonElement definition, long version, string versionSource, CancellationToken ct)
     {
+        if (await IsModuleOwnedAsync(ownerUserId, projectId, kind, id, name, ct))
+            return false;
         switch (kind)
         {
             case "endpoint":
@@ -29,7 +34,7 @@ public sealed partial class ManagementMutationHandler
             case "collection":
                 await _store.UpsertCollectionAsync(projectId, id, name,
                     GetOptionalString(definition, "visibility") ?? "private", definition, version, ct);
-                return;
+                return true;
             case "workflow":
                 await _store.UpsertWorkflowAsync(projectId, id, name, definition, GetOptionalString(definition, "versionHash"), version, ct);
                 break;
@@ -37,8 +42,53 @@ public sealed partial class ManagementMutationHandler
                 throw new ArgumentException($"Unknown resource kind '{kind}'.");
         }
         await RecordVersionAsync(ownerUserId, projectId, kind, id, definition, versionSource, version, ct);
+        return true;
     }
 
+    /// <summary>
+    /// True when a live definition with this id or display name is owned by an
+    /// installed module. Module-owned definitions are only changed by the module
+    /// lifecycle; every other write keeps them untouched. Fail-closed: when
+    /// module state cannot be read, every definition is treated as owned.
+    /// </summary>
+    private async Task<bool> IsModuleOwnedAsync(long? ownerUserId, string projectId, string kind, string id, string? name, CancellationToken ct)
+    {
+        if (ownerUserId is null) return false;
+        try
+        {
+            var states = new Modules.ModuleStateStore(_workspaceClient);
+            var state = await states.LoadAsync(ownerUserId.Value, projectId, ct);
+            if (!Modules.ModuleStateStore.OwnedNames(state).TryGetValue(kind, out var owned) || owned.Count == 0)
+                return false;
+            return owned.Contains(id) || (name is not null && owned.Contains(name));
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Live definition names owned by installed modules, for bulk-write
+    /// preservation. Fail-closed: a state read failure throws, so the request
+    /// fails loudly instead of silently overwriting module-owned definitions.
+    /// </summary>
+    private async Task<HashSet<string>> ModuleOwnedNamesAsync(long? ownerUserId, string projectId, string kind, CancellationToken ct)
+    {
+        if (ownerUserId is null) return [];
+        var states = new Modules.ModuleStateStore(_workspaceClient);
+        var state = await states.LoadAsync(ownerUserId.Value, projectId, ct);
+        return Modules.ModuleStateStore.OwnedNames(state).TryGetValue(kind, out var owned) && owned.Count > 0
+            ? new HashSet<string>(owned, StringComparer.Ordinal) : [];
+    }
+
+    /// <summary>Refuses to delete a module-owned definition (only the module lifecycle removes those).</summary>
+    private static NetworkStorageResult? ModuleDeleteRefusal(string kind, string resourceId, HashSet<string> owned)
+        => owned.Contains(resourceId)
+            ? NetworkStorageResult.Error(403, "MODULE_MANAGED",
+                new { ok = false, resourceKind = kind, resourceId, error = "MODULE_MANAGED", message = "This definition is managed by an installed module. Uninstall the module to remove it." },
+                authDecision: "allowed")
+            : null;
     private Task RecordVersionAsync(long ownerUserId, string projectId, string kind, string id, JsonElement definition,
         string source, long version, CancellationToken ct)
         => ManagementProjectObjects.RecordVersionAsync(_store, ownerUserId, projectId, kind, id, definition, source, version, ct);
@@ -85,7 +135,10 @@ public sealed partial class ManagementMutationHandler
             if (!StorageIdValidation.IsValidCollectionId(id))
                 return PatchFailure(kind, id, ManagementMutationConstants.ValidationFailedCode,
                     "Resource ids may contain only letters, numbers, underscores or hyphens (maximum 128 characters).");
-
+            if (existing is { } owned && Modules.ModuleOwnership.IsOwned(owned.Definition))
+                return ReportPublishTarget(
+                    ProductionOkResult(new { ok = true, source = "candidate", resourceKind = kind, resourceId = kind == "workflow" ? id : GetOptionalString(owned.Definition, kind == "endpoint" ? "slug" : "name") ?? id, id, action = "kept_module_owned", skipped = true }),
+                    publish);
             var merged = MergeDefinition(existing?.Definition, compiled, id);
             var name = kind == "endpoint" ? GetOptionalString(merged, "slug") ?? id : GetOptionalString(merged, "name") ?? id;
             var resourceId = kind == "workflow" ? id : name;

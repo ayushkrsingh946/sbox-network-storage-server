@@ -61,7 +61,8 @@ public sealed partial class EndpointExecutor
         bool liveServe = false,
         string? playerKeyMode = null,
         bool enforcePublicAccessGates = false,
-        EndpointDryRunTrace? trace = null)
+        EndpointDryRunTrace? trace = null,
+        Func<string, bool>? isModuleDisabled = null)
     {
         // 1. Load endpoint definition from the store.
         Dictionary<string, object?>? endpointDef;
@@ -89,10 +90,9 @@ public sealed partial class EndpointExecutor
         // internal and disabled endpoints, and must not be gated.
         if (enforcePublicAccessGates)
         {
-            var denial = CheckPublicAccess(endpointDef, endpointSlug, hasSecretKey);
+            var denial = EvaluatePublicGates(endpointDef, endpointSlug, hasSecretKey, isModuleDisabled);
             if (denial is not null) return denial;
         }
-
         // Live cutover serving has no legacy server in the loop. Record writes/deletes the
         // endpoint queues are flushed durably below, so they are safe to serve. The
         // only operation we cannot fulfill without help is a Discord webhook: if the
@@ -647,12 +647,46 @@ public sealed partial class EndpointExecutor
         _ => false,
     };
 
+    /// <summary>
+    /// The module that owns an endpoint definition, when the <c>module</c> field
+    /// names one. Stored definitions may carry it as a string or a JSON string.
+    /// </summary>
+    private static string? ModuleOwner(Dictionary<string, object?> endpointDef)
+        => endpointDef.GetValueOrDefault("module") switch
+        {
+            string module when module.Length > 0 => module,
+            System.Text.Json.JsonElement element when element.ValueKind == System.Text.Json.JsonValueKind.String
+                && element.GetString() is { Length: > 0 } text => text,
+            _ => null,
+        };
+
     private static EndpointExecutionResult Denied(int status, string code, string message) =>
         new(false, status, new Dictionary<string, object?>
         {
             ["ok"] = false,
             ["error"] = new Dictionary<string, object?> { ["code"] = code, ["message"] = message },
         });
+
+    /// <summary>
+    /// Public-HTTP access gates over an endpoint definition: enabled,
+    /// deprecated, internal exposure, secret-key requirement and module
+    /// disablement. The handler evaluates this against the LIVE definition so
+    /// stale pinned snapshots cannot bypass a disable; the executor applies
+    /// the same check on the definition it actually runs.
+    /// </summary>
+    public static EndpointExecutionResult? EvaluatePublicGates(
+        Dictionary<string, object?> endpointDef, string endpointSlug, bool hasSecretKey,
+        Func<string, bool>? isModuleDisabled = null)
+    {
+        var denial = CheckPublicAccess(endpointDef, endpointSlug, hasSecretKey);
+        if (denial is not null) return denial;
+        // A disabled module stops its endpoints with ENDPOINT_DISABLED. Data and
+        // settings are kept; re-enabling restores them.
+        if (isModuleDisabled is not null
+            && ModuleOwner(endpointDef) is { } ownedModule && isModuleDisabled(ownedModule))
+            return Denied(403, "ENDPOINT_DISABLED", $"Endpoint \"{endpointSlug}\" is disabled.");
+        return null;
+    }
 
     private static double ToDouble(object? v)
     {

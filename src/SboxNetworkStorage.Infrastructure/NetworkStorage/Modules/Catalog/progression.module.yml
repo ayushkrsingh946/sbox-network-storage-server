@@ -1,0 +1,9 @@
+id: progression
+version: 1.0.0
+minServerVersion: 0.6.0
+name: Progression starter kit
+description: XP and levels computed on the server from the xp_per_level game value. Granting 1200 XP at 500 per level returns level 3 (levels start at 1). Works in player-hosted projects with only a public key.
+permissions: []
+hooks: []
+panels: []
+settings: []

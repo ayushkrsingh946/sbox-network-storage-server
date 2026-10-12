@@ -1,0 +1,27 @@
+id: player-insights
+version: 1.0.0
+minServerVersion: 0.6.0
+name: Player insights
+description: 'Understand players from data the server already records: daily activity, sessions, return rates, per-player profiles and a batched action log with CSV export. Shows Not enough data yet instead of placeholder figures.'
+permissions:
+  - read-player-data
+  - read-analytics
+hooks:
+  - endpoint.executed
+panels:
+  - player-overview
+  - player-profile
+  - action-log
+settings:
+  - key: action_log_retention_days
+    type: integer
+    default: "14"
+    description: How long per-player action log entries are kept (1-90 days).
+  - key: capture_bodies
+    type: boolean
+    default: "false"
+    description: Store request bodies per endpoint when enabled below. Off by default.
+  - key: body_endpoints
+    type: string
+    default: ""
+    description: Comma-separated endpoint slugs whose request bodies are stored. Only used when capture_bodies is true.

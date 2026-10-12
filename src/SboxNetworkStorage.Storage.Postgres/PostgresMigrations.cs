@@ -21,7 +21,18 @@ public static class PostgresMigrations
         new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", SchemaChange.Additive, V3),
         new(4, "Request log records the caller's library version, client type and engine build", SchemaChange.Additive, V4),
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
+        new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
     ];
+
+    // Additive: three new tables plus two indexes. No existing table is touched, so the
+    // previous binary's statements keep working and older binaries ignore the new tables.
+    private static string V6(string p) => $"""
+        CREATE TABLE {p}integrity_flags (project_id {Key}, flag_id {Key}, created_at_unix_ms bigint NOT NULL, steam_id text NOT NULL, detector text NOT NULL, severity text NOT NULL, state text NOT NULL, note text, evidence_json text, PRIMARY KEY (project_id, flag_id));
+        CREATE INDEX ix_integrity_flags_project_state ON {p}integrity_flags (project_id, state, created_at_unix_ms DESC);
+        CREATE TABLE {p}player_blocks (project_id {Key}, steam_id {Key}, scope text NOT NULL, reason text, created_at_unix_ms bigint NOT NULL, expires_at_unix_ms bigint, created_by text, PRIMARY KEY (project_id, steam_id));
+        CREATE TABLE {p}player_action_log (project_id {Key}, steam_id {Key}, created_at_unix_ms bigint NOT NULL, entry_id {Key}, endpoint_slug text, revision_id bigint, outcome text, changed_fields_json text, body_json text, PRIMARY KEY (project_id, steam_id, created_at_unix_ms, entry_id));
+        CREATE INDEX ix_player_action_log_project_time ON {p}player_action_log (project_id, created_at_unix_ms DESC);
+        """;
 
     // Additive: one new table plus five nullable error columns. The previous binary's named-column
     // INSERTs and SELECTs keep working; existing rows keep NULL, which the Errors tab shows as unknown.

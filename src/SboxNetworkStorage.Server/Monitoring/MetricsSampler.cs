@@ -176,6 +176,11 @@ public sealed class MetricsSampler(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (config.GetBoolean("adminpanel.demo_read_only"))
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+            return;
+        }
         await rules.AnnounceStartAsync(stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {

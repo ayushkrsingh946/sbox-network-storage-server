@@ -1,0 +1,13 @@
+id: economy
+version: 1.0.0
+minServerVersion: 0.6.0
+name: Economy starter kit
+description: Currency balance with server-side earn and spend. Amounts come from the client but every limit is checked on the server; spends fail closed on insufficient funds and every change is ledger-tracked. Works in player-hosted projects with only a public key.
+permissions: []
+hooks: []
+panels: []
+settings:
+  - key: starting_balance
+    type: integer
+    default: "0"
+    description: Gold a new balance starts with. Applied by the earn endpoint when no record exists yet.

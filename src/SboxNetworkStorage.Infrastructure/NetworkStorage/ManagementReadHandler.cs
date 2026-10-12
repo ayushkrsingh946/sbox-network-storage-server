@@ -376,6 +376,12 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["revisionForceEndpointUpgrade"] = project.RevisionForceEndpointUpgrade == true,
             ["revisionNotifyMessage"] = project.RevisionNotifyMessage ?? "",
             ["revisionShowDefaultMessage"] = project.RevisionShowDefaultMessage == true,
+            // Phase 4 (game-version-policy, 9.1): additive version rules.
+            // Null means unset (legacy default applies at evaluation time).
+            ["revisionMinimumRevisionId"] = (object?)project.RevisionMinimumRevisionId,
+            ["revisionInGraceAction"] = project.RevisionInGraceAction,
+            ["revisionServerEnforcementEnabled"] = project.RevisionServerEnforcementEnabled == true,
+            ["revisionRetentionCount"] = (object?)project.RevisionRetentionCount,
             ["revisionShowNewVersionBanner"] = project.RevisionShowNewVersionBanner != false,
             ["revisionShowUpdateOptions"] = project.RevisionShowUpdateOptions != false,
             ["revisionEscalateAfterMinutes"] = (object?)project.RevisionEscalateAfterMinutes,

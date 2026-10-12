@@ -13,7 +13,7 @@
     string ChannelNames(IReadOnlyList<string> ids) => ids.Count == 0
         ? "Every channel"
         : string.Join(", ", ids.Select(id => Model.Channels.FirstOrDefault(c => c.Id == id)?.Name ?? id));
-    string Kind(ChannelInfo c) => c.Kind switch { "smtp" => "Email", "discord" => "Discord", _ => "Webhook (" + c.Preset + ")" };
+    string Kind(ChannelInfo c) => c.Kind switch { "smtp" => "Email", "discord" => "Discord", "cloudflare" => "Cloudflare", "sboxns" => "sboxns.com", _ => "Webhook (" + c.Preset + ")" };
     string Scope(string? projectId) => projectId is null ? "All projects" : Model.Projects.FirstOrDefault(p => p.Id == projectId)?.Name ?? projectId;
     var editingRuleId = rule is not null && Model.Rules.Any(r => r.Id == rule.Id) ? rule.Id : null;
     var editingChannelId = channel is not null && Model.Channels.Any(c => c.Id == channel.Id) ? channel.Id : null;
@@ -123,9 +123,14 @@
                 <td>@if (c.Problem is not null) { <span class="badge server-firing">Incomplete</span> <span class="muted">@c.Problem</span> } else { <span class="badge @(c.Enabled ? "positive" : "")">@(c.Enabled ? "Enabled" : "Disabled")</span> }</td>
                 <td><div class="actions">
                     <form method="post" action="@url/channels/test">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@c.Id" /><button class="secondary" type="submit">Send test</button></form>
-                    @if (c.Source == "console")
+                    @if (c.Source == "console" && c.Kind is not "cloudflare" and not "sboxns")
                     {
                         <a class="button secondary" href="@(url)?channel=@Uri.EscapeDataString(c.Id)#channel-form">Edit</a>
+                        <form method="post" action="@url/channels/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@c.Id" /><button class="danger" type="submit" data-confirm-title="Delete channel" data-confirm="Delete the channel &quot;@c.Name&quot;? Rules that named it send to every channel instead.">Delete</button></form>
+                    }
+                    else if (c.Source == "console")
+                    {
+                        <span class="muted">Managed by its provider below.</span>
                         <form method="post" action="@url/channels/delete">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@c.Id" /><button class="danger" type="submit" data-confirm-title="Delete channel" data-confirm="Delete the channel &quot;@c.Name&quot;? Rules that named it send to every channel instead.">Delete</button></form>
                     }
                 </div></td>
@@ -134,6 +139,94 @@
         </tbody>
     </table></div>
     @if (Model.Channels.Count == 0) { <div class="empty-state"><h3>No channels yet</h3><p>Add an email, Discord or webhook channel below. Channels in <code>alerts.toml</code> also appear here.</p></div> }
+</section>
+
+<section class="card" id="providers" aria-labelledby="providers-title">
+    <div class="section-heading"><h2 id="providers-title">Providers <span class="badge">@(Model.Providers?.Count ?? 0)</span></h2></div>
+    <p class="muted">Optional one-click integrations on top of the channels above. Everything works without them; a provider never runs until you set it up. Secrets are stored owner-only in the server's secrets folder and never shown back.</p>
+    @if (Model.ProviderError is not null) { <p class="error" role="alert">@Model.ProviderError</p> }
+    @if (Model.ProviderNotice is not null) { <p class="notice" role="status">@Model.ProviderNotice</p> }
+    <div class="table-scroll"><table><caption class="sr-only">Optional alert providers</caption>
+        <thead><tr><th scope="col">Provider</th><th scope="col">Origin</th><th scope="col">Capabilities</th><th scope="col">Status</th><th scope="col">Created on the provider</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+        @foreach (var p in Model.Providers ?? [])
+        {
+            <tr>
+                <td>@p.DisplayName<br /><span class="muted">@p.Description</span></td>
+                <td><span class="badge">@p.OriginLabel</span></td>
+                <td>@p.Capabilities</td>
+                <td>
+                    @if (p.Configured)
+                    {
+                        <span class="badge positive">Set up</span>
+                        if (p.FromAddress is { Length: > 0 } from) { <span class="muted"> @from</span> }
+                        if (p.Detail is { Length: > 0 } detail) { <br /><span class="muted">@detail</span> }
+                        if (p.HasSecret) { <br /><span class="muted">Token saved.</span> }
+                    }
+                    else if (p.Available) { <span class="badge">Not set up</span> }
+                    else { <span class="badge">Unavailable</span> <br /><span class="muted">@p.UnavailableReason</span> }
+                </td>
+                <td>@if (p.Created.Count == 0) { <span class="muted">Nothing</span> } else { <ul>@foreach (var created in p.Created) { <li>@created</li> }</ul> }</td>
+                <td><div class="actions">
+                    @if (p.Configured)
+                    {
+                        <form method="post" action="@url/providers/verify">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@p.Id" /><button class="secondary" type="submit">Check status</button></form>
+                        <form method="post" action="@url/providers/teardown">@Html.AntiForgeryToken()<input type="hidden" name="id" value="@p.Id" /><button class="danger" type="submit" data-confirm-title="Remove provider" data-confirm="Remove @p.DisplayName? Only the resources listed under &quot;Created on the provider&quot; are deleted.">Tear down</button></form>
+                    }
+                    else if (p.Available)
+                    {
+                        <a class="button secondary" href="@url#provider-form">Set up</a>
+                    }
+                </div></td>
+            </tr>
+        }
+        </tbody>
+    </table></div>
+    @if (Model.PendingPlan is { } plan)
+    {
+        <div class="notice" role="status">
+            <h3>@plan.Title</h3>
+            <ul>@foreach (var resource in plan.Resources) { <li>@resource.Description</li> }</ul>
+            @if (plan.Note is { Length: > 0 } note) { <p class="muted">@note</p> }
+            <form method="post" action="@url/providers/apply" autocomplete="off">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="providerId" value="@Model.PendingProviderId" />
+                <input type="hidden" name="accountId" value="@Model.PendingInputs?.AccountId" />
+                <input type="hidden" name="zoneId" value="@Model.PendingInputs?.ZoneId" />
+                <input type="hidden" name="subdomain" value="@Model.PendingInputs?.Subdomain" />
+                <input type="hidden" name="fromAddress" value="@Model.PendingInputs?.FromAddress" />
+                <input type="hidden" name="forwardTo" value="@Model.PendingInputs?.ForwardTo" />
+                <label>API token (enter again to confirm; it is never shown back) <input name="token" type="password" maxlength="1024" required autocomplete="off" /></label>
+                <div class="actions"><button type="submit">Confirm and create</button></div>
+            </form>
+        </div>
+    }
+</section>
+
+<section class="card" id="provider-form" aria-labelledby="provider-form-title">
+    <h2 id="provider-form-title">Set up a provider</h2>
+    <form method="post" action="@url/providers/plan" autocomplete="off">
+        @Html.AntiForgeryToken()
+        <div class="form-grid">
+            <label>Provider <select name="providerId" required>
+                @foreach (var p in Model.Providers ?? [])
+                {
+                    <option value="@p.Id" selected="@(Model.PendingProviderId == p.Id)" disabled="@(!p.Available)">@p.DisplayName (@p.OriginLabel.ToLowerInvariant())@(p.Available ? "" : " — " + p.UnavailableReason)</option>
+                }
+            </select></label>
+            <label>API token <input name="token" type="password" maxlength="1024" placeholder="Saved tokens are never shown again" autocomplete="off" /></label>
+            <label>Account ID (Cloudflare) <input name="accountId" value="@Model.PendingInputs?.AccountId" maxlength="64" placeholder="Cloudflare account ID" /></label>
+            <label>Zone ID (Cloudflare) <input name="zoneId" value="@Model.PendingInputs?.ZoneId" maxlength="64" placeholder="Cloudflare zone ID" /></label>
+            <label>Subdomain <input name="subdomain" value="@Model.PendingInputs?.Subdomain" maxlength="63" placeholder="mail" /></label>
+            <label>Sender address (Cloudflare) <input name="fromAddress" value="@Model.PendingInputs?.FromAddress" maxlength="256" placeholder="alerts@mail.example.com" /></label>
+            <label>Forward to <input name="forwardTo" value="@Model.PendingInputs?.ForwardTo" maxlength="256" placeholder="ops@example.com (optional for Cloudflare, required for sboxns.com)" /></label>
+        </div>
+        <p class="muted">Preview lists exactly what setup will create; confirming checks the credentials and creates it, then adds a provider channel so severity and project filters apply. The token is stored owner-only and never shown back: enter it again on the preview to confirm.</p>
+        <div class="actions">
+            <button type="submit" formaction="@url/providers/plan">Preview what will be created</button>
+            <button class="secondary" type="submit" formaction="@url/providers/apply">Confirm and create</button>
+        </div>
+    </form>
 </section>
 
 <section class="card" id="channel-form" aria-labelledby="channel-form-title">

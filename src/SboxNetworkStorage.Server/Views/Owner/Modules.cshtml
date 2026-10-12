@@ -1,0 +1,69 @@
+@model SboxNetworkStorage.Server.Owner.OwnerModulesModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Modules</h1><p>Installable starter kits and server modules for @Model.ProjectName. Nothing is installed until you install it; modules never download or run outside code.</p></div><a class="button secondary" href="@url">Project overview</a></div>
+@if (Model.Modules.Any(card => card.Installed?.Id == "integrity" && card.Installed.Enabled)) { <div class="actions resource-links"><a class="button secondary" href="@url/modules/integrity/review">Integrity review queue</a></div> }
+@if (Model.Modules.Any(card => card.Installed?.Id == "player-insights" && card.Installed.Enabled)) { <div class="actions resource-links"><a class="button secondary" href="@url/modules/insights">Player insights</a> <a class="button secondary" href="@url/modules/insights/log">Action log</a></div> }
+<div class="cards">
+@foreach (var card in Model.Modules)
+{
+    <article class="card">
+        <h2>@card.Catalog.Name <span class="muted">v@(card.Catalog.Version)</span></h2>
+        <p>@card.Catalog.Description</p>
+        @if (!card.Catalog.Available) { <p class="notice error">Unavailable: @card.Catalog.UnavailableReason</p> }
+        else if (card.Catalog.Permissions.Count > 0) { <p class="muted">Permissions: @string.Join(", ", card.Catalog.Permissions)</p> }
+        @if (card.Installed is { } installed)
+        {
+            <p><span class="badge @(installed.Enabled ? "positive" : "")">@(installed.Enabled ? "Enabled" : "Disabled")</span> <span class="muted">Installed v@(installed.Version)</span></p>
+            @if (card.PendingUpgrade is { } pending) { <p class="notice">Version @pending.Version needs new permissions (@string.Join(", ", pending.Permissions)). The installed version keeps running until you approve.</p> }
+            <div class="actions">
+                <a class="button secondary" href="@url/modules/@card.Catalog.Id">Details</a>
+                @if (installed.Enabled)
+                {
+                    <form method="post" action="@url/modules/@card.Catalog.Id/disable">@Html.AntiForgeryToken()<button type="submit">Disable</button></form>
+                }
+                else
+                {
+                    <form method="post" action="@url/modules/@card.Catalog.Id/enable">@Html.AntiForgeryToken()<button type="submit">Enable</button></form>
+                }
+                @if (card.PendingUpgrade is not null)
+                {
+                    <form method="post" action="@url/modules/@card.Catalog.Id/approve-upgrade">@Html.AntiForgeryToken()<button type="submit">Approve upgrade</button></form>
+                }
+                <a class="button secondary" href="@url/modules?dialog=uninstall-@card.Catalog.Id">Uninstall</a>
+            </div>
+            @if (Model.OpenDialog == "uninstall-" + card.Catalog.Id)
+            {
+                <form method="post" action="@url/modules/@card.Catalog.Id/uninstall">
+                    @Html.AntiForgeryToken()
+                    <p>Type <code>@card.Catalog.Id</code> to confirm uninstall.</p>
+                    <label>Module id <input type="text" name="typedName" required autocomplete="off" /></label>
+                    <label><input type="checkbox" name="keepData" value="true" checked /> Keep data (collections stay as ordinary project collections)</label>
+                    <div class="actions"><button class="danger" type="submit">Uninstall</button><a class="button secondary" href="@url/modules">Cancel</a></div>
+                </form>
+            }
+            @if (card.Catalog.Settings.Count > 0)
+            {
+                <details><summary>Settings</summary>
+                <form method="post" action="@url/modules/@card.Catalog.Id/settings">
+                    @Html.AntiForgeryToken()
+                    @foreach (var setting in card.Catalog.Settings)
+                    {
+                        <label>@setting.Key <span class="muted">@setting.Description</span><input type="text" name="setting.@setting.Key" value="@(installed.Settings.TryGetValue(setting.Key, out var current) ? current : setting.Default)" /></label>
+                    }
+                    <div class="actions"><button type="submit">Save settings</button></div>
+                </form>
+                </details>
+            }
+        }
+        else if (card.Catalog.Available)
+        {
+            <div class="actions"><a class="button" href="@url/modules/@card.Catalog.Id">Preview &amp; install</a></div>
+        }
+    </article>
+}
+</div>

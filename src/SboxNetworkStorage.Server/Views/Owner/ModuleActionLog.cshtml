@@ -1,0 +1,41 @@
+@model SboxNetworkStorage.Server.Owner.OwnerActionLogModel
+@using SboxNetworkStorage.Server.Owner
+@using System.Text.Json
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    string Text(JsonElement row, string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+    string When(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+    long Number(JsonElement row, string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var n) ? n : 0;
+    string Revision(JsonElement row) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty("revision_id", out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture) : "—";
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Player action log</h1><p>Endpoint calls, newest first. Entries older than @Model.RetentionDays days are deleted by retention.@if (Model.Dropped > 0) { <span> @Model.Dropped entries were dropped under burst traffic; game requests were not affected.</span> }</p></div><a class="button secondary" href="@url/modules/insights">Insights</a></div>
+<section class="card">
+    <form method="get" action="@url/modules/insights/log" class="filters">
+        <label>Player <input type="text" name="steamId" value="@Model.SteamId" /></label>
+        <label>Endpoint <input type="text" name="endpoint" value="@Model.Endpoint" /></label>
+        <label>Outcome <input type="text" name="outcome" value="@Model.Outcome" /></label>
+        <div class="actions"><button type="submit">Filter</button><a class="button secondary" href="@url/modules/insights/log.csv?steamId=@Uri.EscapeDataString(Model.SteamId ?? "")&endpoint=@Uri.EscapeDataString(Model.Endpoint ?? "")&outcome=@Uri.EscapeDataString(Model.Outcome ?? "")">Export CSV</a></div>
+    </form>
+    @if (Model.Entries.Count == 0) { <p class="muted">No entries match.</p> }
+    else
+    {
+        <div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Time (UTC)</th><th>Player</th><th>Endpoint</th><th>Revision</th><th>Outcome</th><th>Changed fields</th></tr></thead>
+        <tbody>
+        @foreach (var entry in Model.Entries)
+        {
+            <tr>
+                <td>@When(Number(entry, "created_at_unix_ms"))</td>
+                <td><a href="@url/modules/insights/players/@Uri.EscapeDataString(Text(entry, "steam_id"))"><code>@Text(entry, "steam_id")</code></a></td>
+                <td><code>@Text(entry, "endpoint_slug")</code></td>
+                <td>@Revision(entry)</td>
+                <td><code>@Text(entry, "outcome")</code></td>
+                <td><code>@Text(entry, "changed_fields_json")</code></td>
+            </tr>
+        }
+        </tbody>
+        </table></div>
+    }
+</section>

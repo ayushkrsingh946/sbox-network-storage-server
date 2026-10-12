@@ -1,0 +1,36 @@
+id: integrity
+version: 1.0.0
+minServerVersion: 0.6.0
+name: Integrity monitoring
+description: "Server-side anticheat that watches data-plane traffic, flags suspicious behavior with evidence, and lets the owner review and block players. Detection only observes by default; blocking is always opt-in. Adds no more than 2 ms at p95."
+permissions:
+  - read-player-data
+  - read-analytics
+  - flag-players
+  - block-requests
+  - send-alerts
+hooks:
+  - endpoint.executed
+  - ledger.delta
+  - request.rejected
+  - revision.reported
+settings:
+  - key: value_delta_per_minute
+    type: integer
+    default: "5000"
+  - key: max_calls_per_minute
+    type: integer
+    default: "120"
+    description: Endpoint calls per player per minute above this raise a call-rate flag.
+  - key: watched_fields
+    type: string
+    default: gold,xp,score
+    description: Comma-separated numeric fields the value-delta detector watches.
+  - key: auto_action
+    type: string
+    default: flag-only
+    description: "What happens when a detector fires: flag-only, flag-and-alert, or flag-and-block-writes."
+  - key: block_duration_minutes
+    type: integer
+    default: "60"
+    description: How long flag-and-block-writes blocks a player from mutating requests.

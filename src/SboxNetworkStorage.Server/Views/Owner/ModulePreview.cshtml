@@ -1,0 +1,38 @@
+@model SboxNetworkStorage.Server.Owner.OwnerModulePreviewModel
+@using SboxNetworkStorage.Server.Owner
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>@Model.Preview.Module.Name <span class="muted">v@(Model.Preview.Module.Version)</span></h1><p>@Model.Preview.Module.Description</p></div><a class="button secondary" href="@url/modules">Modules</a></div>
+@if (Model.Error is not null) { <div class="notice error" role="alert">@Model.Error</div> }
+<section class="card">
+    <h2>Install preview</h2>
+    @if (Model.Preview.Module.Permissions.Count > 0) { <p><strong>Permissions requested:</strong> @string.Join(", ", Model.Preview.Module.Permissions)</p> }
+    else { <p class="muted">This module requests no permissions.</p> }
+    <h3>Definitions (@Model.Preview.Definitions.Count)</h3>
+    @if (Model.Preview.Definitions.Count == 0) { <p class="muted">This module adds behavior and panels, not definitions.</p> }
+    else
+    {
+        <ul class="rows">
+        @foreach (var definition in Model.Preview.Definitions) { <li><span class="row-label">@definition.Kind</span><span class="row-value"><code>@definition.Name</code></span></li> }
+        </ul>
+    }
+    @if (Model.Preview.Conflicts.Count > 0)
+    {
+        <div class="notice error" role="alert"><strong>Conflicts — install is disabled until these are resolved:</strong>
+        <ul>@foreach (var conflict in Model.Preview.Conflicts) { <li><code>@conflict.Name</code> (@conflict.Kind): @conflict.Reason</li> }</ul></div>
+    }
+    else
+    {
+        <form method="post" action="@url/modules/@Model.Preview.Module.Id/install">
+            @Html.AntiForgeryToken()
+            @foreach (var setting in Model.Preview.Module.Settings)
+            {
+                <label>@setting.Key <span class="muted">@setting.Description</span><input type="text" name="setting.@setting.Key" value="@setting.Default" /></label>
+            }
+            <div class="actions"><button type="submit">Install @Model.Preview.Module.Name</button><a class="button secondary" href="@url/modules">Cancel</a></div>
+        </form>
+    }
+</section>

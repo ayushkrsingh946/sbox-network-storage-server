@@ -20,7 +20,18 @@ public static class SqliteMigrations
         new(3, "Endpoint slug and API key identifier indexes; request log and error surrogate ids", SchemaChange.Additive, V3),
         new(4, "Request log records the caller's library version, client type and engine build", SchemaChange.Additive, V4),
         new(5, "Daily client-version aggregates; errors record the caller's library identity", SchemaChange.Additive, V5),
+        new(6, "Integrity flags, player blocks and player action log for the integrity and insights modules", SchemaChange.Additive, V6),
     ];
+
+    // Additive: three new tables plus two indexes. No existing table is touched, so the
+    // previous binary's statements keep working and older binaries ignore the new tables.
+    private static string V6(string p) => $"""
+        CREATE TABLE {p}integrity_flags (project_id TEXT NOT NULL, flag_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, steam_id TEXT NOT NULL, detector TEXT NOT NULL, severity TEXT NOT NULL, state TEXT NOT NULL, note TEXT, evidence_json TEXT, PRIMARY KEY (project_id, flag_id)) STRICT, WITHOUT ROWID;
+        CREATE INDEX ix_integrity_flags_project_state ON {p}integrity_flags (project_id, state, created_at_unix_ms DESC);
+        CREATE TABLE {p}player_blocks (project_id TEXT NOT NULL, steam_id TEXT NOT NULL, scope TEXT NOT NULL, reason TEXT, created_at_unix_ms INTEGER NOT NULL, expires_at_unix_ms INTEGER, created_by TEXT, PRIMARY KEY (project_id, steam_id)) STRICT, WITHOUT ROWID;
+        CREATE TABLE {p}player_action_log (project_id TEXT NOT NULL, steam_id TEXT NOT NULL, created_at_unix_ms INTEGER NOT NULL, entry_id TEXT NOT NULL, endpoint_slug TEXT, revision_id INTEGER, outcome TEXT, changed_fields_json TEXT, body_json TEXT, PRIMARY KEY (project_id, steam_id, created_at_unix_ms DESC, entry_id)) STRICT, WITHOUT ROWID;
+        CREATE INDEX ix_player_action_log_project_time ON {p}player_action_log (project_id, created_at_unix_ms DESC);
+        """;
 
     // Additive: one new table plus five nullable error columns. The previous binary's named-column
     // INSERTs and SELECTs keep working; existing rows keep NULL, which the Errors tab shows as unknown.

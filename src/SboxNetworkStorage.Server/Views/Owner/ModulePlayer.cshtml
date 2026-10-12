@@ -1,0 +1,34 @@
+@model SboxNetworkStorage.Server.Owner.OwnerPlayerModel
+@using SboxNetworkStorage.Server.Owner
+@using System.Text.Json
+@{
+    Layout = "~/Views/Owner/_Layout.cshtml";
+    var url = "/dashboard/projects/" + Uri.EscapeDataString(Model.ProjectId);
+    string Text(JsonElement row, string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+    string When(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+    long Number(JsonElement row, string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var n) ? n : 0;
+}
+<link rel="stylesheet" href="/owner-assets/m/manage.css" />
+<div class="page-heading"><div><h1>Player <code>@Model.SteamId</code></h1><p>Profile for @Model.ProjectName.</p></div><a class="button secondary" href="@url/modules/insights">Insights</a></div>
+<section class="card">
+    <h2>Sessions &amp; records</h2>
+    @if (Model.Profile.Profile is { } profile)
+    {
+        <ul class="rows">
+            <li><span class="row-label">Name</span><span class="row-value">@Text(profile, "player_name")</span></li>
+            <li><span class="row-label">Last seen</span><span class="row-value">@When(Number(profile, "last_seen_unix_ms"))</span></li>
+            <li><span class="row-label">Sessions</span><span class="row-value">@Number(profile, "session_count") (@Number(profile, "total_seconds")s total)</span></li>
+            <li><span class="row-label">Last endpoint</span><span class="row-value"><code>@Text(profile, "last_endpoint_slug")</code></span></li>
+        </ul>
+    }
+    else { <p class="muted">No analytics profile yet for this player.</p> }
+    @if (Model.Profile.LastRevisionId.HasValue) { <p>Last used revision: <code>@Model.Profile.LastRevisionId</code></p> }
+    <h3>Records (@Model.Profile.Records.Count collections)</h3>
+    @if (Model.Profile.Records.Count == 0) { <p class="muted">No records.</p> }
+    else { <ul class="rows">@foreach (var record in Model.Profile.Records) { <li><span class="row-label"><code>@record.Key</code></span><span class="row-value"><code>@record.Value.GetRawText()</code></span></li> }</ul> }
+    <h3>Integrity</h3>
+    @if (Model.Profile.Block is { } block) { <p class="notice">Blocked (@Text(block, "scope")): @Text(block, "reason")</p> }
+    else { <p class="muted">Not blocked.</p> }
+    <p>@Model.Profile.Flags.Count flags on record.</p>
+    <div class="actions"><a class="button secondary" href="@url/modules/insights/log?steamId=@Uri.EscapeDataString(Model.SteamId)">Action log</a></div>
+</section>

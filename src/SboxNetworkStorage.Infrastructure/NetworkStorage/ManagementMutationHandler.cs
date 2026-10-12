@@ -93,6 +93,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                 return ValidationFailedResult(kind, "Provide a valid resource id.");
             if (wrapperId is not null && wrapperId != id)
                 return ValidationFailedResult(kind, "Source id must match the resource wrapper id. Keep the existing id when editing.");
+            var displayName = kind == "endpoint" ? GetOptionalString(compiled, "slug") ?? id : GetOptionalString(compiled, "name") ?? id;
+            if (await IsModuleOwnedAsync(ownerUserId, projectId, kind, id, displayName, ct))
+                return ValidationFailedResult(kind, "This definition is managed by an installed module. Uninstall the module (keeping data) before editing it here.");
         }
         var section = kind switch { "game-values" => kind, "query" => "queries", _ => kind + "s" };
         var route = NetworkStorageRouteClassifier.Classify("POST", $"/v3/manage/{projectId}/{section}");
@@ -353,9 +356,41 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         }
 
         var version = NextVersion();
-        await _store.UpsertGameValuesAsync(projectId, doc.RootElement, versionHash: null, version, request.CancellationToken);
+        var payload = doc.RootElement;
+        var ownedItems = await ModuleOwnedValuesItemsAsync(request.ResolvedOwnerUserId, projectId, request.CancellationToken);
+        if (ownedItems.Count > 0)
+        {
+            var existing = await _store.ReadGameValuesAsync(projectId, request.CancellationToken);
+            payload = Modules.ModuleInstaller.MergeValuesPreservingOwned(UnwrapPayload(existing), payload, ownedItems);
+        }
+        await _store.UpsertGameValuesAsync(projectId, payload, versionHash: null, version, request.CancellationToken);
 
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "game-values", action = "upsert" });
+    }
+
+    /// <summary>
+    /// Game-values item ids owned by installed modules (kept across
+    /// full-document replaces). Fail-closed: a state read failure throws, so
+    /// the request fails loudly instead of dropping owned items.
+    /// </summary>
+    private async Task<HashSet<string>> ModuleOwnedValuesItemsAsync(long? ownerUserId, string projectId, CancellationToken ct)
+    {
+        if (ownerUserId is null) return [];
+        var states = new Modules.ModuleStateStore(_workspaceClient);
+        var state = await states.LoadAsync(ownerUserId.Value, projectId, ct);
+        return new HashSet<string>(state.Modules.SelectMany(module => module.ValuesItems), StringComparer.Ordinal);
+    }
+
+    private static JsonElement? UnwrapPayload(JsonElement? row)
+    {
+        if (row is not { ValueKind: JsonValueKind.Object }) return null;
+        if (!row.Value.TryGetProperty("payload_json", out var payload)) return row;
+        if (payload.ValueKind == JsonValueKind.String)
+        {
+            try { return JsonDocument.Parse(payload.GetString() ?? "null").RootElement; }
+            catch (JsonException) { return null; }
+        }
+        return payload;
     }
 
     private async Task<NetworkStorageResult> PutRateLimitRulesAsync(NetworkStorageRequest request, string projectId)
@@ -387,6 +422,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
         var publish = await ResolvePublishAsync(request, ownerUserId, projectId);
         var staged = new StagedRevisionWrites();
+        var ownedCollections = await ModuleOwnedNamesAsync(ownerUserId, projectId, "collection", request.CancellationToken);
         var result = await UpsertResourceArrayAsync(
             projectId,
             items,
@@ -398,7 +434,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                 AddStaged(staged, "collection", id, name, def);
                 return Task.CompletedTask;
             },
-            request.CancellationToken);
+            request.CancellationToken,
+            (id, name) => Task.FromResult(ownedCollections.Contains(id) || ownedCollections.Contains(name)));
         await StageAsync(ownerUserId, projectId, staged, request.CancellationToken);
         return ReportPublishTarget(result, publish);
     }
@@ -415,6 +452,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         var staged = new StagedRevisionWrites();
         var replaceAll = publish != PublishDecision.Staged && request.Query.GetValueOrDefault("replaceAll") == "true";
         var writtenIds = replaceAll ? new HashSet<string>(StringComparer.Ordinal) : null;
+        var ownedEndpoints = await ModuleOwnedNamesAsync(ownerUserId, projectId, "endpoint", request.CancellationToken);
         var result = await UpsertResourceArrayAsync(
             projectId,
             items,
@@ -438,7 +476,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                 await RecordVersionAsync(ownerUserId, projectId, "endpoint", id, def, "put", version, ct);
                 writtenIds?.Add(id);
             },
-            request.CancellationToken);
+            request.CancellationToken,
+            (id, name) => Task.FromResult(ownedEndpoints.Contains(id) || ownedEndpoints.Contains(name)));
         await StageAsync(ownerUserId, projectId, staged, request.CancellationToken);
         // sync.py requests a full replacement explicitly; normal editor pushes remain upserts.
         // Never delete old definitions after a partial failure, or for a staged push.
@@ -447,7 +486,11 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             foreach (var row in await _store.ListEndpointsAsync(projectId, request.CancellationToken))
             {
                 var id = GetOptionalString(row, "endpoint_id");
-                if (id is not null && !writtenIds.Contains(id))
+                // A full replacement never removes module-owned endpoints; they are
+                // kept even when the pushed package does not mention them.
+                if (id is not null && !writtenIds.Contains(id)
+                    && !ownedEndpoints.Contains(id)
+                    && !ownedEndpoints.Contains(GetOptionalString(row, "slug") ?? string.Empty))
                     await _store.DeleteEndpointAsync(projectId, id, request.CancellationToken);
             }
         }
@@ -461,7 +504,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         {
             return validationError;
         }
-
+        var ownedWorkflows = await ModuleOwnedNamesAsync(ownerUserId, projectId, "workflow", request.CancellationToken);
         return await UpsertResourceArrayAsync(
             projectId,
             items,
@@ -471,7 +514,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
                 await _store.UpsertWorkflowAsync(projectId, id, name, def, GetOptionalString(def, "versionHash"), version, ct);
                 await RecordVersionAsync(ownerUserId, projectId, "workflow", id, def, "put", version, ct);
             },
-            request.CancellationToken);
+            request.CancellationToken,
+            (id, name) => Task.FromResult(ownedWorkflows.Contains(id) || ownedWorkflows.Contains(name)));
     }
 
     private async Task<NetworkStorageResult> PutQueriesAsync(NetworkStorageRequest request, string projectId)
@@ -483,11 +527,14 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         }
 
         var version = NextVersion();
+        var ownedQueries = await ModuleOwnedNamesAsync(request.ResolvedOwnerUserId, projectId, "query", request.CancellationToken);
 
         foreach (var item in items)
         {
             var id = GetOptionalString(item, "id") ?? GetOptionalString(item, "name") ?? $"query-{Guid.NewGuid():N}";
             var name = GetOptionalString(item, "name") ?? id;
+            if (ownedQueries.Contains(id) || ownedQueries.Contains(name))
+                continue;
 
             try
             {
@@ -516,6 +563,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             return ValidationFailedResult("collection", "Missing route parameter 'collectionId'.");
         }
 
+        if (ModuleDeleteRefusal("collection", collectionId,
+                await ModuleOwnedNamesAsync(request.ResolvedOwnerUserId, projectId, "collection", request.CancellationToken)) is { } collectionRefusal)
+            return collectionRefusal;
         await _store.DeleteCollectionAsync(projectId, collectionId, request.CancellationToken);
 
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "collection", action = "delete", resourceId = collectionId });
@@ -527,7 +577,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         {
             return ValidationFailedResult("endpoint", "Missing route parameter 'endpointId'.");
         }
-
+        if (ModuleDeleteRefusal("endpoint", endpointId,
+                await ModuleOwnedNamesAsync(request.ResolvedOwnerUserId, projectId, "endpoint", request.CancellationToken)) is { } endpointRefusal)
+            return endpointRefusal;
         await _store.DeleteEndpointAsync(projectId, endpointId, request.CancellationToken);
 
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "endpoint", action = "delete", resourceId = endpointId });
@@ -539,7 +591,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         {
             return ValidationFailedResult("workflow", "Missing route parameter 'workflowId'.");
         }
-
+        if (ModuleDeleteRefusal("workflow", workflowId,
+                await ModuleOwnedNamesAsync(request.ResolvedOwnerUserId, projectId, "workflow", request.CancellationToken)) is { } workflowRefusal)
+            return workflowRefusal;
         await _store.DeleteWorkflowAsync(projectId, workflowId, request.CancellationToken);
 
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "workflow", action = "delete", resourceId = workflowId });
@@ -551,7 +605,9 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         {
             return ValidationFailedResult("query", "Missing route parameter 'queryId'.");
         }
-
+        if (ModuleDeleteRefusal("query", queryId,
+                await ModuleOwnedNamesAsync(request.ResolvedOwnerUserId, projectId, "query", request.CancellationToken)) is { } queryRefusal)
+            return queryRefusal;
         await _store.DeleteQueryAsync(projectId, queryId, request.CancellationToken);
 
         return ProductionOkResult(new { ok = true, source = "candidate", resourceKind = "query", action = "delete", resourceId = queryId });
@@ -605,12 +661,14 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
             if (!TryGetSection(root, sectionName, out var sectionValue)) continue;
             var stageSection = publish == PublishDecision.Staged && resourceKind != "workflow";
             var section = await SyncSectionAsync(projectId, resourceKind, sectionValue, version,
-                (id, name, def, ct) =>
+                async (id, name, def, ct) =>
                 {
                     if (!stageSection)
-                        return UpsertDefinitionAsync(ownerUserId, projectId, resourceKind, id, name, def, version, versionSource, ct);
+                        return await UpsertDefinitionAsync(ownerUserId, projectId, resourceKind, id, name, def, version, versionSource, ct);
+                    if (await IsModuleOwnedAsync(ownerUserId, projectId, resourceKind, id, name, ct))
+                        return false;
                     AddStaged(staged, resourceKind, id, name, def);
-                    return Task.CompletedTask;
+                    return true;
                 },
                 request.CancellationToken);
             response[sectionName] = section.Body;
@@ -630,7 +688,7 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
     private async Task<(bool Ok, object Body)> SyncSectionAsync(
         string projectId, string resourceKind, JsonElement incoming, long version,
-        Func<string, string, JsonElement, CancellationToken, Task> upsertAsync,
+        Func<string, string, JsonElement, CancellationToken, Task<bool>> upsertAsync,
         CancellationToken ct)
     {
         if (incoming.ValueKind != JsonValueKind.Array)
@@ -679,8 +737,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             try
             {
-                await upsertAsync(id, displayName, definition, ct);
-                results.Add(new { ok = true, resourceKind, resourceId = id, action = "upsert" });
+                var written = await upsertAsync(id, displayName, definition, ct);
+                results.Add(new { ok = true, resourceKind, resourceId = id, action = written ? "upsert" : "kept_module_owned" });
             }
             catch (Exception ex)
             {
@@ -1006,7 +1064,8 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
         IReadOnlyList<JsonElement> items,
         string resourceKind,
         Func<string, string, string?, JsonElement, long, CancellationToken, Task> upsertAsync,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<string, string, Task<bool>>? isKeptAsync = null)
     {
         var results = new List<object>();
         var version = NextVersion();
@@ -1036,6 +1095,11 @@ public sealed partial class ManagementMutationHandler : INetworkStorageHandler
 
             try
             {
+                if (isKeptAsync is not null && await isKeptAsync(id, displayName))
+                {
+                    results.Add(new { ok = true, resourceKind, resourceId = id, action = "kept_module_owned" });
+                    continue;
+                }
                 await upsertAsync(id, displayName, null, item, version, ct);
                 results.Add(new { ok = true, resourceKind, resourceId = id, action = "upsert" });
             }

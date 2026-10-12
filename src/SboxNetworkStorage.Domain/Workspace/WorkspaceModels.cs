@@ -74,6 +74,22 @@ public sealed record WorkspaceProject(
     bool? RevisionShowPopupOnce = null,
     bool? RevisionTestOutdatedEditor = null,
     bool? RevisionTestOutdatedLive = null,
+    // Phase 4 (game-version-policy): additive version-rules fields. All null by
+    // default so untouched projects keep legacy behavior (no _revisionStatus,
+    // no enforcement, live definitions). Missing reads as unset (D9 migration
+    // is applied at evaluation time, never by rewriting stored projects).
+    // Minimum supported revision: clients below it are treated as past grace.
+    long? RevisionMinimumRevisionId = null,
+    // In-grace player action: "continue", "notify" or "rejoin". Null derives
+    // from the legacy RevisionEnforcementMode per D9 (allow_continue→notify,
+    // force_upgrade→rejoin).
+    string? RevisionInGraceAction = null,
+    // Server-side data-plane enforcement switch. Off (null/false) by default;
+    // the legacy RevisionEnforcementEnabled only gates client-library action
+    // delivery, never server blocking.
+    bool? RevisionServerEnforcementEnabled = null,
+    // Retained snapshots besides live: default 3, range 0-20.
+    int? RevisionRetentionCount = null,
     Dictionary<string, object>? Webhooks = null,
     string? DiscordWebhook = null,
     Dictionary<string, object>? Analytics = null,

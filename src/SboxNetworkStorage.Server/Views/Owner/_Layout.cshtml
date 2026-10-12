@@ -77,6 +77,7 @@
         ["usage"] = "<path d=\"M2.5 12.5a6 6 0 0 1 11 0M8 12.5 11 8\"/>",
         ["tests"] = "<path d=\"M4.5 2.5v11l9-5.5z\"/>",
         ["versions"] = "<circle cx=\"8\" cy=\"8\" r=\"5.5\"/><path d=\"M8 5v3l2 1.5\"/>",
+        ["clients"] = "<circle cx=\"6\" cy=\"5\" r=\"2.5\"/><path d=\"M1.5 14v-2.5a4.5 4.5 0 0 1 9 0V14M11 3.5a2.5 2.5 0 0 1 0 5M13 10a4 4 0 0 1 1.5 3.5\"/>",
         ["rate-limits"] = "<path d=\"M2.5 4h11M2.5 8h7M2.5 12h4\"/>",
         ["webhooks"] = "<path d=\"M14 2 7 9M14 2l-4.5 12-2.5-5-5-2.5z\"/>",
         ["pages"] = "<path d=\"M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 11h4.5\"/>",
@@ -85,6 +86,8 @@
     };
     string Icon(string name) => "<svg class=\"nav-icon\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">" + icons[name] + "</svg>";
     var demo = Context.Items.ContainsKey(SboxNetworkStorage.Server.Demo.DemoReadOnlyMiddleware.ContextKey);
+    const string discordUrl = "https://discord.gg/dWFJur4SZE";
+    const string discordIcon = "<svg class=\"discord-icon\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z\"/></svg>";
 }
 <!doctype html>
 <html lang="en">
@@ -97,6 +100,8 @@
     <script src="/owner-assets/toast.js" defer></script>
     <title>s&amp;box Network Storage · Owner console</title>
     <link rel="icon" type="image/svg+xml" href="/owner-assets/favicon.svg" />
+    <link rel="apple-touch-icon" href="/owner-assets/icon-512.png" />
+    <meta name="theme-color" content="#161e19" />
     <link rel="stylesheet" href="/owner-assets/management.css" />
     <link rel="stylesheet" href="/owner-assets/workbench.css" />
     <script src="/owner-assets/vendor/bootstrap.js" defer></script>
@@ -113,17 +118,18 @@
     </div>
 }
 <header class="topbar">
-    <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg></button><a href="/dashboard" class="brand" aria-label="s&amp;box Network Storage"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><path fill="currentColor" d="M6 42V6H34V22H58V30H34V34H58V58H26V50H50V42H26V14H14V42H6Z"/></svg></span><span aria-hidden="true">s&amp;box Network Storage</span></a></div>
-    <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="mint">Mint and orchid</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
+    <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" /></svg></button><a href="/dashboard" class="brand" aria-label="s&amp;box Network Storage"><img class="brand-logo" src="/owner-assets/favicon.svg" width="32" height="32" alt="" /><span class="brand-text" aria-hidden="true"><strong>s&amp;box</strong> Network Storage</span></a></div>
+    <nav class="topbar-links" aria-label="Community"><a class="discord-link" href="@discordUrl" target="_blank" rel="noopener noreferrer" aria-label="Join the sbox.cool Discord (opens in a new tab)" title="Join the sbox.cool + sboxns.com community on Discord">@Html.Raw(discordIcon)<span>Join Discord</span></a></nav>
+    <div class="header-meta"><label class="theme-picker" for="theme-choice">Theme <select id="theme-choice"><option value="system">System</option><option value="dark">Dark</option><option value="light">Light</option><option value="cooldark">Cool dark</option><option value="coollight">Cool light</option><option value="mint">Mint and orchid</option><option value="slate">Slate</option><option value="warm">Warm</option></select></label><span class="version">v@(BuildInfo.Version)</span>
     @if (authenticated && !demo) { <form method="post" action="/logout">@Html.AntiForgeryToken()<button class="secondary" type="submit">Log out</button></form> }</div>
 </header>
 <div class="shell @(authenticated ? "" : "auth-shell")">
 @if (authenticated)
 {
     <aside class="sidebar" id="owner-nav"><nav aria-label="Owner navigation"><p class="nav-label">Workspace</p><a href="/dashboard" aria-current="@(path == "/dashboard" ? "page" : null)">@Html.Raw(Icon("grid"))All projects</a>
-    @if (!demo) { <a href="/dashboard/security" aria-current="@(path == "/dashboard/security" ? "page" : null)">@Html.Raw(Icon("shield"))Admin security</a>
-        <a href="/dashboard/server" aria-current="@(path == "/dashboard/server" ? "page" : null)">@Html.Raw(Icon("server"))Server</a>
-        <a href="/dashboard/server/alerts" aria-current="@(path.StartsWith("/dashboard/server/alerts", StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon("alerts"))Alerts</a> }
+    <a href="/dashboard/security" aria-current="@(path == "/dashboard/security" ? "page" : null)">@Html.Raw(Icon("shield"))Admin security</a>
+    <a href="/dashboard/server" aria-current="@(path == "/dashboard/server" ? "page" : null)">@Html.Raw(Icon("server"))Server</a>
+    <a href="/dashboard/server/alerts" aria-current="@(path.StartsWith("/dashboard/server/alerts", StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon("alerts"))Alerts</a>
     @if (projectUrl is not null)
     {
         <p class="nav-label">Project</p><a href="@projectUrl" aria-current="@(path == projectUrl ? "page" : null)">@Html.Raw(Icon("home"))Overview &amp; settings</a>
@@ -134,7 +140,7 @@
             <a href="@projectUrl/resources/@kind" aria-current="@(path.Contains("/resources/" + kind, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(kind))@(kind switch { "game-values" => "Game values", "query" => "Queries", _ => char.ToUpperInvariant(kind[0]) + kind[1..] + "s" })</a>
         }
         <p class="nav-label">Manage</p>
-        @foreach (var (pg, label) in new[] { ("tests", "Endpoint tests"), ("versions", "Version history"), ("rate-limits", "Rate limit rules"), ("webhooks", "Webhooks"), ("pages", "Pages") })
+        @foreach (var (pg, label) in new[] { ("tests", "Endpoint tests"), ("versions", "Version history"), ("clients", "Client versions"), ("rate-limits", "Rate limit rules"), ("webhooks", "Webhooks"), ("pages", "Pages") })
         {
             <a href="@projectUrl/@(pg)" aria-current="@(path.EndsWith("/" + pg, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(pg))@label</a>
         }
@@ -144,7 +150,7 @@
             <a href="@projectUrl/activity/@tab" aria-current="@(path.EndsWith("/activity/" + tab, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(tab))@(char.ToUpperInvariant(tab[0]) + tab[1..])</a>
         }
     }
-    </nav><div class="sidebar-note">Local owner access<p>No hosted account or billing dependency.</p></div></aside>
+    </nav><div class="sidebar-note"><div class="sidebar-brand"><img src="/owner-assets/favicon.svg" width="24" height="24" alt="" /><span>Local owner access</span></div><p>No hosted account or billing dependency.</p><p class="sidebar-community">Part of the <a href="@discordUrl" target="_blank" rel="noopener noreferrer">sbox.cool + sboxns.com community</a>.</p></div></aside>
 }
 <main id="main-content" tabindex="-1">
     @{ var flashes = OwnerFlash.Take(TempData); }
@@ -156,10 +162,6 @@
             <div class="toast" data-kind="@flash.Kind" data-dismiss-after="6000"><output role="status">@flash.Text</output><button type="button" class="secondary" data-toast-close aria-label="Dismiss notification">Dismiss</button></div>
         }
         </div>
-    }
-    @if (demo)
-    {
-        <aside class="notice" role="status"><strong>Read-only demo</strong><p>Generated sample data stored in a real Network Storage database. No real players. Explore the editors; changes cannot be saved.</p></aside>
     }
     @if (OwnerTransport.IsInsecureRemote(Context))
     {
@@ -174,8 +176,12 @@
         }
         </ol></nav>
     }
+    else if (!authenticated)
+    {
+        <div class="auth-brand"><img src="/owner-assets/favicon.svg" width="64" height="64" alt="" /><div><p class="auth-brand-name"><strong>s&amp;box</strong> Network Storage</p><p class="auth-brand-tag">Self-hosted backend for s&amp;box games</p></div></div>
+    }
     @RenderBody()
-    <footer>Your server. Your data. <span>Network Storage · Single local owner</span></footer>
+    <footer><span>Your server. Your data.</span><nav class="footer-links" aria-label="Community and project links"><a href="@discordUrl" target="_blank" rel="noopener noreferrer">Discord</a><a href="https://sboxns.com" target="_blank" rel="noopener noreferrer">sboxns.com</a><a href="https://sbox.cool" target="_blank" rel="noopener noreferrer">sbox.cool</a><span>Network Storage · Single local owner</span></nav></footer>
 </main>
 </div>
 @if (demo) { <script src="/owner-assets/demo.js" defer></script> }

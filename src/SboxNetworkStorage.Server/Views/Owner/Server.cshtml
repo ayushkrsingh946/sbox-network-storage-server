@@ -41,6 +41,10 @@
 <link rel="stylesheet" href="/owner-assets/m/manage.css" />
 <link rel="stylesheet" href="/owner-assets/server.css" />
 <div class="page-heading"><div><h1>Server</h1><p>Live resource use of this sbox-ns process and its @(Model.Scope). Samples stay in memory: 15 minutes in full and 24 hours by minute.</p></div><a class="button secondary" href="/dashboard/server/alerts">Alerts (@Model.RuleCount active @(Model.RuleCount == 1 ? "rule" : "rules"))</a></div>
+@if (Context.Items.ContainsKey(SboxNetworkStorage.Server.Demo.DemoReadOnlyMiddleware.ContextKey))
+{
+    <p class="notice" role="status">Generated monitoring example. These values and paths do not describe the public demo host.</p>
+}
 <section class="card" aria-labelledby="server-process">
     <h2 id="server-process">Process</h2>
     <dl class="stat-strip cols-3 server-facts">
