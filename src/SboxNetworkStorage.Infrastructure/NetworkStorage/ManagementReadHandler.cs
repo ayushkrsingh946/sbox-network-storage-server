@@ -376,12 +376,6 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["revisionForceEndpointUpgrade"] = project.RevisionForceEndpointUpgrade == true,
             ["revisionNotifyMessage"] = project.RevisionNotifyMessage ?? "",
             ["revisionShowDefaultMessage"] = project.RevisionShowDefaultMessage == true,
-            // Phase 4 (game-version-policy, 9.1): additive version rules.
-            // Null means unset (legacy default applies at evaluation time).
-            ["revisionMinimumRevisionId"] = (object?)project.RevisionMinimumRevisionId,
-            ["revisionInGraceAction"] = project.RevisionInGraceAction,
-            ["revisionServerEnforcementEnabled"] = project.RevisionServerEnforcementEnabled == true,
-            ["revisionRetentionCount"] = (object?)project.RevisionRetentionCount,
             ["revisionShowNewVersionBanner"] = project.RevisionShowNewVersionBanner != false,
             ["revisionShowUpdateOptions"] = project.RevisionShowUpdateOptions != false,
             ["revisionEscalateAfterMinutes"] = (object?)project.RevisionEscalateAfterMinutes,
@@ -389,6 +383,12 @@ public sealed class ManagementReadHandler : INetworkStorageHandler
             ["revisionTestOutdatedEditor"] = project.RevisionTestOutdatedEditor == true,
             ["revisionTestOutdatedLive"] = project.RevisionTestOutdatedLive == true,
         };
+        // Version rules (game-version-policy) are additive: the keys appear only once an owner sets them, so a
+        // project that never used them returns exactly the body older libraries and the parity corpus expect.
+        if (project.RevisionMinimumRevisionId is { } minimumRevision) settings["revisionMinimumRevisionId"] = minimumRevision;
+        if (project.RevisionInGraceAction is { } inGraceAction) settings["revisionInGraceAction"] = inGraceAction;
+        if (project.RevisionServerEnforcementEnabled == true) settings["revisionServerEnforcementEnabled"] = true;
+        if (project.RevisionRetentionCount is { } retention) settings["revisionRetentionCount"] = retention;
 
         // legacy server structures for backward compatibility — settings and config carry the same data
         var enableAuthSessions = project.EnableAuthSessions == true;
