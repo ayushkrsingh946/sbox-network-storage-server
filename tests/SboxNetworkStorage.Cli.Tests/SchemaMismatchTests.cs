@@ -12,6 +12,10 @@ public sealed class SchemaMismatchTests : IDisposable
     private string ConfigDir => Path.Combine(_root, "config");
     private string DataDir => Path.Combine(_root, "data");
 
+    // `doctor` would otherwise query the live release feed, so a published security release fails it.
+    public SchemaMismatchTests()
+        => ConfigFiles.WriteAll(ConfigDir, new Dictionary<string, object> { ["updates.check"] = false });
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
