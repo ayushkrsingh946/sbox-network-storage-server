@@ -1,13 +1,19 @@
-/* Theme preference. "system" is the default: it resolves to "dark" (Demo green on a
-   neutral canvas) in a dark color scheme and to "light" (Demo green on light) in a
-   light one. The "mint" key renders as "Mint and orchid" and is kept stable
-   as an opt-in so stored preferences keep working across relabels. */
+/* Theme preference. "system" is the default: it resolves to "dark" (near-black)
+   in a dark color scheme and to "light" (white) in a light one. Retired hue
+   keys map forward so stored preferences survive: cooldark, slate, mint and
+   warm render as dark, coollight renders as light. High contrast is the only
+   extra theme ("contrast") because it does a different job. */
 "use strict";
 (function () {
-  var themes = ["system", "dark", "light", "mint", "slate", "warm"];
+  var themes = ["system", "dark", "light", "contrast"];
+  var legacy = { cooldark: "dark", coollight: "light", mint: "dark", slate: "dark", warm: "dark" };
   var preference = "system";
   var media = window.matchMedia("(prefers-color-scheme: light)");
-  try { var saved = localStorage.getItem("sbox-ns-theme"); if (themes.indexOf(saved) !== -1) preference = saved; } catch (_) {}
+  try {
+    var saved = localStorage.getItem("sbox-ns-theme");
+    if (themes.indexOf(saved) !== -1) preference = saved;
+    else if (legacy[saved]) preference = legacy[saved];
+  } catch (_) {}
   function apply() {
     document.documentElement.dataset.theme = preference === "system" ? (media.matches ? "light" : "dark") : preference;
   }
@@ -44,6 +50,19 @@
     });
   });
   document.addEventListener("DOMContentLoaded", function () {
+    var menu = document.getElementById("owner-menu");
+    if (menu) {
+      document.addEventListener("click", function (event) {
+        if (menu.hasAttribute("open") && !event.target.closest("#owner-menu")) menu.removeAttribute("open");
+      });
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && menu.hasAttribute("open")) {
+          menu.removeAttribute("open");
+          var summary = menu.querySelector("summary");
+          if (summary) summary.focus();
+        }
+      });
+    }
     var strip = document.querySelector(".alert-strip");
     if (!strip) return;
     var sessionHidden = {};
