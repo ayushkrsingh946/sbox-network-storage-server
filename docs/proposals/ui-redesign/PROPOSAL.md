@@ -24,7 +24,7 @@ A new design system for the console and sboxns.com, written up in [`DESIGN.md`](
 - **Themes:** System, Dark (near-black), Light (white) and High contrast. The five hue-variant themes are retired, and stored keys map forward.
 - **Surfaces:** content is outlined, controls are filled, and only overlays are raised. Sticky bars blur.
 - **Shape and icons:** a 4 to 18px radius scale plus pills; Heroicons solid.
-- **Contrast:** every text pair passes AA in every theme (table in `DESIGN.md`).
+- **Contrast:** primary and secondary text, accent and state colors pass AA in every theme; tertiary is limited to placeholders, separators and icons beside a label, at 3:1 or better (table in `DESIGN.md`).
 
 ### Themes
 
