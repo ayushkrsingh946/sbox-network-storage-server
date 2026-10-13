@@ -42,7 +42,7 @@ def sidebar(current, project=True):
     return "\n".join(out)
 
 
-def topbar(crumbs):
+def topbar(crumbs, menu_open=False):
     parts = []
     for n, c in enumerate(crumbs):
         if n:
@@ -51,7 +51,7 @@ def topbar(crumbs):
     return f'''<header class="topbar"><a class="brand" href="#"><img src="brand.svg" alt="">Network Storage</a>
 <nav class="crumbs" aria-label="Breadcrumb">{"".join(parts)}</nav><span class="spacer"></span>
 <div class="top-actions"><span class="kbd">{i("search")}Jump to<kbd>Ctrl K</kbd></span>
-<button class="icon-btn" title="Guides">{i("help")}</button><button class="icon-btn" title="Theme">{i("theme")}</button><span class="avatar-btn" title="Owner menu">OW</span></div></header>'''
+<button class="icon-btn" title="Guides">{i("help")}</button><span class="avatar-btn{" on" if menu_open else ""}" title="Owner menu">OW</span></div></header>'''
 
 
 def mobile_head(back, title, right=""):
@@ -64,10 +64,10 @@ def tabbar(on, workspace=False):
     return '<nav class="tabbar">' + "".join(f'<a class="{"on" if t == on else ""}" href="#">{i(ic)}{t}</a>' for t, ic in tabs) + "</nav>"
 
 
-def page(name, title, body, current, crumbs, project=True, extra="", mhead="", tab="Overview", theme="dark"):
+def page(name, title, body, current, crumbs, project=True, extra="", mhead="", tab="Overview", theme="dark", menu_open=False):
     html = f'''<!doctype html><html lang="en" data-theme="{theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title><link rel="stylesheet" href="console.css"></head><body>
-{topbar(crumbs)}
+{topbar(crumbs, menu_open)}
 <div class="app">{sidebar(current, project)}
 <main>{mhead}{body}</main></div>
 {tabbar(tab) if project else tabbar("Projects", workspace=True)}
@@ -191,7 +191,11 @@ def collection_body(selected=(), open_row=None, menu_row=None):
 mh_col = mobile_head("Data", "Player progress", f'<button class="icon-btn">{i("more")}</button><button class="icon-btn">{i("plus")}</button>')
 crumbs_col = ["Projects", "Island survival demo", "Data", "Player progress"]
 page("collection.html", "Player progress", collection_body(), "data", crumbs_col, mhead=mh_col, tab="Data")
-page("collection-light.html", "Player progress", collection_body(), "data", crumbs_col, mhead=mh_col, tab="Data", theme="light")
+owner_menu = f'''<div class="menu" style="top:44px; right:10px; width:264px"><div class="mh"><b>owner</b><span>Local owner · 2FA on</span></div>
+<div class="theme"><span>{i("computer")}System</span><span class="on">{i("theme")}Dark</span><span>{i("sun")}Light</span><span>{i("eye")}Contrast</span></div><hr>
+<a href="#">{i("shield")}Security</a><a href="#">{i("server")}Server</a><a href="#">{i("book")}Docs</a><a href="#">{i("discord")}Discord community</a><hr>
+<a href="#" class="danger">{i("logout")}Log out</a><div class="ver">v0.5.2 · Up to date</div></div>'''
+page("owner-menu.html", "Player progress", collection_body(), "data", crumbs_col, extra=owner_menu, mhead=mh_col, tab="Data", menu_open=True)
 page("collection-selected.html", "Player progress", collection_body(selected=(1, 2, 4)), "data", crumbs_col, mhead=mh_col, tab="Data")
 page("collection-menu.html", "Player progress", collection_body(open_row=1, menu_row=1), "data", crumbs_col, mhead=mh_col, tab="Data")
 
@@ -299,4 +303,12 @@ new_key = f'''<div class="scrim"></div><div class="modal" role="dialog"><div cla
 mh_keys = mobile_head("More", "API keys", f'<button class="icon-btn">{i("plus")}</button>')
 page("keys.html", "API keys", keys_body, "keys", ["Projects", "Island survival demo", "API keys"], mhead=mh_keys, tab="More")
 page("keys-new.html", "API keys", keys_body, "keys", ["Projects", "Island survival demo", "API keys"], extra=new_key, mhead=mh_keys, tab="More")
+# Theme variants: same markup, different data-theme.
+for base, themes in {"projects": ["light"], "project": ["light", "contrast"], "collection": ["light", "contrast"], "record": ["light"], "settings": ["light"], "keys-new": ["light"], "owner-menu": ["light"]}.items():
+    src = open(os.path.join(OUT, base + ".html")).read()
+    for t in themes:
+        out = src.replace('data-theme="dark"', f'data-theme="{t}"', 1)
+        if base == "owner-menu":
+            out = out.replace('<span class="on">' + i("theme") + 'Dark</span><span>' + i("sun") + 'Light</span>', '<span>' + i("theme") + 'Dark</span><span class="on">' + i("sun") + 'Light</span>')
+        open(os.path.join(OUT, f"{base}-{t}.html"), "w").write(out)
 print("ok")

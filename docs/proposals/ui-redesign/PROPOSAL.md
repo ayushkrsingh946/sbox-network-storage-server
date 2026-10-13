@@ -18,38 +18,30 @@ Measured on `main` (ee60d4f) in demo mode at 1440x900:
 
 ## Proposal
 
-Same accent, light theme and server-rendered Razor. What changes is the page structure, the control vocabulary, a darker default dark theme and solid icons.
+A new design system for the console and sboxns.com, written up in [`DESIGN.md`](DESIGN.md). It replaces `docs/ui-guidelines.md`.
 
-### Visual style
+- **Layout:** one intent per page, no inline forms, toolbar actions, copy chips, layered list, sheet, page and modal, iOS-style mobile.
+- **Themes:** System, Dark (near-black), Light (white) and High contrast. The five hue-variant themes are retired, and stored keys map forward.
+- **Surfaces:** content is outlined, controls are filled, and only overlays are raised. Sticky bars blur.
+- **Shape and icons:** a 4 to 18px radius scale plus pills; Heroicons solid.
+- **Contrast:** every text pair passes AA in every theme (table in `DESIGN.md`).
 
-- **Near-black, not gray.** The default dark theme moves to a near-black canvas. Panels, stat tiles and tables are outlined, not filled. Only overlays (modals, sheets, menus) get a raised surface.
-- **Solid icons.** Heroicons 20 solid (MIT) replace the 1.6px stroke icons, vendored as inline SVG the same way `_Layout.cshtml` ships icons today. No CDN.
+### Themes
 
-| Dark token | Today | Proposed |
+| Dark | Light | High contrast |
 | --- | --- | --- |
-| `--bg` | `#111217` | `#0a0b0d` |
-| `--card` | `#191c22` | `#0a0b0d` (outline only) |
-| `--elev` (new) | | `#111216` (modals, sheets, menus) |
-| `--surface-2` | `#22262f` | `#16171b` |
-| `--border` | `#343b48` | `#24262c` |
-| `--text` | `#e8edf3` | `#ececef` |
-| `--muted` | `#9aa5b5` | `#8f95a1` |
+| <img src="after/collection-desktop.png" width="290"> | <img src="after/collection-light-desktop.png" width="290"> | <img src="after/collection-contrast-desktop.png" width="290"> |
+| <img src="after/project-desktop.png" width="290"> | <img src="after/project-light-desktop.png" width="290"> | <img src="after/project-contrast-desktop.png" width="290"> |
 
-Contrast on the new background: text 16.70, muted 6.55, accent 7.76, danger 8.91, warning 10.61, info 10.76. All pass AA.
+The theme picker lives in the owner menu, with Security, Server, Docs, Discord and Log out.
 
-### Rules (added to `docs/ui-guidelines.md`)
-
-1. **One intent per page.** The first viewport shows that page's data. Everything else is one click away, not below it.
-2. **No inline forms.** Anything you type into opens in a modal (up to about 4 fields) or its own page (record JSON editor, revision policy, definition editors). Two exceptions, both non-mutating or instantly reversible: table search and filter fields, and boolean switches that apply immediately with an undo toast.
-3. **Actions are a toolbar.** One primary button, icon buttons with tooltips, a `...` overflow for the rest. Row actions live in a row `...` menu.
-4. **Copy chips** for every ID, key, URL and command. Click copies the full value; long values truncate in the middle.
-5. **Copy budget:** title plus one meta line. Explanations move to a help icon, a Guides page or docs links.
-6. **Layering:** list, then sheet (detail), then page (edit), then modal (confirm). Breadcrumbs live in the topbar.
-7. **Mobile:** bottom tab bar, large title, list rows instead of wide tables, modals become bottom sheets.
+| Owner menu, Dark | Owner menu, Light |
+| --- | --- |
+| <img src="after/owner-menu-desktop.png" width="440"> | <img src="after/owner-menu-light-desktop.png" width="440"> |
 
 ### Shell
 
-48px topbar with breadcrumbs, `Ctrl K` jump, guides, theme and an owner menu (Discord, security, logout move there). 220px sidebar with a project switcher and 30px rows with counts.
+48px blurred topbar with breadcrumbs, `Ctrl K` jump, guides and the owner menu. 220px sidebar with a project switcher and 30px rows with counts.
 
 ### Collection: data first
 
@@ -103,9 +95,15 @@ Clicking a row opens a side sheet with typed fields (Fields / JSON toggle), prev
 | --- | --- | --- | --- | --- |
 | <img src="after/projects-mobile.png" width="150"> | <img src="after/project-mobile.png" width="150"> | <img src="after/collection-mobile.png" width="150"> | <img src="after/record-mobile-mobile.png" width="150"> | <img src="after/keys-new-mobile.png" width="150"> |
 
-### Light theme
+| Light: Overview | Light: Collection | Light: New key |
+| --- | --- | --- |
+| <img src="after/project-light-mobile.png" width="150"> | <img src="after/collection-light-mobile.png" width="150"> | <img src="after/keys-new-light-mobile.png" width="150"> |
 
-<img src="after/collection-light-desktop.png" width="600">
+### Light theme, other screens
+
+| Record sheet | Settings | New key |
+| --- | --- | --- |
+| <img src="after/record-light-desktop.png" width="290"> | <img src="after/settings-light-desktop.png" width="290"> | <img src="after/keys-new-light-desktop.png" width="290"> |
 
 ### Where today's content goes
 
@@ -132,23 +130,16 @@ Clicking a row opens a side sheet with typed fields (Fields / JSON toggle), prev
 - Page size: `OwnerDataController.DefaultPageSize` is 50 today, but rows are about 107px, which is why only 4.5 show. At 38px, 1440x900 fits about 16 rows. The mockup shows 10 per page; I recommend 25 as the default with 10/25/50/100 remembered per collection.
 - Owner console only. Per `docs/compatibility.md` this needs no s&box editor run; the usual parity, SQLite/PostgreSQL and smoke evidence applies.
 
-### Guideline amendments needed
-
-- Toolbar icon buttons borderless. Today every button variant has a 2px border.
-- Switch tracks fully rounded, and bottom sheets with 12px top corners on mobile, as the only exceptions to the 4/6px radius scale.
-- Topbar 48px (from 56) holding the breadcrumbs.
-- Dark theme token values from the table above; re-measure the Contrast table.
-- Solid icon set replaces the stroke icons.
-
 ### Rollout
 
-1. Shell: topbar with crumbs and owner menu (fixes the Discord bug), sidebar switcher, mobile tab bar.
-2. Collection page: schema columns, compact rows, size meta, copy chips, row menu, record sheet.
-3. Selection, bulk export, bulk delete route.
-4. Project overview: stats, Connect, Health, Recent requests.
-5. Settings and API keys pages; remove inline forms from `Project.cshtml`.
-6. Projects page and Guides page.
-7. Apply the template to Build, Observe and Manage pages.
+1. Design system: replace the theme blocks with the `DESIGN.md` tokens and four themes (with stored-key migration), solid icons, new `docs/ui-guidelines.md`.
+2. Shell: topbar with crumbs and owner menu (fixes the Discord bug), sidebar switcher, mobile tab bar.
+3. Collection page: schema columns, compact rows, size meta, copy chips, row menu, record sheet.
+4. Selection, bulk export, bulk delete route.
+5. Project overview: stats, Connect, Health, Recent requests.
+6. Settings and API keys pages; remove inline forms from `Project.cshtml`.
+7. Projects page and Guides page.
+8. Apply the template to Build, Observe and Manage pages.
 
 ## Alternatives considered
 
@@ -160,4 +151,4 @@ Clicking a row opens a side sheet with typed fields (Fields / JSON toggle), prev
 
 None. Owner console only; no game-facing request or response changes.
 
-Mockups: `docs/proposals/ui-redesign/mockup/` (static HTML, open in a browser, resize below 760px for mobile). Mockup data is illustrative, modeled on the demo seed.
+Design rules: `docs/proposals/ui-redesign/DESIGN.md`. Mockups: `docs/proposals/ui-redesign/mockup/` (static HTML, open in a browser, resize below 760px for mobile). Mockup data is illustrative, modeled on the demo seed.
