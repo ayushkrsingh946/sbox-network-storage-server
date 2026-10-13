@@ -1,246 +1,188 @@
-# Dashboard UI guidelines
+# Owner console visual system
 
-Rules for the owner dashboard (`src/SboxNetworkStorage.Server/Views/Owner`,
-`wwwroot/`). They remove the patterns that make an interface read as
-generated ("AI slop") and keep the dashboard plain, dense and predictable.
+Authoritative spec for the shipped owner console (`src/SboxNetworkStorage.Server/Views/Owner`,
+`wwwroot/`). This document describes what is implemented, not a proposal. The
+design reference is `docs/proposals/ui-redesign/DESIGN.md`; the mockups under
+`docs/proposals/ui-redesign/mockup/` are reference only. The console and
+sboxns.com share one token system and the same lime brand.
 
-Sources: the [Gesso anti-slop rule catalog](https://github.com/Gesso-Build/skills/blob/main/skills/anti-slop/references/rules.md),
-[anti-slop-design](https://github.com/Ferousco-dev/anti-slop-design) visual and
-component patterns, and the sboxcool.com design guidelines. Rule ids in
-brackets match the Gesso catalog so findings can be cross-referenced.
+## Brand
 
-## Copy
+The brand is the approved 02 Sharp companion: an angular lime cube (lime
+`#70e000` with `#a3f55c`/`#c3ff8a` top and `#58b300`/`#469000` side shading),
+shallower top, original smug eyes, brows and mouth, face vertically centered.
+No blue anywhere. Canonical source:
+`sboxns.com/images/logo-compact.svg` (final centered transform
+`matrix(1 -.166667 0 1 0 0.778336)`).
 
-- No em dashes (`—`) or spaced en dashes in any visible string, including
-  tooltips, alt text and error messages [em-dash-copy]. Use a period, comma,
-  colon or parentheses. Ranges use a plain hyphen (`1-50`).
-- No eyebrows, kickers or "supertext": no small uppercase or accent-colored
-  label sitting above a heading [hero-kicker-eyebrow, row-kicker-eyebrow].
-  The heading carries the section. A page title may have one plain sentence
-  under it, nothing above it.
-- No uppercase body or label text [all-caps-body]. Table headers and form
-  labels are sentence case at normal letter spacing.
-- No emoji as icons [emoji-icon]. Use text, or nothing.
-- No filler or benefit-speak ("seamless", "powerful", "effortless") and no
-  "not X, but Y" cadence [benefit-speak, not-x-but-y-cadence]. Say what the
-  control does.
-- Error copy states what failed and what to do. No apologies
-  [apologetic-error-copy].
-- No invented numbers or placeholder data in shipped UI [fabricated-precision,
-  lorem-ipsum]. Empty states say what is empty and how to fill it.
+Shipped assets (`wwwroot/img`, served as embedded resources under
+`/owner-assets/`):
 
-## Shape and borders
+| File | Route | Use |
+| --- | --- | --- |
+| `sbox-network-storage-icon.svg` | `/owner-assets/icon.svg` | Static full-colour cube |
+| `sbox-network-storage-favicon.svg` | `/owner-assets/favicon.svg` | Adaptive favicon: full cube with face, simplified faceless cube at 24px and below |
+| `sbox-network-storage-icon-512.png` | `/owner-assets/icon-512.png` | 512px raster, also the `apple-touch-icon` |
 
-- No colored side rails and never a one-side accent border on a rounded box:
-  no `border-top`/`border-left`/`border-right`/`border-bottom` stripe of 2px
-  or more used as decoration on an element that also has `border-radius`
-  [edge-stripe]. Notices and alerts use a full 1px border in the state color,
-  or a tinted background, not a stripe. A selected row or the current nav
-  item may use a rail (state, not decoration).
-- One radius scale, used everywhere: `--radius-sm` (4px) for inputs, buttons,
-  chips, badges, icons and other small controls; `--radius` (6px) for cards,
-  notices, dialogs and toasts. No other radii, no pill badges, nothing larger
-  [over-rounded-card]. Hairline list rows and dividers inside a rounded panel
-  keep square corners.
-- No cards inside cards [nested-cards]. No card per table row
-  [row-as-card]. Lists separate rows with spacing or one hairline, never a
-  border on every side of every row [redundant-border].
-- No heavy or colored drop shadows, glows or neon [heavy-box-shadow,
-  dark-glow]. Elevation is a 1px border plus a slightly lighter surface. Any
-  shadow is tinted to the background hue, never pure black.
-
-## Color
-
-- One primary accent per theme (Demo green: `#10b981` on dark, `#15803d` on light),
-  used for primary actions, links, focus, code and the unboxed logo only. The
-  header brand mark is a fixed Demo green (`#10b981`) tile with a `#04120c` glyph
-  in every theme.
-- One restrained secondary token (`--accent-2`, muted purple) for small
-  wayfinding markers only: project avatars, the current section icon, pinned
-  project pins and the demo notice marker. No purple washes, gradients or
-  large fills [indigo-accent, purple-violet-wash].
-- State colors (success, warning, danger, info) only for state. Never decorative.
-  Every state is also conveyed in words, never by color alone.
-- No pure `#000` or `#fff` surfaces. Text contrast meets WCAG AA in every
-  theme, including muted text. Measured ratios are recorded under
-  [Contrast](#contrast) below.
-- No decorative status dots or fake visualizations [fake-dot-viz]. A status is
-  a word ("Healthy", "Disabled"), optionally colored.
-
-## Contrast
-
-Minimum is WCAG AA (4.5 for text). Accent pairs are checked both ways because
-the accent is used as link text on surfaces and as a button background.
-
-| Pair | Dark | Mint | Light | Slate | Warm |
-| --- | --- | --- | --- | --- | --- |
-| Text on background | 15.89 | 16.19 | 14.69 | 13.46 | 13.52 |
-| Muted text on background | 7.50 | 7.63 | 5.45 | 8.41 | 8.23 |
-| Muted text on card | 6.85 | 6.89 | 6.01 | 7.47 | 7.35 |
-| Accent link text on background | 7.37 (`#10b981`) | 9.60 (`#34d399`) | 4.55 (`#15803d`) | 9.01 (`#a7c5b5`) | 9.09 (`#b5c5a7`) |
-| Button text on accent background | 7.55 (`#04120c` on `#10b981`) | 9.96 (`#04120c` on `#34d399`) | 4.79 (`#f0fdf4` on `#15803d`) | 8.09 | 8.05 |
-| Success on background | 10.17 | 10.03 | 5.50 | 9.45 | 9.35 |
-| Warning on background | 10.08 | 9.95 | 4.99 | 9.03 | 8.94 |
-| Danger on background | 8.46 | 8.35 | 5.11 | 7.58 | 7.50 |
-| Info (`#9cc4e8` dark themes, `#1f5fa8` light) on background | 10.22 | 10.08 | 5.84 | 9.15 | 9.06 |
-
-## Dialogs and toasts
-
-- One modal vocabulary: a native `<dialog>` element with a title, a body, a
-  primary action and a cancel action. `owner-dialog.js` opens it with
-  `showModal` (native focus trap, Escape and top layer) and returns focus to
-  the opener on close. No custom overlay divs.
-- Destructive and irreversible actions ask in the shared confirm dialog, which
-  names the target and the consequence on a danger-styled button. Typed-name
-  confirmation stays for project and record deletes, checked server-side.
-- Never call `window.confirm`. Destructive buttons carry `data-confirm` (and
-  `data-confirm-title`); without JavaScript the form POSTs directly, which is
-  the same fallback those buttons always had.
-- Every dialog form is a plain server `<form method="post">`, reachable
-  without JavaScript (a `?dialog=` link renders the same form with the `open`
-  attribute). A server validation failure re-renders the page with that
-  dialog open, values preserved except secrets, error next to the field.
-- Success toasts name what changed ("Settings saved"), render from one-shot
-  TempData flashes in a polite live region, stay at least 5 seconds, pause on
-  hover/focus, and are dismissible. Errors appear next to their cause, never
-  only as a toast. One-time secrets use a persistent panel, never a toast.
-- Dialogs and toasts animate only `opacity` or `transform`, in 150 ms or
-  less, and not at all under `prefers-reduced-motion`.
-
-## Type and layout
-
-- One sans stack for UI, one monospace stack for code, IDs, keys and JSON
-  [monospace-body]. Body 14-15px, line height 1.5 or more [tiny-body-text,
-  tight-line-height]. No tracking tweaks on body text.
-- Numbers are tabular (`font-variant-numeric: tabular-nums`) in tables and
-  counters. No oversized hero numbers [oversized-number].
-- No section numbering ("01", "02") [numbered-section-markers], no icon-topped
-  feature cards, no three identical cards in a row.
-- Motion: none by default. If used, transition only `opacity`, `color`,
-  `background-color` or `transform`, under 150 ms, never `transition: all`,
-  never bounce easing, and honor `prefers-reduced-motion`
-  [transition-all, bounce-easing].
+Rules: the topbar, sidebar and auth hero use `/owner-assets/icon.svg`, never
+the adaptive favicon or a recolored tile. The favicon is head-only. There is
+no brand tile or glyph wrapper. The standalone auth
+hero image carries `alt="Network Storage logo"`; brand images next to their
+own labelled link or adjacent name text stay decorative (`alt=""`). The SVG
+`<title>` reads `Network Storage`.
 
 ## Themes
 
-Theme list, in picker order: System (default), Dark, Light, Mint and orchid,
-Slate, Warm. Storage keys are `system`, `dark`, `light`, `mint`, `slate`,
-`warm`. The `mint` key is kept stable as an opt-in so stored preferences
-survive the "Mint and orchid" relabel; it is never the default.
+System (default), Dark, Light, High contrast. System resolves to Dark or Light
+from `prefers-color-scheme`. The choice is stored in `localStorage` under
+`sbox-ns-theme` and applied before first paint by the external `theme.js`
+(no inline script). Themes only redefine tokens; components never branch on
+the theme name.
 
-| Token | Dark "Demo green" (default dark) | Mint "Mint and orchid" (opt-in) | Light "Demo green" (default light) |
-| --- | --- | --- | --- |
-| `--bg` | `#111217` | `#101512` | `#f2f4f6` |
-| `--card` | `#191c22` | `#182019` | `#ffffff` |
-| `--surface-2` | `#22262f` | `#222c22` | `#e6e9ee` |
-| `--border` | `#343b48` | `#3a4a3c` | `#c6cdd5` |
-| `--text` | `#e8edf3` | `#ebf2ea` | `#1b2129` |
-| `--muted` | `#9aa5b5` | `#9aab9c` | `#5a6470` |
-| `--accent` | `#10b981` | `#34d399` | `#15803d` |
-| `--accent-text` | `#04120c` | `#04120c` | `#f0fdf4` |
-| `--accent-2` | `#8b7fd4` | `#c084fc` | `#7c3aed` |
-| `--brand-tile` / `--brand-glyph` | `#10b981` / `#04120c` (fixed in every theme) | same | same |
+Retired hue-variant themes map forward so stored preferences survive:
+`cooldark`, `slate`, `mint` and `warm` render as Dark; `coollight` renders as
+Light. High contrast is the only extra theme because it does a different job.
+Unknown saved values fall back to System; only the listed legacy keys map forward.
 
-Slate and Warm stay as alternate dark themes using the same token names.
-State tokens (`--success`, `--warning`, `--danger`, `--info`, `--code-bg`,
-`--danger-bg`) are derived per scheme in the same hue family and AA-checked
-in [Contrast](#contrast). No raw hex outside theme blocks.
-- Themes are `[data-theme="…"]` blocks on `<html>` that only redefine tokens.
-  Components never branch on the theme name. Dark is also the `:root`
-  default, with an explicit `[data-theme="dark"]` alias block.
-- System is the default selection: with nothing stored, a dark color scheme
-  resolves to Dark and a light scheme resolves to Light. A user choice is
-  stored in `localStorage` and applied before first paint from an external
-  script (no inline script).
+| Token | Dark | Light | High contrast | Use |
+| --- | --- | --- | --- | --- |
+| `--bg` | `#0a0a0b` | `#ffffff` | `#000000` | Canvas |
+| `--side` | `#0a0a0b` | `#fafafa` | `#000000` | Sidebar |
+| `--bg-raised` | `#141416` | `#ffffff` | `#0d0d0d` | Overlays only |
+| `--fill` | `#17171a` | `#f4f4f5` | `#1a1a1a` | Secondary buttons, chips, hover, current nav |
+| `--fill-strong` | `#26262b` | `#ffffff` | `#3a3a3a` | Hover on fills, segmented thumb |
+| `--track` | `#2c2c31` | `#e4e4e7` | `#555555` | Switch off, avatar |
+| `--line` | `#222226` | `#e4e4e7` | `#6e6e6e` | Panel outlines |
+| `--line-strong` | `#313137` | `#d4d4d8` | `#a3a3a3` | Inputs |
+| `--line-faint` | `#18181b` | `#efeff1` | `#3d3d3d` | Row and section rules |
+| `--text` | `#ededef` | `#09090b` | `#ffffff` | Primary text |
+| `--text-2` | `#8f8f98` | `#62626b` | `#d4d4d4` | Secondary text, labels, meta |
+| `--text-3` | `#66666f` | `#86868f` | `#a3a3a3` | Placeholders, disabled, separators, icons beside a label |
+| `--accent` | `#70e000` | `#70e000` | `#70e000` | Fills: primary button, checked, selection tint |
+| `--on-accent` | `#0b1400` | `#0b1400` | `#000000` | Text on accent fills |
+| `--accent-fg` | `#70e000` | `#3b7600` | `#70e000` | Accent as text or icon: links, current nav icon, code strings |
+| `--success` | `#4ade80` | `#15803d` | `#4ade80` | State only |
+| `--warning` | `#fbbf24` | `#b45309` | `#fcd34d` | State only |
+| `--danger` | `#f87171` | `#dc2626` | `#fca5a5` | State only |
+| `--info` | `#60a5fa` | `#2563eb` | `#93c5fd` | State only, code identifiers |
+| `--code` | `#0f0f11` | `#f6f6f7` | `#0d0d0d` | Code and JSON blocks |
+
+Lime fills use `--accent`; lime text and icons use `--accent-fg`, never
+`--accent` (the light theme needs the darker `#3b7600` for contrast). No raw
+hex outside theme blocks. `--text-3` never carries data or a label. State
+colors mean state, always with a word.
+
+Contrast (WCAG, verified): accent text on canvas 11.64 (Dark), 5.56 (Light),
+12.35 (High contrast); button text on accent 11.08 (Dark and Light), 12.35
+(High contrast); darker lime `#3b7600` on `#f4f4f5` fills 5.06. Secondary text
+on canvas is 6.17 (Dark) and 6.04 (Light); tertiary stays non-text at 3:1 or
+better. The full table is in `docs/proposals/ui-redesign/DESIGN.md`.
+
+## Surfaces and depth
+
+- Near-black Dark canvas, white Light canvas, black High contrast canvas.
+- Content is outlined: panels, cards, notices and tables are a 1px `--line`
+  outline with no fill.
+- Fills are for controls: secondary buttons, chips, hover and the current nav
+  item.
+- Only overlays are raised: dialogs, menus and toasts use `--bg-raised` and
+  `--shadow`. Nothing else casts a shadow.
+- Sticky bars blur: the topbar uses 82% `--bg` with `saturate(180%)
+  blur(16px)`.
+
+## Shape
+
+4px checkboxes and method tags, 6px buttons/inputs/chips/nav items, 10px
+panels and tiles, 12px menus, 14px dialogs, 18px top corners of mobile bottom
+sheets, pill for status tags, avatar, switches and toasts.
+
+## Type
+
+System UI stack; `ui-monospace` for IDs, keys, commands, code and JSON. Sizes:
+12px meta and table headers, 13px tables and secondary text, 14px body, 22px
+page titles (28px mobile large titles come from the shell). Titles track at
+-0.02em. Tabular numbers in tables, stats and counters. Sentence case
+everywhere; no uppercase labels.
+
+## Icons
+
+Solid glyphs vendored in `Owner/OwnerIcons.cs` from
+`docs/proposals/ui-redesign/mockup/icons.json`: Heroicons 20 solid (MIT,
+Tailwind Labs) for navigation and actions, Simple Icons (CC0) for brand marks
+(GitHub, Discord). Inline SVG only: no icon font, no CDN. Glyphs inherit
+`currentColor`: `--text-3` at rest beside a label, `--accent-fg` when current.
+16px in controls and nav, 18px for the Discord mark, 20px for the mobile nav
+toggle. Icon-only buttons need a tooltip and `aria-label`.
+
+The full Heroicons MIT notice is vendored in `wwwroot/vendor/heroicons.LICENSE.txt`,
+embedded in published binaries, and served at `/owner-assets/heroicons.LICENSE.txt`
+through the footer's Icon license link.
+
+## Controls
+
+Primary button: `--accent` fill, `--on-accent` text, one per view. Secondary:
+`--fill`, no border. Icon and ghost buttons: transparent, `--fill` on hover.
+Danger: 14% danger tint with danger text; the action itself confirms in a
+modal. Inputs: 36px, 1px `--line-strong`, transparent; focus is an accent
+border plus a 3px 25% accent halo. Status tags are pills: 13% state tint with
+a state word. Tables: 34px headers, `--line-faint` rules, tabular numbers,
+70% `--fill` row hover. Focus is a 2px accent outline with 2px offset
+everywhere (3px in High contrast).
+
+## Shell
+
+- Topbar: 48px, sticky, blurred. Brand cube (24px), breadcrumb trail, Discord
+  icon button (18px mark, correctly sized), owner menu. The theme picker lives
+  in the owner menu as System, Dark, Light, High contrast; logged-out pages
+  keep the same inline select. The owner menu also holds Security, Server,
+  Docs, Discord, the version and Log out (a plain POST form, antiforgery
+  token kept).
+- Sidebar: 220px (200px below 1100px), sticky with its own scroll. Groups use
+  plain sentence-case labels. The current item uses `--fill` plus an
+  `--accent-fg` icon (state, not decoration). Below 760px the hamburger opens
+  the nav as a panel; breadcrumbs collapse to the current page.
+- Content: fluid against the sidebar with a consistent 24-32px gutter. Only
+  long prose (`.prose`, 72ch) and narrow forms take a readable cap. Mobile
+  dialogs become bottom sheets with full-width actions.
+- Server notices render once as the compact dismissible alert strip above the
+  shell (demo, plain HTTP, update).
+
+## Copy
+
+Sentence case, no em dashes, no filler, errors state cause and fix, no emoji,
+no invented numbers in shipped UI. Ranges use a plain hyphen (`1-50`).
+
+## Dialogs, toasts, no-JavaScript
+
+One modal vocabulary: a native `<dialog>` with a title, body, primary action
+and cancel action. Destructive and irreversible actions confirm in the shared
+dialog; typed-name confirmation stays for project and record deletes, checked
+server-side. Never call `window.confirm`. Every dialog form is a plain server
+`<form method="post">` reachable without JavaScript; without JavaScript the
+form POSTs directly. Success toasts name what changed, render from one-shot
+TempData flashes in a polite live region, and stay visible as inline notices
+without JavaScript. One-time secrets use a persistent panel, never a toast.
 
 ## Assets
 
-- No inline `<script>`, `<style>` or `style=""` in views. CSS in
-  `wwwroot/css`, JS in `wwwroot/js`.
-- No CDN dependencies. The dashboard must work offline on a LAN.
+No inline `<script>`, `<style>` or `style=""` in views. CSS in `wwwroot/css`,
+JS in `wwwroot/js`. No CDN dependencies: the console works offline on a LAN.
 
 ## Checklist before merging dashboard changes
 
 1. `rg -n '—|–' src/SboxNetworkStorage.Server/Views src/SboxNetworkStorage.Server/Owner/*.cs`
    is empty. Controller messages are visible text too.
-2. No `text-transform: uppercase`, `border-left`/`border-right` rails,
-   `linear-gradient`, `backdrop-filter`, `box-shadow` beyond the single shallow
-   elevation shadow, or raw hex outside theme token blocks in `wwwroot/css`.
-3. Every new view checked in the light theme and one dark theme.
+2. No `text-transform: uppercase`, one-side accent rails, `linear-gradient`
+   (outside the brand artwork itself), `box-shadow` beyond overlay depth, raw
+   hex outside theme token blocks, or `--accent-2`/purple references in
+   `wwwroot/css`. Links, current nav icons and code strings use
+   `--accent-fg`, never `--accent`.
+3. Every new view checked in Dark, Light and High contrast, desktop and
+   760px mobile.
 4. Empty, loading and error states exist for every new list or form.
 5. `rg -n 'window\.confirm' src/SboxNetworkStorage.Server/wwwroot/js` is empty:
    destructive actions use the shared confirm dialog, and every dialog form
    works with JavaScript disabled. Toasts render from TempData flashes and
    stay visible as inline notices without JavaScript.
-
-
-## Shell conventions (compact owner shell)
-
-- Topbar: 56px, sticky, brand mark 28px. Contains only the brand, theme
-  picker, version and logout. A hamburger toggle (`#nav-toggle`) shows
-  below 760px and opens `#owner-nav`; behavior lives in `owner-theme.js`.
-- Sidebar: 232px (200px below 1100px), sticky under the topbar with its
-  own scroll. Groups use plain sentence-case labels (Workspace, Project,
-  Build, Manage, Observe) that stay visible on mobile; the panel opens
-  and closes instead of collapsing to unlabeled chips. The current item
-  keeps surface-2 plus an inset 2px `accent-2` rail (state, not
-  decoration).
-- Content: `main` is fluid and left-aligned against the sidebar, full width
-  with a consistent 24-32px gutter (`clamp(1.5rem, 2.5vw, 2rem)`), 1rem on
-  mobile. No page-wide max-width cap. Only long prose and narrow forms take
-  a readable cap (`.prose`, max 72ch; the login page stays capped at 720px).
-  Page titles are 1.45rem with one plain supporting sentence. Cards use 1rem
-  padding. Vertical rhythm follows a 4/8px scale: page heading and filter
-  blocks use 1rem bottom margins, grids use 1rem or .75rem gaps.
-- Server notices render once as the compact dismissible alert strip above the
-  shell (demo, plain HTTP, update). The update item keeps the version, the
-  `sbox-ns update` hint and the changelog link.
-- Projects list uses `.project-grid` (auto-fill, 300px minimum), not
-  Bootstrap grid classes. Bootstrap vendor files stay linked for
-  compatibility but views must not add new Bootstrap layout classes.
-- Buttons: 32px desktop controls, 28px source tools and 44px mobile targets.
-  Use 2px borders on every variant (primary, secondary, danger, icon) with
-  1px-slimmer vertical padding so heights do not change. 600 weight and no
-  lift on hover. Primary hover is a token mix of accent and accent text;
-  secondary hover is surface-2. Focus is a 2px accent outline with 2px
-  offset everywhere.
-- Tables: headers .76rem muted, cells .83rem with .6rem padding,
-  tabular numbers, row hover only.
-- Motion: no smooth scroll, no card lift. One `prefers-reduced-motion`
-  block disables remaining transitions.
-- `workbench.css` loads in `<head>`; `workbench.js` loads deferred at
-  the end of `<body>` so page editors initialize before it wraps
-  `textarea.code-editor`.
-- Resource pages follow a list/detail pattern. The list is a sortable table with
-  one row per resource and a Quick preview link that degrades to the detail
-  page without JavaScript. The detail page keeps Overview, Edit and Code tabs
-  as server links (`?tab=`), the editor full width on Edit, and the
-  integration guide full width on Code.
-- Code retains a native authoritative textarea. The syntax overlay and
-  clickable line-number gutter never enter copied source or submitted forms.
-  Tab modes are progressively enhanced; source and examples remain readable
-  without JavaScript.
-- Table sorting is opt-in with `data-sortable`. Keep workflow execution,
-  pending writes and editable value rows in semantic order. Sort controls use
-  native buttons, `aria-sort` and a live announcement. Display-only sorting
-  must never imply reordering an entire paginated database.
-
-### Block editor
-
-- One block vocabulary across collection, endpoint, workflow, query and game
-  values: collapsed blocks, typed option controls, add dialogs, duplicate,
-  remove, rename and handle reorder.
-- Guided never shows the YAML textarea. The textarea lives in Raw and stays
-  authoritative for selection, undo, form posts and the no-JavaScript
-  fallback.
-- Never serialize the whole document from Guided. Every Guided edit is a
-  targeted source splice that preserves comments, unknown fields, quoting
-  and numeric lexemes.
-- Route unsupported edits to Raw with a message. Invalid YAML, `sourceText`
-  wrappers and YAML aliases or anchors say where to go and leave the source
-  untouched.
-- Keyboard reorder matches drag: move buttons plus Alt+Up and Alt+Down on
-  the handle, with focus kept on the moved block.
-- Secret keys never appear in generated game examples. Game code uses the
-  public key; secret endpoints and queries say to call from a dedicated
-  server.
+6. Brand images resolve to the `/owner-assets/` routes above; the Discord mark
+   renders at 18px with a tooltip and label.

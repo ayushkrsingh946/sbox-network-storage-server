@@ -51,6 +51,7 @@
     <EmbeddedResource Include="wwwroot/css/owner-server.css" LogicalName="SboxNetworkStorage.Server.Owner.server.css" />
     <EmbeddedResource Include="wwwroot/vendor/bootstrap/bootstrap.min.css" LogicalName="SboxNetworkStorage.Server.Owner.vendor-bootstrap.css" />
     <EmbeddedResource Include="wwwroot/vendor/bootstrap/bootstrap.bundle.min.js" LogicalName="SboxNetworkStorage.Server.Owner.vendor-bootstrap.js" />
+    <EmbeddedResource Include="wwwroot/vendor/heroicons.LICENSE.txt" LogicalName="SboxNetworkStorage.Server.Owner.heroicons.LICENSE.txt" />
     <EmbeddedResource Include="Owner/Examples/*.yml" LogicalName="SboxNetworkStorage.Server.Owner.Examples.%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../compat/library-matrix.json" LogicalName="SboxNetworkStorage.Server.Compat.library-matrix.json" />
     <EmbeddedResource Include="Updates/release-signing-keys.pub" LogicalName="SboxNetworkStorage.Server.Updates.release-signing-keys.pub" />

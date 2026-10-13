@@ -83,6 +83,17 @@ public sealed class TunnelOperatingSystemTests
                 await RunAsync("/usr/bin/chown", ["--", uid + ":" + gid, directory]);
             }
 
+            // The unprivileged child runs as a different UID, so any inherited UID-bound
+            // runtime directory (for example the CI runner's XDG_RUNTIME_DIR=/run/user/...)
+            // is inaccessible to it. The .NET host probes that directory for its first-run
+            // mutex before any test code runs and fails with EACCES. Give the child its own
+            // XDG_RUNTIME_DIR owned by its UID; HOME/DOTNET_CLI_HOME below already point at
+            // the child-owned data directory for the same reason.
+            var childXdgRuntime = Path.Combine(dataDirectory, "xdg-runtime");
+            Directory.CreateDirectory(childXdgRuntime);
+            File.SetUnixFileMode(childXdgRuntime, PrivateDirectory);
+            await RunAsync("/usr/bin/chown", ["--", uid + ":" + gid, childXdgRuntime]);
+
             // Copy the test runtime so the child never needs access to a root-owned checkout/home.
             var childRuntime = Path.Combine(fixture, "runtime");
             CopyRuntime(AppContext.BaseDirectory, childRuntime);
@@ -105,11 +116,12 @@ public sealed class TunnelOperatingSystemTests
                      "--bounding-set=-all", "--no-new-privs", "--", dotnet, "vstest", assembly,
                      "/TestCaseFilter:FullyQualifiedName=SboxNetworkStorage.Cli.Tests.TunnelOperatingSystemTests.Service_owner_reads_private_assets_executes_connector_and_reenables",
                      "/Logger:console;verbosity=normal"],
-                    new Dictionary<string, string>
+                    new Dictionary<string, string?>
                     {
                         [OwnerFixtureVariable] = fixture, [OwnerNameVariable] = originalName,
                         [OwnerUidVariable] = uid, [OwnerGidVariable] = gid,
                         ["DOTNET_CLI_HOME"] = dataDirectory, ["HOME"] = dataDirectory,
+                        ["XDG_RUNTIME_DIR"] = childXdgRuntime, ["DBUS_SESSION_BUS_ADDRESS"] = null,
                         ["DOTNET_NOLOGO"] = "true", ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "true"
                     }, TimeSpan.FromMinutes(2));
                 Assert.Matches(@"Passed:\s+1\b", childResult);
@@ -263,7 +275,7 @@ public sealed class TunnelOperatingSystemTests
     }
 
     private static async Task<string> RunAsync(string executable, string[] arguments,
-        Dictionary<string, string>? environment = null, TimeSpan? timeout = null, int expectedExitCode = 0)
+        Dictionary<string, string?>? environment = null, TimeSpan? timeout = null, int expectedExitCode = 0)
     {
         var info = new ProcessStartInfo(executable)
         {
@@ -272,7 +284,19 @@ public sealed class TunnelOperatingSystemTests
         };
         foreach (var argument in arguments) info.ArgumentList.Add(argument);
         if (environment is not null)
-            foreach (var pair in environment) info.Environment[pair.Key] = pair.Value;
+        {
+            foreach (var pair in environment)
+            {
+                if (pair.Value is null)
+                {
+                    info.Environment.Remove(pair.Key);
+                }
+                else
+                {
+                    info.Environment[pair.Key] = pair.Value;
+                }
+            }
+        }
         using var process = Process.Start(info) ?? throw new InvalidOperationException("Test subprocess did not start.");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();

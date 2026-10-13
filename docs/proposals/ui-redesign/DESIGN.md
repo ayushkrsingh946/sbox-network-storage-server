@@ -41,9 +41,9 @@ Retired: Cool dark, Cool light, Mint and orchid, Slate, Warm. They were hue shif
 | `--text` | `#ededef` | `#09090b` | `#ffffff` | Primary text |
 | `--text-2` | `#8f8f98` | `#62626b` | `#d4d4d4` | Secondary text, labels, meta |
 | `--text-3` | `#66666f` | `#86868f` | `#a3a3a3` | Placeholders, disabled, separators, icons beside a label |
-| `--accent` | `#10b981` | `#10b981` | `#34d399` | Fills: primary button, checked, progress, selection tint |
-| `--on-accent` | `#04120c` | `#04120c` | `#000000` | Text on accent fills |
-| `--accent-fg` | `#10b981` | `#047857` | `#34d399` | Accent as text or icon: links, current nav icon, code strings |
+| `--accent` | `#70e000` | `#70e000` | `#70e000` | Fills: primary button, checked, progress, selection tint |
+| `--on-accent` | `#0b1400` | `#0b1400` | `#000000` | Text on accent fills |
+| `--accent-fg` | `#70e000` | `#3b7600` | `#70e000` | Accent as text or icon: links, current nav icon, code strings |
 | `--success` | `#4ade80` | `#15803d` | `#4ade80` | State only |
 | `--warning` | `#fbbf24` | `#b45309` | `#fcd34d` | State only |
 | `--danger` | `#f87171` | `#dc2626` | `#fca5a5` | State only |
@@ -55,7 +55,7 @@ sboxns.com uses the same tokens with `--bg: #08090a` in Dark.
 Rules:
 
 - No raw colors outside theme blocks.
-- The primary button is the same green in every theme. Use `--accent-fg`, not `--accent`, wherever green is text or an icon.
+- The primary button is the same lime in every theme. Use `--accent-fg`, not `--accent`, wherever lime is text or an icon.
 - `--text-3` never carries data or a label. It only marks placeholders, disabled controls, separators and icons that sit next to their own text label.
 - State colors mean state, and always come with a word.
 
@@ -67,8 +67,8 @@ Rules:
 | Secondary text on bg | 6.17 | 6.04 | 14.17 |
 | Secondary text on raised | 5.74 | 6.04 | 13.11 |
 | Tertiary on bg (non-text minimum 3.0) | 3.48 | 3.61 | 8.33 |
-| Accent text on bg | 7.80 | 5.48 | 10.92 |
-| Button text on accent | 7.55 | 7.55 | 10.92 |
+| Accent text on bg | 11.64 | 5.56 | 12.35 |
+| Button text on accent | 11.08 | 11.08 | 12.35 |
 | Success on bg | 11.36 | 5.02 | 12.05 |
 | Warning on bg | 11.85 | 5.02 | 14.56 |
 | Danger on bg | 7.15 | 4.83 | 11.06 |

@@ -10,7 +10,7 @@
 .definition-heading { position: static; }
 .workbench-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 16px 0; overflow-x: auto; }
 .workbench-tabs button { background: transparent; color: var(--muted); border: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0; padding: 9px 14px; white-space: nowrap; box-shadow: none; }
-.workbench-tabs button[aria-selected="true"] { color: var(--accent); background: var(--surface-2); box-shadow: inset 0 -2px var(--accent); }
+.workbench-tabs button[aria-selected="true"] { color: var(--accent-fg); background: var(--surface-2); box-shadow: inset 0 -2px var(--accent); }
 .workbench-tabs button:hover { color: var(--text); background: var(--surface-2); }
 [hidden] { display: none !important; }
 .source-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 6px; }
@@ -22,14 +22,14 @@
 .source-editor textarea.code-editor, .source-editor pre.source-highlight { padding-left: 64px; }
 .source-lines { position: absolute; z-index: 1; left: 0; top: 0; bottom: 0; width: 48px; padding: 16px 0; overflow: hidden; background: var(--code-bg); border-right: 1px solid var(--border); color: var(--muted); text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .source-lines > div { height: 21.45px; line-height: 21.45px; font-size: 11px; padding-right: 10px; cursor: pointer; }
-.source-lines > div:hover, .source-lines > div[aria-selected="true"] { background: var(--surface-2); color: var(--accent); }
+.source-lines > div:hover, .source-lines > div[aria-selected="true"] { background: var(--surface-2); color: var(--accent-fg); }
 .source-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 8px 0; }
 .source-actions > span { margin-right: auto; font-size: 12px; }
 .source-actions > button { min-height: 28px; padding: 3px 9px; font-size: 12px; }
 .table-sort { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 0; background: transparent; color: inherit; border: 0; font-size: inherit; font-weight: inherit; border-radius: var(--radius-sm); white-space: normal; text-align: left; box-shadow: none; }
 .table-sort:hover { background: transparent; color: var(--text); }
 .table-sort-marker { color: var(--muted); font-size: 12px; }
-th[aria-sort="ascending"] .table-sort, th[aria-sort="descending"] .table-sort { color: var(--accent); }
+th[aria-sort="ascending"] .table-sort, th[aria-sort="descending"] .table-sort { color: var(--accent-fg); }
 .table-sort-help { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
 .source-editor textarea.code-editor { position: relative; display: block; width: 100%; min-height: 360px; resize: vertical; background: transparent; color: transparent; caret-color: var(--text); -webkit-text-fill-color: transparent; outline: none; box-shadow: none; }
 .source-editor textarea.record-editor { min-height: 260px; }
@@ -38,18 +38,18 @@ th[aria-sort="ascending"] .table-sort, th[aria-sort="descending"] .table-sort { 
 .source-editor pre.source-highlight { position: absolute; inset: 0; color: var(--text); pointer-events: none; overflow: hidden; max-height: none; background: transparent; }
 .source-editor.raw-source textarea.code-editor { color: var(--text); -webkit-text-fill-color: var(--text); }
 .source-editor.raw-source .source-highlight { visibility: hidden; }
-.syntax-key, .syntax-keyword { color: var(--accent); font-weight: 600; }
-.syntax-string { color: var(--text); }
-.syntax-number, .syntax-literal { color: var(--accent-2, var(--accent)); }
+.syntax-key, .syntax-keyword { color: var(--info); font-weight: 600; }
+.syntax-string { color: var(--accent-fg); }
+.syntax-number, .syntax-literal { color: var(--warning); }
 .syntax-comment { color: var(--muted); font-style: italic; }
-.syntax-expression { color: var(--accent); }
+.syntax-expression { color: var(--accent-fg); }
 .integration-guide .copy-row { position: relative; display: flex; align-items: flex-start; gap: 8px; }
 .integration-guide .copy-row pre { flex: 1; min-width: 0; max-height: 420px; margin: 0; padding: .6rem 4.25rem .6rem .75rem; font-size: 12.5px; line-height: 1.6; }
 .integration-guide .copy-row button { position: absolute; top: .4rem; right: .4rem; flex-shrink: 0; }
 /* Page-level resource tabs are links so they work without JavaScript. */
 .resource-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 0 0 1rem; overflow-x: auto; }
 .resource-tabs a { color: var(--muted); text-decoration: none; padding: 9px 14px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; white-space: nowrap; }
-.resource-tabs a[aria-current="page"] { color: var(--accent); background: var(--surface-2); box-shadow: inset 0 -2px var(--accent); }
+.resource-tabs a[aria-current="page"] { color: var(--accent-fg); background: var(--surface-2); box-shadow: inset 0 -2px var(--accent); }
 .resource-tabs a:hover { color: var(--text); background: var(--surface-2); }
 .stat-tiles { grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
 .stat-tiles strong { font-variant-numeric: tabular-nums; }

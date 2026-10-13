@@ -165,6 +165,8 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.brand-icon-512.png")!, "image/png"));
         app.MapGet("/owner-assets/favicon.svg", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.brand-favicon.svg")!, "image/svg+xml"));
+        app.MapGet("/owner-assets/heroicons.LICENSE.txt", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.heroicons.LICENSE.txt")!, "text/plain"));
         return app;
     }
 }
