@@ -12,7 +12,7 @@
   try {
     var saved = localStorage.getItem("sbox-ns-theme");
     if (themes.indexOf(saved) !== -1) preference = saved;
-    else if (legacy[saved]) preference = legacy[saved];
+    else if (Object.prototype.hasOwnProperty.call(legacy, saved)) preference = legacy[saved];
   } catch (_) {}
   function apply() {
     document.documentElement.dataset.theme = preference === "system" ? (media.matches ? "light" : "dark") : preference;

@@ -96,7 +96,7 @@
     </div>
 }
 <header class="topbar">
-    <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation">@Icon("menu")</button><a href="/dashboard" class="brand" aria-label="s&amp;box Network Storage"><img class="brand-logo" src="/owner-assets/favicon.svg" width="24" height="24" alt="" /><span class="brand-text" aria-hidden="true"><strong>s&amp;box</strong> Network Storage</span></a>
+    <div class="topbar-left"><button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="owner-nav" aria-label="Toggle navigation">@Icon("menu")</button><a href="/dashboard" class="brand" aria-label="s&amp;box Network Storage"><img class="brand-logo" src="/owner-assets/icon.svg" width="24" height="24" alt="" /><span class="brand-text" aria-hidden="true"><strong>s&amp;box</strong> Network Storage</span></a>
     @if (crumbs.Count > 0)
     {
         <nav class="topbar-crumbs" aria-label="Breadcrumb"><ol>
@@ -156,7 +156,7 @@
             <a href="@projectUrl/activity/@tab" aria-current="@(path.EndsWith("/activity/" + tab, StringComparison.Ordinal) ? "page" : null)">@Html.Raw(Icon(tab))@(char.ToUpperInvariant(tab[0]) + tab[1..])</a>
         }
     }
-    </nav><div class="sidebar-note"><div class="sidebar-brand"><img src="/owner-assets/favicon.svg" width="24" height="24" alt="" /><span>Local owner access</span></div><p>No hosted account or billing dependency.</p><p class="sidebar-community">Part of the <a href="@discordUrl" target="_blank" rel="noopener noreferrer">sbox.cool + sboxns.com community</a>.</p></div></aside>
+    </nav><div class="sidebar-note"><div class="sidebar-brand"><img src="/owner-assets/icon.svg" width="24" height="24" alt="" /><span>Local owner access</span></div><p>No hosted account or billing dependency.</p><p class="sidebar-community">Part of the <a href="@discordUrl" target="_blank" rel="noopener noreferrer">sbox.cool + sboxns.com community</a>.</p></div></aside>
 }
 <main id="main-content" tabindex="-1">
     @{ var flashes = OwnerFlash.Take(TempData); }
@@ -175,10 +175,10 @@
     }
     @if (!authenticated)
     {
-        <div class="auth-brand"><img src="/owner-assets/favicon.svg" width="64" height="64" alt="Network Storage logo" /><div><p class="auth-brand-name"><strong>s&amp;box</strong> Network Storage</p><p class="auth-brand-tag">Self-hosted backend for s&amp;box games</p></div></div>
+        <div class="auth-brand"><img src="/owner-assets/icon.svg" width="64" height="64" alt="Network Storage logo" /><div><p class="auth-brand-name"><strong>s&amp;box</strong> Network Storage</p><p class="auth-brand-tag">Self-hosted backend for s&amp;box games</p></div></div>
     }
     @RenderBody()
-    <footer><span>Your server. Your data.</span><nav class="footer-links" aria-label="Community and project links"><a href="@discordUrl" target="_blank" rel="noopener noreferrer">Discord</a><a href="https://sboxns.com" target="_blank" rel="noopener noreferrer">sboxns.com</a><a href="https://sbox.cool" target="_blank" rel="noopener noreferrer">sbox.cool</a><span>Network Storage · Single local owner</span></nav></footer>
+    <footer><span>Your server. Your data.</span><nav class="footer-links" aria-label="Community and project links"><a href="@discordUrl" target="_blank" rel="noopener noreferrer">Discord</a><a href="https://sboxns.com" target="_blank" rel="noopener noreferrer">sboxns.com</a><a href="https://sbox.cool" target="_blank" rel="noopener noreferrer">sbox.cool</a><a href="/owner-assets/heroicons.LICENSE.txt">Icon license</a><span>Network Storage · Single local owner</span></nav></footer>
 </main>
 </div>
 @if (demo) { <script src="/owner-assets/demo.js" defer></script> }

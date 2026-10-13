@@ -24,8 +24,9 @@ Shipped assets (`wwwroot/img`, served as embedded resources under
 | `sbox-network-storage-favicon.svg` | `/owner-assets/favicon.svg` | Adaptive favicon: full cube with face, simplified faceless cube at 24px and below |
 | `sbox-network-storage-icon-512.png` | `/owner-assets/icon-512.png` | 512px raster, also the `apple-touch-icon` |
 
-Rules: the topbar and sidebar render the full-colour cube as an image, never a
-recolored tile. There is no brand tile or glyph wrapper. The standalone auth
+Rules: the topbar, sidebar and auth hero use `/owner-assets/icon.svg`, never
+the adaptive favicon or a recolored tile. The favicon is head-only. There is
+no brand tile or glyph wrapper. The standalone auth
 hero image carries `alt="Network Storage logo"`; brand images next to their
 own labelled link or adjacent name text stay decorative (`alt=""`). The SVG
 `<title>` reads `Network Storage`.
@@ -41,6 +42,7 @@ the theme name.
 Retired hue-variant themes map forward so stored preferences survive:
 `cooldark`, `slate`, `mint` and `warm` render as Dark; `coollight` renders as
 Light. High contrast is the only extra theme because it does a different job.
+Unknown saved values fall back to System; only the listed legacy keys map forward.
 
 | Token | Dark | Light | High contrast | Use |
 | --- | --- | --- | --- | --- |
@@ -111,6 +113,10 @@ Tailwind Labs) for navigation and actions, Simple Icons (CC0) for brand marks
 `currentColor`: `--text-3` at rest beside a label, `--accent-fg` when current.
 16px in controls and nav, 18px for the Discord mark, 20px for the mobile nav
 toggle. Icon-only buttons need a tooltip and `aria-label`.
+
+The full Heroicons MIT notice is vendored in `wwwroot/vendor/heroicons.LICENSE.txt`,
+embedded in published binaries, and served at `/owner-assets/heroicons.LICENSE.txt`
+through the footer's Icon license link.
 
 ## Controls
 
