@@ -1,63 +1,14 @@
 """Generates the static owner-console redesign mockups (one HTML file per screen state)."""
-import os, sys
+import json, os, sys
 
 OUT = sys.argv[1]
 
-P = {
-    "plus": '<path d="M8 3v10M3 8h10"/>',
-    "more": '<circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/>',
-    "copy": '<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 5.5V3.7c0-.7-.5-1.2-1.2-1.2H3.7c-.7 0-1.2.5-1.2 1.2v5.6c0 .7.5 1.2 1.2 1.2h1.8"/>',
-    "download": '<path d="M8 2.5v8M4.8 7.5 8 10.7l3.2-3.2M3 13.5h10"/>',
-    "upload": '<path d="M8 10.5v-8M4.8 5.5 8 2.3l3.2 3.2M3 13.5h10"/>',
-    "gear": '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6"/>',
-    "search": '<circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/>',
-    "filter": '<path d="M2 3.5h12M4.5 8h7M7 12.5h2"/>',
-    "columns": '<rect x="2" y="2.5" width="12" height="11" rx="1"/><path d="M6 2.5v11M10 2.5v11"/>',
-    "chev": '<path d="m6 3.5 4.5 4.5L6 12.5"/>',
-    "chevl": '<path d="M10 3.5 5.5 8l4.5 4.5"/>',
-    "chevd": '<path d="m4 6 4 4 4-4"/>',
-    "updown": '<path d="m5 6 3-3 3 3M5 10l3 3 3-3"/>',
-    "x": '<path d="m4 4 8 8M12 4l-8 8"/>',
-    "pencil": '<path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3z"/>',
-    "play": '<path d="M4.5 2.5v11l9-5.5z"/>',
-    "trash": '<path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/>',
-    "key": '<circle cx="5" cy="11" r="2.5"/><path d="m6.8 9.2 6.7-6.7M11 4.5l1.8 1.8M9.5 6l1.3 1.3"/>',
-    "check": '<path d="m3 8.5 3 3 7-7"/>',
-    "help": '<circle cx="8" cy="8" r="6"/><path d="M6.3 6.2a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1M8 11.3h.01"/>',
-    "theme": '<circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor"/>',
-    "grid": '<rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/>',
-    "home": '<path d="M2.5 7 8 2l5.5 5M4 6.5V14h8V6.5"/>',
-    "database": '<ellipse cx="8" cy="3.5" rx="5.5" ry="2"/><path d="M2.5 3.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2"/>',
-    "collection": '<rect x="2" y="3" width="12" height="10" rx="1"/><path d="M2 6.5h12M2 10h12M7 6.5V13"/>',
-    "endpoint": '<path d="M8.5 1.5 3.5 9H7l-1 5.5L11.5 7H8z"/>',
-    "workflow": '<circle cx="4" cy="4" r="1.8"/><circle cx="12" cy="4" r="1.8"/><circle cx="8" cy="12" r="1.8"/><path d="M5.5 5 6.8 10.4M10.5 5 9.2 10.4M5.8 4h4.4"/>',
-    "query": '<circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/>',
-    "values": '<rect x="1.5" y="5" width="13" height="7" rx="3.5"/><path d="M5 8v2M4 9h2M11 8.5h.01M12.5 10h.01"/>',
-    "analytics": '<path d="M2.5 13.5h11M4.5 13V9.5M8 13V5.5M11.5 13v-3"/>',
-    "logs": '<path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01"/>',
-    "errors": '<path d="M8 2 14.5 13.5h-13zM8 6.5v3.5M8 12h.01"/>',
-    "usage": '<path d="M2.5 12.5a6 6 0 0 1 11 0M8 12.5 11 8"/>',
-    "tests": '<path d="M4.5 2.5v11l9-5.5z"/>',
-    "versions": '<circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/>',
-    "clients": '<circle cx="6" cy="5" r="2.5"/><path d="M1.5 14v-2.5a4.5 4.5 0 0 1 9 0V14M11 3.5a2.5 2.5 0 0 1 0 5M13 10a4 4 0 0 1 1.5 3.5"/>',
-    "limits": '<path d="M2.5 4h11M2.5 8h7M2.5 12h4"/>',
-    "webhooks": '<path d="M14 2 7 9M14 2l-4.5 12-2.5-5-5-2.5z"/>',
-    "pages": '<path d="M4 1.5h5.5L12.5 4.5v10h-8.5zM9.5 1.5v3h3M6 8h4.5M6 11h4.5"/>',
-    "server": '<rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><path d="M4.5 4.75h.01M4.5 11.25h.01"/>',
-    "alerts": '<path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/>',
-    "shield": '<path d="M8 1.5 13.5 3.5v4c0 3.5-2.5 5.8-5.5 7-3-1.2-5.5-3.5-5.5-7v-4z"/>',
-    "warn": '<path d="M8 2 14.5 13.5h-13zM8 6.5v3.5M8 12h.01"/>',
-    "ext": '<path d="M9.5 2.5h4v4M13.5 2.5 7 9M11.5 9.5v4h-9v-9h4"/>',
-    "list": '<path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.01M2.5 8h.01M2.5 12h.01"/>',
-    "braces": '<path d="M5.5 2.5c-1.5 0-2 .6-2 1.8v1.4c0 .9-.5 1.6-1.5 2.3 1 .7 1.5 1.4 1.5 2.3v1.4c0 1.2.5 1.8 2 1.8M10.5 2.5c1.5 0 2 .6 2 1.8v1.4c0 .9.5 1.6 1.5 2.3-1 .7-1.5 1.4-1.5 2.3v1.4c0 1.2-.5 1.8-2 1.8"/>',
-    "dup": '<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 5.5V3.7c0-.7-.5-1.2-1.2-1.2H3.7c-.7 0-1.2.5-1.2 1.2v5.6c0 .7.5 1.2 1.2 1.2h1.8M9.5 8v3M8 9.5h3"/>',
-    "user": '<circle cx="8" cy="5.5" r="2.8"/><path d="M2.5 14a5.5 5.5 0 0 1 11 0"/>',
-    "dots": '<circle cx="3.5" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor"/>',
-}
+ICONS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "icons.json")))
 
 
 def i(name, cls="i"):
-    return f'<svg class="{cls}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{P[name]}</svg>'
+    ic = ICONS[name]
+    return f'<svg class="{cls}" viewBox="{ic["viewBox"]}" fill="currentColor" aria-hidden="true">{ic["body"]}</svg>'
 
 
 def chip(text, title=None):

@@ -18,7 +18,24 @@ Measured on `main` (ee60d4f) in demo mode at 1440x900:
 
 ## Proposal
 
-Same tokens, colors and server-rendered Razor. What changes is the page structure and the control vocabulary.
+Same accent, light theme and server-rendered Razor. What changes is the page structure, the control vocabulary, a darker default dark theme and solid icons.
+
+### Visual style
+
+- **Near-black, not gray.** The default dark theme moves to a near-black canvas. Panels, stat tiles and tables are outlined, not filled. Only overlays (modals, sheets, menus) get a raised surface.
+- **Solid icons.** Heroicons 20 solid (MIT) replace the 1.6px stroke icons, vendored as inline SVG the same way `_Layout.cshtml` ships icons today. No CDN.
+
+| Dark token | Today | Proposed |
+| --- | --- | --- |
+| `--bg` | `#111217` | `#0a0b0d` |
+| `--card` | `#191c22` | `#0a0b0d` (outline only) |
+| `--elev` (new) | | `#111216` (modals, sheets, menus) |
+| `--surface-2` | `#22262f` | `#16171b` |
+| `--border` | `#343b48` | `#24262c` |
+| `--text` | `#e8edf3` | `#ececef` |
+| `--muted` | `#9aa5b5` | `#8f95a1` |
+
+Contrast on the new background: text 16.70, muted 6.55, accent 7.76, danger 8.91, warning 10.61, info 10.76. All pass AA.
 
 ### Rules (added to `docs/ui-guidelines.md`)
 
@@ -120,6 +137,8 @@ Clicking a row opens a side sheet with typed fields (Fields / JSON toggle), prev
 - Toolbar icon buttons borderless. Today every button variant has a 2px border.
 - Switch tracks fully rounded, and bottom sheets with 12px top corners on mobile, as the only exceptions to the 4/6px radius scale.
 - Topbar 48px (from 56) holding the breadcrumbs.
+- Dark theme token values from the table above; re-measure the Contrast table.
+- Solid icon set replaces the stroke icons.
 
 ### Rollout
 
