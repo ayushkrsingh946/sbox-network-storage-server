@@ -844,10 +844,21 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 }
 
+// OwnerExportController allows one export or import per process (a static gate) and answers 409
+// to a concurrent one. Classes that pass that gate share a collection so xUnit never runs them in
+// parallel; otherwise the SQLite and PostgreSQL variants intermittently see each other's export.
+[CollectionDefinition(OwnerExportGateCollection.Name, DisableParallelization = true)]
+public sealed class OwnerExportGateCollection
+{
+    public const string Name = "Owner export gate";
+}
+
+[Collection(OwnerExportGateCollection.Name)]
 public sealed class SqliteServerExportImportTests : ServerExportImportTests<SqliteHostFactory>
 {
 }
 
+[Collection(OwnerExportGateCollection.Name)]
 public sealed class PostgresServerExportImportTests : ServerExportImportTests<PostgresHostFactory>
 {
 }
