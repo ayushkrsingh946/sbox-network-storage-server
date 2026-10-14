@@ -68,9 +68,17 @@ curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/lat
     SBOX_NS_ACME_EMAIL="you@example.com" SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1 sh
 ```
 
+On a Mac without open ports (a home network), drop `sudo`: the tunnel install
+runs as your user and keeps the server running as a per-user launchd service.
+
+```sh
+curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
+  | env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 sh
+```
+
 Save the printed project ID, public key, editor secret key and
 `NetworkStorage.Configure(...)` line. A new secret key is shown only once.
-Service files live in `/etc/sbox-ns/`, data in `/var/lib/sbox-ns/`.
+On Linux, service files live in `/etc/sbox-ns/` and data in `/var/lib/sbox-ns/`.
 
 **The HTTPS tunnel is optional, and is explicitly enabled by this command.**
 It needs no domain purchase, sboxcool account or payment, but traffic passes
@@ -178,7 +186,7 @@ Use this repository's guides for operating your server.
 ## Other installation paths and administration
 
 - [Linux and macOS interactive installation](docs/self-hosting.md#linux-and-macos):
-  non-root/macOS installs may require `sbox-ns start` after setup.
+  the installer starts a systemd service (Linux, as root) or a launchd service (macOS).
 - [Windows PowerShell installation](docs/self-hosting.md#windows).
 - [Docker and Docker Compose](docs/self-hosting.md#docker), including persistent
   config/data volumes and PostgreSQL.

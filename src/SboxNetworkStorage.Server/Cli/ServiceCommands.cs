@@ -198,12 +198,16 @@ public static class ServiceCommands
         if (OperatingSystem.IsMacOS())
         {
             var domain = IsRoot() ? "system" : $"gui/{RunCapture("id", ["-u"]).Output.Trim()}";
+            var target = $"{domain}/{LaunchdLabel}";
+            // `bootstrap` fails when the job is already loaded (re-running the installer, an
+            // upgrade) and `kickstart` fails when it is not, so pick by the current state.
+            var loaded = RunCapture("launchctl", ["print", target]).ExitCode == 0;
             return action switch
             {
-                "start" => await RunAsync("launchctl", ["bootstrap", domain, LaunchdPlistPath()], inherit: true),
-                "stop" => await RunAsync("launchctl", ["bootout", $"{domain}/{LaunchdLabel}"], inherit: true),
-                "restart" => await RunAsync("launchctl", ["kickstart", "-k", $"{domain}/{LaunchdLabel}"], inherit: true),
-                _ => await RunAsync("launchctl", ["print", $"{domain}/{LaunchdLabel}"], inherit: true)
+                "start" or "restart" when loaded => await RunAsync("launchctl", ["kickstart", "-k", target], inherit: true),
+                "start" or "restart" => await RunAsync("launchctl", ["bootstrap", domain, LaunchdPlistPath()], inherit: true),
+                "stop" => loaded ? await RunAsync("launchctl", ["bootout", target], inherit: true) : CliApp.Ok,
+                _ => await RunAsync("launchctl", ["print", target], inherit: true)
             };
         }
 
