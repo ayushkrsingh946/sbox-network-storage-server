@@ -130,7 +130,12 @@ The installer:
    they write operator configuration; runtime state is created with the service
    identity. Tunnel, DNS and telemetry enablement run through `runuser -u sbox-ns`.
    No recursive config-to-service-user ownership transfer is performed.
-6. On Linux root installs with systemd, runs `sbox-ns service install` and `sbox-ns service start`.
+6. Installs and starts the OS service when setup has run: on Linux root installs
+   with systemd, `sbox-ns service install` and `sbox-ns service start`; on macOS a
+   launchd job (a LaunchDaemon in `/Library/LaunchDaemons` with `sudo`, otherwise a
+   per-user LaunchAgent in `~/Library/LaunchAgents`). Re-running the installer
+   restarts the existing service with the new binary. A per-user LaunchAgent needs
+   a logged-in GUI session; over SSH-only, run the installer with `sudo`.
 
 Linux/macOS signature verification requires `openssl` on `PATH`; install it
 with `sudo apt-get install openssl`, `sudo dnf install openssl` or
@@ -438,6 +443,11 @@ curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/lat
   | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_DNS=1 \
     SBOX_NS_ACME_EMAIL="you@example.com" SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1 sh
 ```
+
+On a Mac the same command installs a LaunchDaemon and registers the name, but
+only when ports 80 and 443 are reachable from the internet (a server with a
+public IP, or port forwarding). A Mac on a home network without open ports should
+use the tunnel command (`SBOX_NS_TUNNEL=1`, no `sudo`) instead.
 
 On Windows the same environment variables require an elevated PowerShell
 installer. Without a supported service installation, start the server yourself

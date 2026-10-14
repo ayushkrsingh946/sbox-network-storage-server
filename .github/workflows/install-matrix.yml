@@ -144,3 +144,26 @@ jobs:
         with:
           name: install-matrix-windows-${{ matrix.shell }}
           path: ${{ runner.temp }}/release-fixture.log
+
+  macos:
+    # Root install: LaunchDaemon in the system domain, fresh install, re-run with the next
+    # release, idempotent re-run and uninstall. The per-user LaunchAgent needs a GUI login,
+    # which hosted runners do not have.
+    name: macOS (arm64, launchd)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - name: Build signed candidate releases
+        run: scripts/ci/build-release-fixture.sh --rid osx-arm64 --out "$RUNNER_TEMP/fixture" "$CANDIDATE" "$NEXT"
+      - name: Install, re-run and uninstall
+        run: |
+          sudo scripts/ci/install-matrix-macos.sh --fixture "$RUNNER_TEMP/fixture" --candidate "$CANDIDATE" --next "$NEXT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: install-matrix-macos
+          path: /tmp/release-fixture.log

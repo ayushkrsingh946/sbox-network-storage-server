@@ -13,8 +13,10 @@
 #   SBOX_NS_PUBLIC_URL   Address players use, e.g. https://ns.example.com (used with SBOX_NS_PROJECT).
 #   SBOX_NS_TUNNEL       Set to 1 for a hosted HTTPS name after quickstart/setup and before service start.
 #   SBOX_NS_DNS          Set to 1 for a signed DNS name pointing directly to your public IP.
-#                        Requires a running systemd service, public HTTP/443 ports, and the two
+#                        Requires the installer to install and start the OS service (systemd on
+#                        Linux, launchd on macOS), publicly reachable HTTP/443 ports, and the two
 #                        Let's Encrypt variables below. Registration happens after service start.
+#                        A Mac without open ports cannot prove ownership; use SBOX_NS_TUNNEL=1 instead.
 #   SBOX_NS_ACME_EMAIL   Certificate contact email for SBOX_NS_DNS=1.
 #   SBOX_NS_ACCEPT_LETSENCRYPT_TERMS Set to 1 to accept the Let's Encrypt subscriber agreement.
 #   SBOX_NS_TELEMETRY    Set to 1 to opt in to anonymous usage statistics after quickstart/setup
@@ -27,7 +29,7 @@
 #   SBOX_NS_AUTO_UPDATE  Set to 1 to install the sbox-ns-update timer with the service and set
 #                        updates.auto_install = true (Linux with systemd, as root). Off by default.
 #   SBOX_NS_NO_SETUP     Set to 1 to skip running `sbox-ns setup`.
-#   SBOX_NS_NO_SERVICE   Set to 1 to skip `sbox-ns service install` on systemd hosts.
+#   SBOX_NS_NO_SERVICE   Set to 1 to skip the OS service installation (systemd unit or launchd job).
 #   SBOX_NS_INSECURE_SKIP_SIGNATURE Set to 1 ONLY for a manual install without signature verification.
 #                        DANGEROUS: archive hashes alone do not authenticate a release.
 #   GITHUB_TOKEN         Optional token used for GitHub API requests (avoids rate limits).
@@ -278,19 +280,27 @@ main() {
         stable | canary) ;;
         *) die "SBOX_NS_CHANNEL must be stable or canary (got '$SBOX_NS_CHANNEL')" ;;
     esac
+    platform="$(host_platform)"
+    os="${platform%%-*}"
     if [ "${SBOX_NS_DNS:-0}" = "1" ]; then
         [ "${SBOX_NS_TUNNEL:-0}" != "1" ] || die "SBOX_NS_DNS and SBOX_NS_TUNNEL cannot both be enabled."
         [ -n "${SBOX_NS_ACME_EMAIL:-}" ] && [ "${SBOX_NS_ACCEPT_LETSENCRYPT_TERMS:-0}" = "1" ] \
             || die "SBOX_NS_DNS=1 requires SBOX_NS_ACME_EMAIL and SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1."
-        is_root && has_systemd && [ "${SBOX_NS_NO_SERVICE:-0}" != "1" ] \
-            || die "SBOX_NS_DNS=1 requires root and the systemd service; otherwise start the server and run 'sbox-ns dns enable' manually."
+        if [ "$os" = "linux" ]; then
+            is_root && has_systemd && [ "${SBOX_NS_NO_SERVICE:-0}" != "1" ] \
+                || die "SBOX_NS_DNS=1 requires root and the systemd service; otherwise start the server and run 'sbox-ns dns enable' manually."
+        else
+            # macOS registers through the launchd service the installer starts below
+            # (LaunchDaemon as root, per-user LaunchAgent otherwise).
+            [ "${SBOX_NS_NO_SERVICE:-0}" != "1" ] \
+                || die "SBOX_NS_DNS=1 requires the launchd service; otherwise start the server and run 'sbox-ns dns enable' manually."
+            warn "SBOX_NS_DNS=1 needs publicly reachable HTTP/443 ports so the registry can verify ownership; on a Mac without open ports use SBOX_NS_TUNNEL=1 instead."
+        fi
     fi
     say "Optional hosted dependencies: signed DNS registration and IP updates require the sboxcool registry."
     say "Existing DNS names resolve via Bunny; player traffic goes directly to your server, not through a tunnel."
     say "Tunnel traffic uses Cloudflare. These optional services have no reliability guarantee."
 
-    platform="$(host_platform)"
-    os="${platform%%-*}"
     version="$(resolve_version)"
     validate_version "$version"
     signature_preflight
@@ -442,7 +452,11 @@ main() {
 
     auto_update_flag=""
     if [ "${SBOX_NS_AUTO_UPDATE:-0}" = "1" ]; then
-        auto_update_flag="--auto-update"
+        if [ "$os" = "linux" ]; then
+            auto_update_flag="--auto-update"
+        else
+            warn "SBOX_NS_AUTO_UPDATE=1 needs the systemd service on Linux; macOS services stay on manual updates ('sbox-ns update')."
+        fi
     fi
 
     if [ "$service_layout" -eq 1 ]; then
@@ -451,13 +465,32 @@ main() {
 
     service_installed=0
     service_running=0
-    if [ "$service_layout" -eq 1 ] && [ "$configured" -eq 1 ] && has_systemd && [ "${SBOX_NS_NO_SERVICE:-0}" != "1" ]; then
-        say "Installing systemd service"
+    # Linux root installs use the systemd unit; macOS uses a LaunchDaemon as root
+    # (/opt/sbox-ns layout) and a per-user LaunchAgent otherwise.
+    service_wanted=0
+    if [ "$configured" -eq 1 ] && [ "${SBOX_NS_NO_SERVICE:-0}" != "1" ]; then
+        if [ "$service_layout" -eq 1 ] && has_systemd; then
+            service_wanted=1
+        elif [ "$os" = "osx" ]; then
+            service_wanted=1
+        fi
+    fi
+    if [ "$service_wanted" -eq 1 ]; then
+        if [ "$service_layout" -eq 1 ]; then
+            say "Installing systemd service"
+        else
+            say "Installing launchd service"
+        fi
         # shellcheck disable=SC2086 # $dirs is intentionally split into flags
         if "$ns" service install $dirs $auto_update_flag; then
             service_installed=1
             if "$ns" service start; then
                 service_running=1
+            elif [ "$os" = "osx" ] && ! is_root && ! launchctl print "gui/$(id -u)" >/dev/null 2>&1; then
+                # A per-user LaunchAgent needs a GUI login session; an SSH-only
+                # session can install but never start it. Fail clearly instead of
+                # reporting success with nothing running.
+                die "service start failed: this session has no GUI login, so the per-user launchd service cannot start. Rerun the installer from a terminal on the Mac itself, or install the system service with 'sudo ...' so it runs as a LaunchDaemon."
             else
                 warn "service start failed; check '$BIN_NAME logs'"
             fi
@@ -498,12 +531,16 @@ main() {
         say "  $_step. Run setup:            $setup_cmd"
         _step=$((_step + 1))
     fi
-    if [ "$service_installed" -eq 1 ]; then
+    if [ "$service_installed" -eq 1 ] && { [ "$os" != "osx" ] || [ "$service_running" -eq 1 ]; }; then
         say "  $_step. Check the service:    $BIN_NAME service status"
         _step=$((_step + 1))
         say "  $_step. Follow the logs:      $BIN_NAME logs -f"
         _step=$((_step + 1))
-    elif [ "$service_layout" -eq 1 ] && has_systemd; then
+    elif [ "$service_installed" -eq 1 ]; then
+        # macOS service is registered but not running (start failed, warned above).
+        say "  $_step. Start the service:    $BIN_NAME service start"
+        _step=$((_step + 1))
+    elif { [ "$service_layout" -eq 1 ] && has_systemd; } || { [ "$os" = "osx" ] && [ "$configured" -eq 1 ]; }; then
         say "  $_step. Install the service:  $BIN_NAME service install $dirs && $BIN_NAME service start"
         _step=$((_step + 1))
     else

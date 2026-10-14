@@ -50,13 +50,15 @@ for version in "${versions[@]}"; do
     tar -C "$publish" -czf "$dir/sbox-ns-$version-$rid.tar.gz" .
   fi
   cp "$root/install/install.sh" "$root/install/install.ps1" "$dir/"
-  (cd "$dir" && sha256sum sbox-ns-* > SHA256SUMS)
+  # macOS runners may only ship shasum; the output format is the same.
+  if command -v sha256sum > /dev/null; then sums=(sha256sum); else sums=(shasum -a 256); fi
+  (cd "$dir" && "${sums[@]}" sbox-ns-* > SHA256SUMS)
   openssl dgst -sha256 -sign "$keys/release.pem" -out "$dir/SHA256SUMS.p256.sig" "$dir/SHA256SUMS"
   printf '{"version":"%s","minUpgradableFrom":null,"migrationRequired":false,"security":false,"changelogUrl":null,"publishedAt":"2020-01-01T00:00:00Z","prerelease":false}\n' \
     "$version" > "$dir/release.json"
   rm -rf "$publish"
 done
-printf '%s\n' "${versions[-1]}" > "$out/latest"
+printf '%s\n' "${versions[${#versions[@]}-1]}" > "$out/latest"
 
 if [[ -n "$previous" ]]; then
   # Real, previously published assets for this platform plus the installers and manifests.
