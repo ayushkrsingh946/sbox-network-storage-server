@@ -24,6 +24,16 @@ Needs the .NET 10 SDK and git. The editor target also needs a running, logged-in
 editor refuses to start without one ("We need Steam!"), which is why GitHub-hosted runners cannot
 run it.
 
+## CI
+
+[`.github/workflows/sbox-cli-e2e.yml`](../../.github/workflows/sbox-cli-e2e.yml) runs the dedicated
+target on `windows-latest` for pull requests that touch the server, the corpus or this tool, nightly,
+and on demand (`library`: `latest`, `main`, `git:<ref>`, `r<revision>`). Each run builds the newest
+[Facepunch/sbox-public](https://github.com/Facepunch/sbox-public) engine from source (`Setup.bat`,
+no pin), so new engine releases are picked up without changes here. It tests the library players
+currently have (`latest`) and library `main`. Source builds report engine version `0000000`; the
+evidence records the sbox-public commit instead. The rows it writes are `ci-only`.
+
 ## What it does
 
 1. Builds this checkout and starts `sbox-ns` on `127.0.0.1:8080` with a throwaway config and data

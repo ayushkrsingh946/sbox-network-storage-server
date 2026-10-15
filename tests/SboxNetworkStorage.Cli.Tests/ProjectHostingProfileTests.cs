@@ -65,4 +65,19 @@ public sealed class ProjectHostingProfileTests : IDisposable
 
         Assert.Contains("proj_missing", ex.Message);
     }
+
+    [Fact]
+    public async Task Clients_runs_from_the_cli_without_the_web_host()
+    {
+        Assert.Equal(CliApp.Ok, await ProjectCommands.RunProjectAsync(Context("project", "create", "Versions")));
+        string id;
+        await using (var services = CliServices.Build(ConfigLoader.Load(ConfigDir, DataDir, null, _ => null)))
+        {
+            var store = services.GetRequiredService<INetworkStorageStore>();
+            id = (await store.ListProjectsForUserAsync("1", CancellationToken.None)).Single().GetProperty("project_id").GetString()!;
+        }
+
+        // The client-version report needs the library matrix, which only the web host used to register.
+        Assert.Equal(CliApp.Ok, await ProjectCommands.RunProjectAsync(Context("project", "clients", id, "--json")));
+    }
 }
