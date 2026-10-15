@@ -5,49 +5,35 @@ on:
 permissions:
   contents: read
 jobs:
-  linux-tunnel:
-    name: "Linux user: No open ports guide (tunnel), rerun"
+  sbox-dedicated-linux:
+    name: "s&box dedicated server + sbox-cli (Linux)"
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     env:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - run: |
-          set -ux
-          curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
-            | env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 GITHUB_TOKEN="$GITHUB_TOKEN" sh 2>&1 | tee install.log
-          echo "installer exit: ${PIPESTATUS[1]}"
-          export PATH="$HOME/.local/bin:$PATH"
-          sbox-ns tunnel status
-          systemctl --user list-units 'sbox*' --no-pager 2>/dev/null || true
-          launchctl list 2>/dev/null | grep -i sbox || true
-          URL=$(sbox-ns config get server.public_url)
-          probe() { for i in $(seq 30); do curl -fsS "$URL/health" && return 0; sleep 2; done; return 1; }
-          if probe; then echo "AS INSTALLED: tunnel reachable"; else
-            echo "AS INSTALLED: tunnel NOT reachable; starting the server by hand"
-            (sbox-ns start > ns.log 2>&1 &)
-            if probe; then echo "AFTER sbox-ns start: tunnel reachable"; else echo "AFTER sbox-ns start: still unreachable"; tail -40 ns.log; fi
-          fi
-          sbox-ns tunnel disable || true
-  macos-tunnel:
-    name: "macOS user: No open ports guide (tunnel), rerun"
-    runs-on: macos-latest
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - shell: bash
+        run: bash ci-fixture/run-linux.sh
+      - if: always()
+        shell: bash
+        run: tail -100 sbox-server.log || true
+  sbox-dedicated-windows:
+    name: "s&box dedicated server + sbox-cli (Windows)"
+    runs-on: windows-latest
+    timeout-minutes: 45
     env:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - run: |
-          set -ux
-          curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
-            | env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 GITHUB_TOKEN="$GITHUB_TOKEN" sh 2>&1 | tee install.log
-          echo "installer exit: ${PIPESTATUS[1]}"
-          export PATH="$HOME/.local/bin:$PATH"
-          sbox-ns tunnel status
-          systemctl --user list-units 'sbox*' --no-pager 2>/dev/null || true
-          launchctl list 2>/dev/null | grep -i sbox || true
-          URL=$(sbox-ns config get server.public_url)
-          probe() { for i in $(seq 30); do curl -fsS "$URL/health" && return 0; sleep 2; done; return 1; }
-          if probe; then echo "AS INSTALLED: tunnel reachable"; else
-            echo "AS INSTALLED: tunnel NOT reachable; starting the server by hand"
-            (sbox-ns start > ns.log 2>&1 &)
-            if probe; then echo "AFTER sbox-ns start: tunnel reachable"; else echo "AFTER sbox-ns start: still unreachable"; tail -40 ns.log; fi
-          fi
-          sbox-ns tunnel disable || true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - shell: bash
+        run: bash ci-fixture/run-windows.sh
+      - if: always()
+        shell: bash
+        run: tail -100 sbox-server.log || true

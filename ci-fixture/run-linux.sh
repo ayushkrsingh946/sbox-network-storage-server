@@ -40,12 +40,20 @@ for i in $(seq 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1;
 cd "$ROOT/sboxserver"
 (./sbox-server +game "$FIX/compat_probe.sbproj" -mcp > "$ROOT/sbox-server.log" 2>&1 &)
 cd "$ROOT"
+sleep 30
+SPID=$(pgrep -x sbox-server | head -1)
+[ -n "$SPID" ] || SPID=$(powershell -NoProfile -Command "(Get-Process sbox-server -ErrorAction SilentlyContinue | Select-Object -First 1).Id" 2>/dev/null | tr -d '\r')
+echo "sbox-server process: '$SPID'"
+ls -la /tmp/CoreFxPipe_* 2>/dev/null | head
 PID=""
-for i in $(seq 120); do
+for i in $(seq 60); do
   PID=$($CLI --list 2>/dev/null | jq -r '.[0].pid // empty')
-  [ -n "$PID" ] && break; sleep 5
+  [ -n "$PID" ] && break
+  $CLI --connect "$SPID" --call instance_status >/dev/null 2>"$ROOT/connect.err" && PID=$SPID && break
+  sleep 5
 done
-echo "sbox-server pid via --list: '$PID'"
+echo "connectable pid: '$PID' (list: $($CLI --list 2>&1 | tr -d '\n'))"
+cat "$ROOT/connect.err" 2>/dev/null | tail -3
 tail -60 sbox-server.log
 [ -n "$PID" ] || exit 1
 $CLI --connect "$PID" --call instance_status
