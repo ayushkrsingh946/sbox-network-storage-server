@@ -48,6 +48,28 @@ public static class ServerBaseUrl
         => Uri.TryCreate(url, UriKind.Absolute, out var uri)
             && (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
 
+    private static readonly int[] GameLoopbackPorts = [80, 443, 8080, 8443];
+
+    /// <summary>
+    /// Why s&amp;box game code would refuse requests to this base URL, or null. Matches <c>Http.IsAllowed</c> in the
+    /// s&amp;box 26.10.13 editor: hosts that are IP addresses are refused, and loopback is allowed only on ports 80,
+    /// 443, 8080 and 8443. The editor Sync Tool is not restricted, so a refused URL still syncs.
+    /// </summary>
+    public static string? GameClientBlockReason(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        if (IsLoopback(url))
+        {
+            return GameLoopbackPorts.Contains(uri.Port)
+                ? null
+                : $"s&box game code reaches this machine only on ports 80, 443, 8080 or 8443, so requests to port {uri.Port} fail with \"Access to '...' is not allowed\" (the editor Sync Tool still works). Listen on one of those ports.";
+        }
+
+        return uri.HostNameType is UriHostNameType.IPv4 or UriHostNameType.IPv6
+            ? "s&box game code refuses IP-address hosts. Give the server a domain name (DNS record, sbox-ns tunnel enable or sbox-ns dns enable) and use it in server.public_url."
+            : null;
+    }
+
     /// <summary>First routable IPv4 address of an up interface (a VPS's public address), else the host name.</summary>
     public static string DetectHostAddress()
     {

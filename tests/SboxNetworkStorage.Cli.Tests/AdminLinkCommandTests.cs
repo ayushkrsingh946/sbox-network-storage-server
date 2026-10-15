@@ -40,6 +40,19 @@ public sealed class AdminLinkCommandTests : IDisposable
         }), () => "203.0.113.7"));
 
     [Theory]
+    [InlineData("http://127.0.0.1:8080", false)]
+    [InlineData("http://localhost:8443", false)]
+    [InlineData("http://localhost", false)]
+    [InlineData("http://127.0.0.1:8090", true)]
+    [InlineData("http://[::1]:8081", true)]
+    [InlineData("http://203.0.113.7:8080", true)]
+    [InlineData("https://203.0.113.7", true)]
+    [InlineData("http://ns.example.com:3000", false)]
+    [InlineData("https://ns.example.com", false)]
+    public void Game_clients_refuse_ip_hosts_and_loopback_outside_the_allowed_ports(string url, bool refused)
+        => Assert.Equal(refused, ServerBaseUrl.GameClientBlockReason(url) is not null);
+
+    [Theory]
     [InlineData(null, 15)]
     [InlineData("1", 1)]
     [InlineData("60", 60)]

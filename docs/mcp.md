@@ -62,7 +62,8 @@ needs `sbox-ns start` running in a terminal.
 ### Claude Code plugin
 
 This repository is also a Claude Code plugin marketplace. The plugin adds the
-MCP server and skills for setup, design, debugging and operations:
+MCP server and skills for setup, design, debugging, operations and in-editor
+playtests (with sbox-cli, below):
 
 ```text
 /plugin marketplace add sbox-cool/sbox-network-storage-server
@@ -71,6 +72,32 @@ MCP server and skills for setup, design, debugging and operations:
 
 It starts `sbox-ns mcp` locally. For a VPS, add the SSH form above with
 `claude mcp add` instead; the skills work with either.
+
+### Together with sbox-cli (the s&box editor)
+
+s&box ships `sbox-cli` (`<s&box>/bin/managed/sbox-cli.exe`), an MCP bridge to a
+running editor or game: compile status, play mode, the console, and C# run
+inside the game (`run_csharp`). With both servers connected, an agent can
+call your game's real Network Storage library in play mode and check each call
+against `logs_requests`, instead of only dry-running endpoints.
+
+Run this in your game folder with the project open in the editor (the folder
+picks the editor; the install path differs per machine):
+
+```sh
+claude mcp add sbox -- "C:/Program Files (x86)/Steam/steamapps/common/sbox/bin/managed/sbox-cli.exe" --connect
+```
+
+Then use the `playtest` prompt. `sbox-cli --skill-install` adds Facepunch's
+own skill for the editor tools. For a single call from a shell, use
+`sbox-cli --call editor_status`.
+
+Game code in s&box refuses IP-address hosts and reaches this machine only on
+ports 80, 443, 8080 or 8443, so a local test server should listen on one of
+those (`client_snippet` warns otherwise; see
+[client-setup.md](client-setup.md#client-reachability)). `run_csharp` and play
+mode change real records on the server the game points at; use a development
+project.
 
 ## Turning on changes
 
@@ -142,7 +169,7 @@ Building the game backend:
 | `definition_delete` | Delete a definition (needs `mcp.allow_destructive`) |
 | `endpoint_test` | Dry-run an endpoint: status, body, every step, and the writes it would make. Nothing is stored. |
 | `tests_run` | Run the saved endpoint tests as dry runs |
-| `client_snippet` | The game's `Configure` line for an existing project, with warnings about localhost and plain HTTP |
+| `client_snippet` | The game's `Configure` line for an existing project, with warnings about localhost, plain HTTP, and addresses s&box game code refuses |
 | `endpoint_snippet` | C# that calls an endpoint and reads its error |
 
 Debugging:
@@ -156,8 +183,8 @@ Debugging:
 | `data_record_write`, `data_record_delete` | Change records (need `mcp.allow_data_writes` / `mcp.allow_destructive`, plus the record's current version) |
 
 The server also offers its guides as MCP resources (`sbox-ns://docs/client-setup`,
-`game-client`, `mcp`, `admin-panel`) and three prompts: `first-setup`,
-`new-endpoint` and `debug-player`.
+`game-client`, `mcp`, `admin-panel`) and four prompts: `first-setup`,
+`new-endpoint`, `debug-player` and `playtest` (needs sbox-cli, above).
 
 `sbox-ns dev <tool>` is the command behind the development tools. It reads the
 tool's arguments as one JSON object on stdin and prints JSON, so YAML and

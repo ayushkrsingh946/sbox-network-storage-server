@@ -168,7 +168,7 @@ Database restore and import are never tools. Follow the
 [MCP guide](docs/mcp.md) for connection, permissions and the tool list.
 
 For Claude Code, this repository is a plugin marketplace with the MCP server
-and skills for setup, design, debugging and operations:
+and skills for setup, design, debugging, operations and in-editor playtests:
 `/plugin marketplace add sbox-cool/sbox-network-storage-server`, then
 `/plugin install sbox-ns@sbox-ns`.
 
