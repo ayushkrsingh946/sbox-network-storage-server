@@ -13,9 +13,10 @@ dotnet build -c Release sbox-public/engine/Launcher/SboxCli/Sbox-Cli.csproj -o "
 CLI="dotnet $ROOT/cli/sbox-cli.dll"
 $CLI --help | head -3
 
-# 2. s&box dedicated server, anonymous.
+# 2. s&box dedicated server, anonymous (steamcmd is flaky: retry the install).
 mkdir -p steamcmd && curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz -C steamcmd
-./steamcmd/steamcmd.sh +force_install_dir "$ROOT/sboxserver" +login anonymous +app_update 1892930 validate +quit | tail -5
+for i in 1 2 3; do ./steamcmd/steamcmd.sh +force_install_dir "$ROOT/sboxserver" +login anonymous +app_update 1892930 validate +quit | tail -3; [ -x "$ROOT/sboxserver/sbox-server" ] && break; echo "steamcmd attempt $i failed, retrying"; sleep 10; done
+[ -x "$ROOT/sboxserver/sbox-server" ] || { echo "STEAMCMD FAILED"; ls -la "$ROOT/sboxserver"; exit 1; }
 mkdir -p ~/.steam/sdk64 && ln -sf "$ROOT/steamcmd/linux64/steamclient.so" ~/.steam/sdk64/
 ls "$ROOT/sboxserver" | head -30
 cat "$ROOT/sboxserver/.version" 2>/dev/null
@@ -35,6 +36,7 @@ printf 'sourceVersion: 1\nkind: endpoint\nid: ping\nmethod: "POST"\nsteps: []\nr
 jq -n --arg p "$PROJECT" --rawfile s ping.yml '{projectId:$p, kind:"endpoint", source:$s, confirm:($p+"/endpoint/ping"), target:"live"}' | sbox-ns dev definition_save
 (sbox-ns start > ns.log 2>&1 &)
 for i in $(seq 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
+curl -fsS http://127.0.0.1:8080/health || { echo "SBOX-NS FAILED TO START"; tail -40 ns.log; exit 1; }
 
 # 5. Dedicated server on the local project, with the MCP pipe.
 cd "$ROOT/sboxserver"
