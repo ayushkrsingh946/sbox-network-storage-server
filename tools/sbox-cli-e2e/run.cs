@@ -16,6 +16,7 @@ Directory.CreateDirectory(o.Out);
 var ev = new Evidence(o.Out);
 var started = new List<Process>();
 var exit = 1;
+var runStarted = DateTime.UtcNow;
 try
 {
 	exit = await E2E.RunAsync(o, ev, started);
@@ -28,6 +29,7 @@ catch (Exception error)
 finally
 {
 	foreach (var p in started) Proc.Kill(p);
+	Files.CopyRecentLogs(Path.Combine(o.Engine, "logs"), Path.Combine(o.Out, "engine-logs"), runStarted);
 	ev.Save();
 }
 return exit;
@@ -282,7 +284,7 @@ static class E2E
 		var compiled = J.Bool(status.Editor, "lastCompileSucceeded");
 		ev.Check("editor.compile", "A", compiled, compiled ? "library and fixture compile in the editor" : "compile failed: " + status.Editor?["lastCompileErrors"]?.ToJsonString(), required: true);
 		File.WriteAllText(Path.Combine(ev.Dir, "compile_status.json"), (await cli.CallAsync("compile_status")).Text);
-		var toolset = (await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_sync_push" })).Text.Contains("ns_sync_push");
+		var toolset = HasTool(await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_sync_push" }), "ns_sync_push");
 		ev.Identity["driver"] = toolset ? "network_storage toolset" : "run_csharp";
 		if (!compiled) return;
 
@@ -327,10 +329,13 @@ static class E2E
 		var pid = ds.Id.ToString();
 		if (!await WaitAsync(o.StartupTimeout, async () => !ds.HasExited && (await cli.CallAsync("instance_status", connect: pid, timeout: 20)).Ok))
 			throw new InvalidOperationException($"sbox-server never answered sbox-cli (exited: {ds.HasExited}); see {log}");
-		var status = await WaitForIdleAsync(cli, pid, editor: false, o.StartupTimeout);
-		ev.Identity["engine"] ??= new JsonObject { ["version"] = J.Str(status.Instance, "version"), ["target"] = "dedicated" };
+		// The process answers before `+game` has loaded the project; wait until it reports one.
+		var status = await WaitForIdleAsync(cli, pid, editor: false, o.StartupTimeout, requireProject: true);
+		if (J.Str(status.Instance, "project") is null && J.Str(status.Instance, "game") is null)
+			throw new InvalidOperationException($"sbox-server never loaded the fixture project; see {Path.Combine(o.Out, "engine-logs")}");
+		ev.Identity["engine"] ??= new JsonObject { ["version"] = J.Str(status.Instance, "version"), ["commit"] = await EngineCommitAsync(o.Engine), ["target"] = "dedicated" };
 		ev.Identity["os"] ??= RuntimeInformation.OSDescription;
-		var toolset = (await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_call_endpoint" }, connect: pid)).Text.Contains("ns_call_endpoint");
+		var toolset = HasTool(await cli.CallAsync("search_tools", new JsonObject { ["query"] = "ns_call_endpoint" }, connect: pid), "ns_call_endpoint");
 		ev.Identity["dedicatedDriver"] = toolset ? "network_storage toolset" : "run_csharp";
 		await RuntimeProbeAsync(ev, cli, pid, server, "dedicated", toolset);
 		File.WriteAllText(Path.Combine(ev.Dir, "dedicated-console.txt"), (await cli.CallAsync("read_console", new JsonObject { ["filter"] = "NetworkStorage", ["limit"] = 200 }, connect: pid)).Text);
@@ -394,7 +399,17 @@ static class E2E
 
 	record IdleStatus(JsonNode? Instance, JsonNode? Editor);
 
-	static async Task<IdleStatus> WaitForIdleAsync(SboxCli cli, string? pid, bool editor, int timeout)
+	static bool HasTool(CallResult search, string name) =>
+		search.Json?["tools"] is JsonArray tools && tools.Any(t => J.Str(t, "name") == name);
+
+	/// <summary>Source builds report version 0000000; record the sbox-public commit they were built from.</summary>
+	static async Task<string?> EngineCommitAsync(string engine)
+	{
+		var r = await Proc.RunAsync("git", ["rev-parse", "HEAD"], engine, TimeSpan.FromSeconds(10));
+		return r.Code == 0 ? r.Stdout.Trim() : null;
+	}
+
+	static async Task<IdleStatus> WaitForIdleAsync(SboxCli cli, string? pid, bool editor, int timeout, bool requireProject = false)
 	{
 		IdleStatus last = new(null, null);
 		await WaitAsync(timeout, async () =>
@@ -402,7 +417,8 @@ static class E2E
 			var instance = (await cli.CallAsync("instance_status", connect: pid, timeout: 30)).Json;
 			var editorStatus = editor ? (await cli.CallAsync("editor_status", connect: pid, timeout: 30)).Json : null;
 			last = new(instance, editorStatus);
-			return instance?["isLoading"]?.GetValueKind() == JsonValueKind.False && (!editor || editorStatus?["isCompiling"]?.GetValueKind() == JsonValueKind.False);
+			var loaded = !requireProject || J.Str(instance, "project") is not null || J.Str(instance, "game") is not null;
+			return loaded && instance?["isLoading"]?.GetValueKind() == JsonValueKind.False && (!editor || editorStatus?["isCompiling"]?.GetValueKind() == JsonValueKind.False);
 		});
 		return last;
 	}
@@ -596,6 +612,17 @@ static class Http
 
 static class Files
 {
+	/// <summary>Copies engine logs written during this run (the dedicated server logs to its own logs/ folder, not stdout).</summary>
+	public static void CopyRecentLogs(string from, string to, DateTime since)
+	{
+		if (!Directory.Exists(from)) return;
+		foreach (var file in Directory.EnumerateFiles(from, "*.log").Where(f => File.GetLastWriteTimeUtc(f) >= since))
+		{
+			Directory.CreateDirectory(to);
+			try { File.Copy(file, Path.Combine(to, Path.GetFileName(file)), overwrite: true); } catch (IOException) { }
+		}
+	}
+
 	public static void CopyDirectory(string from, string to)
 	{
 		foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
