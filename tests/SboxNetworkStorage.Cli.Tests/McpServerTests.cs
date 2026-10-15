@@ -121,8 +121,11 @@ public sealed class McpServerTests
         var skills = Directory.GetFiles(Path.Combine(root.FullName, "agent-plugin", "skills"), "SKILL.md", SearchOption.AllDirectories);
         Assert.NotEmpty(skills);
         var tools = McpServer.ToolNames.ToHashSet(StringComparer.Ordinal);
-        // The playtest skill also names tools of the s&box editor's own MCP bridge (sbox-cli).
-        tools.UnionWith(["editor_status", "compile_status", "play_start", "play_stop", "read_console", "run_csharp"]);
+        // The playtest skill also names tools of the s&box editor's own MCP bridge (sbox-cli)
+        // and the library's `network_storage` sbox-cli toolset (sbox-cool/sbox-network-storage).
+        tools.UnionWith(["editor_status", "compile_status", "play_start", "play_stop", "read_console", "run_csharp", "search_tools"]);
+        tools.UnionWith(["network_storage", "ns_editor_status", "ns_sync_preflight", "ns_sync_push", "ns_auto_test",
+            "ns_status", "ns_configure", "ns_call_endpoint", "ns_get_document", "ns_game_values"]);
         foreach (var skill in skills)
         {
             // Inline code that looks like a tool name (lower_snake_case) must be one.
