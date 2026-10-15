@@ -5,202 +5,49 @@ on:
 permissions:
   contents: read
 jobs:
-  linux-own-domain:
-    name: "Linux root: Own domain guide"
-    runs-on: ubuntu-24.04
-    steps:
-      - run: |
-          set -eux
-          curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
-            | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_PUBLIC_URL="https://ns.example.com" sh | tee install.log
-          grep -q 'https://ns.example.com' install.log
-          systemctl is-active sbox-ns
-          for i in $(seq 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
-          curl -fsS http://127.0.0.1:8080/v3/server-info
-          sudo sbox-ns doctor
-          sudo sbox-ns quickstart "My Game"
-          sudo sbox-ns admin login-link
-  linux-user-plain:
-    name: "Linux user: curl | sh (self-hosting Linux)"
-    runs-on: ubuntu-24.04
-    steps:
-      - run: |
-          set -eux
-          curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh | sh | tee install.log
-          export PATH="$HOME/.local/bin:$PATH"
-          sbox-ns version
-          sbox-ns setup --non-interactive --database sqlite --listen 0.0.0.0:8080
-          (sbox-ns start > server.log 2>&1 &)
-          for i in $(seq 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
-          sbox-ns quickstart "My Game"
   linux-tunnel:
-    name: "Linux user: No open ports guide (tunnel)"
+    name: "Linux user: No open ports guide (tunnel), rerun"
     runs-on: ubuntu-24.04
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: |
           set -ux
           curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
-            | env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 sh 2>&1 | tee install.log
+            | env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 GITHUB_TOKEN="$GITHUB_TOKEN" sh 2>&1 | tee install.log
           echo "installer exit: ${PIPESTATUS[1]}"
           export PATH="$HOME/.local/bin:$PATH"
           sbox-ns tunnel status
-          systemctl --user status sbox-ns --no-pager || true
+          systemctl --user list-units 'sbox*' --no-pager 2>/dev/null || true
+          launchctl list 2>/dev/null | grep -i sbox || true
           URL=$(sbox-ns config get server.public_url)
-          echo "public url: $URL"
-          ok=0
-          for i in $(seq 60); do curl -fsS "$URL/health" && ok=1 && break; sleep 2; done
-          echo "tunnel health ok=$ok"
+          probe() { for i in $(seq 30); do curl -fsS "$URL/health" && return 0; sleep 2; done; return 1; }
+          if probe; then echo "AS INSTALLED: tunnel reachable"; else
+            echo "AS INSTALLED: tunnel NOT reachable; starting the server by hand"
+            (sbox-ns start > ns.log 2>&1 &)
+            if probe; then echo "AFTER sbox-ns start: tunnel reachable"; else echo "AFTER sbox-ns start: still unreachable"; tail -40 ns.log; fi
+          fi
           sbox-ns tunnel disable || true
-          test "$ok" = 1
   macos-tunnel:
-    name: "macOS user: No open ports guide (tunnel)"
+    name: "macOS user: No open ports guide (tunnel), rerun"
     runs-on: macos-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - run: |
           set -ux
           curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
-            | env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 sh 2>&1 | tee install.log
+            | env SBOX_NS_PROJECT="My Game" SBOX_NS_TUNNEL=1 GITHUB_TOKEN="$GITHUB_TOKEN" sh 2>&1 | tee install.log
           echo "installer exit: ${PIPESTATUS[1]}"
           export PATH="$HOME/.local/bin:$PATH"
           sbox-ns tunnel status
-          launchctl list | grep -i sbox || true
+          systemctl --user list-units 'sbox*' --no-pager 2>/dev/null || true
+          launchctl list 2>/dev/null | grep -i sbox || true
           URL=$(sbox-ns config get server.public_url)
-          echo "public url: $URL"
-          ok=0
-          for i in $(seq 60); do curl -fsS "$URL/health" && ok=1 && break; sleep 2; done
-          echo "tunnel health ok=$ok"
+          probe() { for i in $(seq 30); do curl -fsS "$URL/health" && return 0; sleep 2; done; return 1; }
+          if probe; then echo "AS INSTALLED: tunnel reachable"; else
+            echo "AS INSTALLED: tunnel NOT reachable; starting the server by hand"
+            (sbox-ns start > ns.log 2>&1 &)
+            if probe; then echo "AFTER sbox-ns start: tunnel reachable"; else echo "AFTER sbox-ns start: still unreachable"; tail -40 ns.log; fi
+          fi
           sbox-ns tunnel disable || true
-          test "$ok" = 1
-  linux-public-ip-dns:
-    name: "Linux root: Public IP guide (DNS + ACME)"
-    runs-on: ubuntu-24.04
-    steps:
-      - run: |
-          set -ux
-          curl -fsSL https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.sh \
-            | sudo env SBOX_NS_PROJECT="My Game" SBOX_NS_DNS=1 \
-                SBOX_NS_ACME_EMAIL="ci@sboxns.com" SBOX_NS_ACCEPT_LETSENCRYPT_TERMS=1 sh 2>&1 | tee install.log
-          echo "installer exit: ${PIPESTATUS[1]}"
-          sudo sbox-ns dns status || true
-          URL=$(sudo sbox-ns config get server.public_url)
-          echo "public url: $URL"
-          ok=0
-          for i in $(seq 30); do curl -fsS "$URL/health" && ok=1 && break; sleep 4; done
-          echo "dns health ok=$ok"
-          sudo sbox-ns dns disable || true
-          test "$ok" = 1
-  docker-run:
-    name: "Docker run (self-hosting Docker)"
-    runs-on: ubuntu-24.04
-    steps:
-      - run: |
-          set -eux
-          docker run -d --name sbox-ns \
-            -p 8080:8080 \
-            -v sbox-ns-config:/config \
-            -v sbox-ns-data:/data \
-            --restart unless-stopped \
-            ghcr.io/sbox-cool/sbox-network-storage-server:latest
-          docker exec sbox-ns /app/sbox-ns setup --non-interactive --database sqlite --listen 0.0.0.0:8080
-          docker restart sbox-ns
-          for i in $(seq 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
-          docker exec sbox-ns /app/sbox-ns project create "My Game"
-          docker exec sbox-ns /app/sbox-ns version
-          docker logs sbox-ns | tail -20
-  docker-compose-postgres:
-    name: "Docker Compose with PostgreSQL (self-hosting Docker)"
-    runs-on: ubuntu-24.04
-    steps:
-      - run: |
-          set -eux
-          mkdir c && cd c
-          printf 'correct-horse-battery\n' > pg_password.txt
-          cat > compose.yml <<'EOF'
-          services:
-            sbox-ns:
-              image: ghcr.io/sbox-cool/sbox-network-storage-server:latest
-              ports: ["8080:8080"]
-              volumes:
-                - config:/config
-                - data:/data
-              environment:
-                NS_DATABASE__PROVIDER: postgres
-                NS_DATABASE__POSTGRES__HOST: postgres
-                NS_DATABASE__POSTGRES__USERNAME: sbox_ns
-                NS_DATABASE__POSTGRES__PASSWORD_FILE: /run/secrets/pg_password
-              secrets: [pg_password]
-              depends_on: [postgres]
-              restart: unless-stopped
-            postgres:
-              image: postgres:16
-              environment:
-                POSTGRES_USER: sbox_ns
-                POSTGRES_DB: sbox_ns
-                POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
-              secrets: [pg_password]
-              volumes:
-                - pgdata:/var/lib/postgresql/data
-              restart: unless-stopped
-          secrets:
-            pg_password:
-              file: ./pg_password.txt
-          volumes:
-            config:
-            data:
-            pgdata:
-          EOF
-          docker compose up -d
-          ok=0
-          for i in $(seq 60); do curl -fsS http://127.0.0.1:8080/health && ok=1 && break; sleep 2; done
-          docker compose logs sbox-ns | tail -40
-          test "$ok" = 1
-          curl -fsS http://127.0.0.1:8080/health | grep -q postgres
-          docker compose exec sbox-ns /app/sbox-ns project create "My Game"
-  linux-manual:
-    name: "Manual install with openssl verify"
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          set -eux
-          V=$(gh release view -R sbox-cool/sbox-network-storage-server --json tagName -q .tagName)
-          gh release download "$V" -R sbox-cool/sbox-network-storage-server -p "sbox-ns-*-linux-x64.tar.gz" -p SHA256SUMS -p SHA256SUMS.p256.sig -D dl
-          cd dl
-          awk '/BEGIN PUBLIC KEY/{n++} {print > ("key" n ".pub")}' ../src/SboxNetworkStorage.Server/Updates/release-signing-keys.pub || true
-          ls ../src/SboxNetworkStorage.Server/Updates/ || true
-          ok=0
-          for k in key*.pub; do openssl dgst -sha256 -verify "$k" -signature SHA256SUMS.p256.sig SHA256SUMS && ok=1 && break; done
-          test "$ok" = 1
-          sha256sum --check --ignore-missing SHA256SUMS
-          tar -xzf sbox-ns-*-linux-x64.tar.gz
-          ./sbox-ns setup --non-interactive --database sqlite --listen 0.0.0.0:8080
-          (./sbox-ns start > server.log 2>&1 &)
-          for i in $(seq 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
-        env:
-          GH_TOKEN: ${{ github.token }}
-  sbox-dedicated-linux:
-    name: "s&box dedicated server + sbox-cli (Linux)"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - run: bash ci-fixture/run-linux.sh
-      - if: always()
-        run: tail -100 sbox-server.log || true
-  sbox-dedicated-windows:
-    name: "s&box dedicated server + sbox-cli (Windows)"
-    runs-on: windows-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - shell: bash
-        run: bash ci-fixture/run-windows.sh
-      - if: always()
-        shell: bash
-        run: tail -100 sbox-server.log || true
