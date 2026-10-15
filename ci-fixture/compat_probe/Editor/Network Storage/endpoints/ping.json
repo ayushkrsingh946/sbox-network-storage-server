@@ -1,0 +1,9 @@
+{
+  "sourceVersion": 1,
+  "kind": "endpoint",
+  "id": "ping",
+  "description": "Legacy JSON source",
+  "method": "POST",
+  "steps": [],
+  "response": { "status": 200, "body": { "ok": true, "pong": true } }
+}

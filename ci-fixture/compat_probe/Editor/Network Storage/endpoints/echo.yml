@@ -1,0 +1,10 @@
+sourceVersion: 1
+kind: endpoint
+id: echo
+description: "Plain-named yml"
+method: "POST"
+steps: []
+response:
+  status: 200
+  body:
+    ok: true

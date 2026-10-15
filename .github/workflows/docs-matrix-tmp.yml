@@ -1,39 +1,27 @@
-name: Docs combination check (temporary)
+name: s&box editor E2E (experiment)
 on:
   push:
     branches: [ci/docs-matrix-check]
 permissions:
   contents: read
 jobs:
-  sbox-dedicated-linux:
-    name: "s&box dedicated server + sbox-cli (Linux)"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      GITHUB_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-      - shell: bash
-        run: bash ci-fixture/run-linux.sh
-      - if: always()
-        shell: bash
-        run: tail -100 sbox-server.log || true
-  sbox-dedicated-windows:
-    name: "s&box dedicated server + sbox-cli (Windows)"
+  editor-windows:
+    name: "s&box editor (source build) + sbox-cli, Windows"
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     env:
       GITHUB_TOKEN: ${{ github.token }}
+      OUT: ${{ github.workspace }}/e2e-out
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      - shell: bash
-        run: bash ci-fixture/run-windows.sh
+      - shell: pwsh
+        run: ./ci-fixture/editor-e2e.ps1
       - if: always()
-        shell: bash
-        run: tail -100 sbox-server.log || true
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-e2e
+          path: e2e-out
+          if-no-files-found: warn
