@@ -1,0 +1,12 @@
+sourceVersion: 1
+kind: collection
+id: gamecfg
+name: "gamecfg"
+scope: "global"
+visibility: "public"
+constants:
+  -
+    id: "rules"
+    name: "Rules"
+    entries:
+      xp_per_level: 100

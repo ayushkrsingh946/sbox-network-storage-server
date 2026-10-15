@@ -20,6 +20,14 @@ Two MCP servers work together:
 
 The `playtest` prompt on the sbox-ns server walks through the same loop.
 
+Newer library builds add their own `network_storage` toolset to sbox-cli;
+`search_tools` with `ns_` shows whether the installed library has it. When it
+does, prefer it over hand-written `run_csharp`: `ns_editor_status`,
+`ns_sync_preflight`, `ns_sync_push` (push with readback verification) and
+`ns_auto_test` in the editor; `ns_status`, `ns_configure`, `ns_call_endpoint`,
+`ns_get_document` and `ns_game_values` in play mode or a game/dedicated server
+started with `-mcp`. Older libraries only have `run_csharp`.
+
 ## Before playing
 
 1. `editor_status`: the right project, `LastCompileSucceeded` true. On a
@@ -36,7 +44,8 @@ The `playtest` prompt on the sbox-ns server walks through the same loop.
 
 1. `play_start`, then `read_console` with `filter: "NetworkStorage"`; keep the
    returned cursor.
-2. `run_csharp` with a short method body. Write longer ones to a file in the
+2. `ns_call_endpoint` (`slug`, `input`), or with older libraries `run_csharp`
+   with a short method body. Write longer ones to a file in the
    session exchange directory and pass `path`:
 
    ```csharp

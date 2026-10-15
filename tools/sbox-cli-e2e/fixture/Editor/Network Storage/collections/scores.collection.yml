@@ -1,0 +1,10 @@
+sourceVersion: 1
+kind: collection
+id: scores
+name: "scores"
+scope: "user"
+accessMode: "endpoint"
+schema:
+  points:
+    type: "number"
+    default: 0
