@@ -102,9 +102,10 @@ real `sbox-ns update` then run unchanged, signature checks included.
 
 | Job | Checks |
 | --- | --- |
-| Ubuntu 22.04, Ubuntu 24.04, Ubuntu 24.04 arm64 | Fresh install, and upgrade from the previous release (`0.4.0`) with layout migration; then `update`, `rollback`, port 80 through the capability drop-in, a named instance, and no seccomp, `ProtectProc` or AppArmor denials in the journal |
+| Ubuntu 22.04, Ubuntu 24.04, Ubuntu 24.04 arm64 | Fresh install, and upgrades from the newest release (`0.5.4`) and from the oldest one owners may still run (`0.4.0`, which also exercises the layout migration); then `update`, `rollback`, port 80 through the capability drop-in, a named instance, and no seccomp, `ProtectProc` or AppArmor denials in the journal |
 | Debian 12 | The same scenarios in a privileged container running systemd. GitHub has no Debian runner; the kernel is the host's, so the journal check is weaker there |
 | Windows | `install.ps1` under Windows PowerShell 5.1 and PowerShell 7, then the Windows service |
 
-Not covered: the hosted tunnel and signed DNS modes, which need the sboxcool registry. Update
-`PREVIOUS` in the workflow after each release so the upgrade path starts from the newest one.
+Not covered: the hosted tunnel and signed DNS modes, which need the sboxcool registry. After each
+release, bump the newest `previous` value in the workflow matrix so one upgrade path always starts
+from the latest release; keep `0.4.0` until releases before the state layout are out of support.
