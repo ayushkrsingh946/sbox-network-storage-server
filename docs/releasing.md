@@ -39,8 +39,12 @@ project is only the value for local builds.
    row for this server version (or release commit) and the matrix's `recommended` library, or the
    release must be marked `ci-only`. See [Release evidence](#release-evidence).
 6. Tag the commit on `main` and push the tag: `git tag v0.x.z && git push origin v0.x.z`.
-7. The release workflow runs the tests, the HTTP smoke gate and the stable-reference parity
-   diff, then builds, signs and publishes. A failing gate stops the release.
+7. The release workflow runs the tests, the HTTP smoke gate, the stable-reference parity diff and
+   the **Compat** gate (`.github/workflows/compat-matrix.yml`): the corpus diffed against the
+   stable reference and the previous release, and the real library inside s&box for every library
+   in [`compat/library-targets.json`](../compat/library-targets.json) against this release's
+   source. A library that worked on the previous release and fails on this one stops the release.
+   Then it builds, signs and publishes. A failing gate stops the release.
 8. Check the published assets: `SHA256SUMS`, `SHA256SUMS.p256.sig`, the SBOMs and the
    provenance attestations. `docs/self-hosting.md` describes how operators verify them.
 
@@ -49,6 +53,14 @@ project is only the value for local builds.
 Every release can say which library, on which engine build, it was tested with. The source is
 the `tested` list in [`compat/library-matrix.json`](../compat/library-matrix.json); editor runs
 add their rows as described in [editor-test-plan.md](editor-test-plan.md#recording-the-result).
+
+The Compat gate also writes machine-readable evidence into the signed `release.json` asset:
+`testedLibraries` lists each library it ran (`library`, sbox.game `revision`, `source`, the
+Facepunch/sbox-public `engine` commit, `target: dedicated`) with `result` `ci-only` (passed) or
+`fail`. Libraries that also fail on the previous release (an engine or library problem) are left
+out. `sbox-ns update` compares this list with the library versions the owner's games actually
+send before installing (docs/self-hosting.md, "Updates"). These are hosted-runner results, never
+an editor `pass`.
 
 1. Generate the release-notes table and put it in the GitHub Release notes:
 

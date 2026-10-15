@@ -16,6 +16,24 @@ Tracking: [server epic #57](https://github.com/sbox-cool/sbox-network-storage-se
 
 Link the parent server/client issues, counterpart PR, dependency and priority (`compat`, `priority: P0/P1/P2`). State whether the change is additive, deprecated or removal; which existing clients remain accepted; the replacement and sunset; and the request/response and database implications. A library counterpart must be merged/released before a backend removal depends on it. Include SQLite/PostgreSQL corpus results and update the tested matrix evidence. Run the unchanged legacy path, not only a newly versioned client. Reviewers must reject a shortened notice, a patch-only syntax change, or an untested removal.
 
+## Automated gates
+
+These run without anyone remembering to. All of them are `ci-only` evidence (hosted runners cannot
+start the s&box editor); they hold changes back, they do not certify a pairing.
+
+| Where | Check | Blocks |
+| --- | --- | --- |
+| Server PR and `main` | **Compat gate** ([`compat-matrix.yml`](../.github/workflows/compat-matrix.yml)): the parity corpus on the change, diffed against the approved stable reference **and against the latest release**; library version headers; the real library inside s&box (newest Facepunch/sbox-public, `-mcp` dedicated server) for every library in [`compat/library-targets.json`](../compat/library-targets.json) | Any unlisted wire difference. Any library that passes on the latest release and fails on the change (**regression**). A library failing on both is reported as an engine/library problem, not blamed on the change. |
+| Server release | The same gate inside `release.yml`, before anything is built or signed | Publishing. Passing libraries go into the signed `release.json` `testedLibraries`. |
+| Server nightly | The same gate on `main` with the newest engine | Nothing; opens or updates a `compat` issue on a regression, a contract failure, or a library that now fails on the released server too (an s&box update broke it). |
+| Library PR | Its own **Compat gate**: public API diff, the PR's library inside s&box against the latest server release and server `main`, and an editor-evidence hold for `Code/`/`Editor/` changes | See the library repo's `docs/`. |
+
+An intentional wire change is not a failure to work around: add the difference to
+[`tests/parity/intentional-differences.json`](../tests/parity/intentional-differences.json) with a
+reason in the same PR, so review sees exactly what older games will receive. When a new library
+revision is published on sbox.game, add it to `compat/library-targets.json` so every later server
+change is run against it too; keep the revisions players still run there.
+
 ## Certification: certify once, re-test on fundamental change
 
 Both sides are LTS: games embed the library for months and self-hosted servers
