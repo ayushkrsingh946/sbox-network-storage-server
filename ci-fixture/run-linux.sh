@@ -2,8 +2,10 @@
 # Throwaway: can a GitHub-hosted Linux runner load the Network Storage library in the
 # s&box dedicated server (anonymous SteamCMD) and drive it with sbox-cli over -mcp?
 set -x
+ts() { date -u +%H:%M:%S; }
 ROOT=$PWD
 FIX=$ROOT/ci-fixture/compat_probe
+echo "$(ts) apt"
 sudo apt-get update -qq && sudo apt-get install -y -qq lib32gcc-s1 >/dev/null
 
 # 1. sbox-cli from source (no engine dependencies).
@@ -15,7 +17,7 @@ $CLI --help | head -3
 
 # 2. s&box dedicated server, anonymous (steamcmd is flaky: retry the install).
 mkdir -p steamcmd && curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz -C steamcmd
-for i in 1 2 3; do ./steamcmd/steamcmd.sh +force_install_dir "$ROOT/sboxserver" +login anonymous +app_update 1892930 validate +quit | tail -3; [ -x "$ROOT/sboxserver/sbox-server" ] && break; echo "steamcmd attempt $i failed, retrying"; sleep 10; done
+for i in 1 2 3; do echo "$(ts) steamcmd attempt $i"; timeout 1200 ./steamcmd/steamcmd.sh +force_install_dir "$ROOT/sboxserver" +login anonymous +app_update 1892930 validate +quit | tail -3; [ -x "$ROOT/sboxserver/sbox-server" ] && break; echo "steamcmd attempt $i failed, retrying"; sleep 10; done
 [ -x "$ROOT/sboxserver/sbox-server" ] || { echo "STEAMCMD FAILED"; ls -la "$ROOT/sboxserver"; exit 1; }
 mkdir -p ~/.steam/sdk64 && ln -sf "$ROOT/steamcmd/linux64/steamclient.so" ~/.steam/sdk64/
 ls "$ROOT/sboxserver" | head -30

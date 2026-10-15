@@ -15,7 +15,7 @@ $CLI --help | head -3
 
 # 2. s&box dedicated server, anonymous (steamcmd self-updates on first run: pre-run, then retry the install).
 mkdir -p steamcmd && curl -fsSL -o steamcmd/s.zip https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip && (cd steamcmd && unzip -q -o s.zip) && (./steamcmd/steamcmd.exe +quit || true)
-for i in 1 2 3; do ./steamcmd/steamcmd.exe +force_install_dir "$(cygpath -w "$ROOT/sboxserver")" +login anonymous +app_update 1892930 validate +quit | tail -3; [ -x "$ROOT/sboxserver/sbox-server.exe" ] && break; echo "steamcmd attempt $i failed, retrying"; sleep 10; done
+for i in 1 2 3; do timeout 1200 ./steamcmd/steamcmd.exe +force_install_dir "$(cygpath -w "$ROOT/sboxserver")" +login anonymous +app_update 1892930 validate +quit | tail -3; [ -x "$ROOT/sboxserver/sbox-server.exe" ] && break; echo "steamcmd attempt $i failed, retrying"; sleep 10; done
 [ -x "$ROOT/sboxserver/sbox-server.exe" ] || { echo "STEAMCMD FAILED"; ls -la "$ROOT/sboxserver"; exit 1; }
 powershell -NoProfile -Command "New-Item -Path HKCU:\\SOFTWARE\\Valve\\Steam\\ActiveProcess -Force | Out-Null; Set-ItemProperty -Path HKCU:\\SOFTWARE\\Valve\\Steam\\ActiveProcess -Name SteamClientDll64 -Value \"$(cygpath -w "$ROOT/steamcmd")\\steamclient64.dll\"; Set-ItemProperty -Path HKCU:\\SOFTWARE\\Valve\\Steam\\ActiveProcess -Name SteamClientDll -Value \"$(cygpath -w "$ROOT/steamcmd")\\steamclient.dll\""
 ls "$ROOT/sboxserver" | head -30
@@ -26,8 +26,9 @@ git clone -q --depth 1 https://github.com/sbox-cool/sbox-network-storage.git "$F
 git -C "$FIX/Libraries/sboxcool.network-storage" log --oneline -1
 
 # 4. sbox-ns latest release with a development project and a ping endpoint.
-powershell -NoProfile -Command "\$env:SBOX_NS_NO_SETUP='1'; irm https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.ps1 | iex" >/dev/null
+powershell -NoProfile -Command "\$env:SBOX_NS_NO_SETUP='1'; irm https://github.com/sbox-cool/sbox-network-storage-server/releases/latest/download/install.ps1 | iex" 2>&1 | tail -15
 export PATH="$(cygpath "$LOCALAPPDATA")/Programs/sbox-ns:$PATH"
+[ -x "$(cygpath "$LOCALAPPDATA")/Programs/sbox-ns/sbox-ns.exe" ] || { echo "SBOX-NS INSTALL FAILED"; exit 1; }
 sbox-ns setup --non-interactive --database sqlite --listen 127.0.0.1:8080
 sbox-ns quickstart "CI Probe" --require-sbox-auth false --json > qs.json
 PROJECT=$(jq -r .projectId qs.json); KEY=$(jq -r .publicKey qs.json)
