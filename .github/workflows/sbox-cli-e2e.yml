@@ -76,11 +76,6 @@ jobs:
         shell: pwsh
         run: dotnet run tools/sbox-cli-e2e/run.cs -- --engine $env:ENGINE --targets dedicated --library latest --startup-timeout 600 --out e2e-out/latest
 
-
-      - name: TEMP library feat/sbox-cli-toolset
-        if: always()
-        shell: pwsh
-        run: dotnet run tools/sbox-cli-e2e/run.cs -- --engine $env:ENGINE --targets dedicated --library git:feat/sbox-cli-toolset --no-build --startup-timeout 600 --out e2e-out/toolset
       - name: Library main
         if: ${{ always() && inputs.library == '' }}
         shell: pwsh

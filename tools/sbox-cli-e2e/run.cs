@@ -169,13 +169,19 @@ static class E2E
 		// 5. What the server saw.
 		if (server.Cli is not null)
 		{
-			var clients = await server.Cli.RunAsync(["project", "clients", server.ProjectId, "--days", "1", "--json"]);
-			File.WriteAllText(Path.Combine(o.Out, "server-clients.json"), clients.Stdout);
 			var requests = await server.Cli.RunAsync(["dev", "logs_requests"], stdin: new JsonObject { ["projectId"] = server.ProjectId, ["limit"] = 200 }.ToJsonString());
 			File.WriteAllText(Path.Combine(o.Out, "server-requests.json"), requests.Stdout);
 			var version = lib?.Version;
+			// Client versions are batched about once a minute (docs/game-client.md), so poll.
+			Proc.Result clients = new(1, "", "");
+			var seen = await WaitAsync(150, async () =>
+			{
+				clients = await server.Cli.RunAsync(["project", "clients", server.ProjectId, "--days", "1", "--json"]);
+				return version is null || clients.Stdout.Contains($"\"{version}\"");
+			});
+			File.WriteAllText(Path.Combine(o.Out, "server-clients.json"), clients.Stdout + clients.Stderr);
 			if (version is not null)
-				ev.Check("version.header", "G", clients.Stdout.Contains($"\"{version}\""), $"server recorded x-ns-library-version {version} (project clients)", required: true);
+				ev.Check("version.header", "G", seen, $"server recorded x-ns-library-version {version} (project clients)", required: true);
 		}
 
 		var engine = ev.Identity["engine"]?["version"]?.GetValue<string>();
