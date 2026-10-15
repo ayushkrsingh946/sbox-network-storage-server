@@ -45,7 +45,7 @@ sealed class Options
 	public bool Build = true;
 	public bool Attach;
 	public bool RequireSboxAuth;
-	public string? ServerUrl, ProjectId, PublicKey, SecretKey;
+	public string? ServerUrl, ProjectId, PublicKey, SecretKey, ServerBinary;
 	public List<string> EvidenceRefs = [];
 	public int StartupTimeout = 900;
 	public bool Editor => Targets.Contains("editor");
@@ -65,6 +65,8 @@ sealed class Options
 	  --attach                 use an editor you already opened on the fixture printed by the runner
 	  --server-url <url>       test an existing server instead of building this checkout; also pass
 	                           --project, --public-key and --secret-key
+	  --server-binary <path>   run this sbox-ns executable (for example an unpacked release's sbox-ns.exe)
+	                           instead of building this checkout
 	  --port <80|443|8080|8443> port for the managed server (default 8080; s&box game code only reaches
 	                           loopback on these ports)
 	  --require-sbox-auth      create the managed project with s&box auth on (headless runs have no token)
@@ -87,6 +89,7 @@ sealed class Options
 				case "--targets": o.Targets = Next().ToLowerInvariant(); break;
 				case "--attach": o.Attach = true; break;
 				case "--server-url": o.ServerUrl = Next().TrimEnd('/'); break;
+				case "--server-binary": o.ServerBinary = Path.GetFullPath(Next()); break;
 				case "--project": o.ProjectId = Next(); break;
 				case "--public-key": o.PublicKey = Next(); break;
 				case "--secret-key": o.SecretKey = Next(); break;
@@ -102,6 +105,8 @@ sealed class Options
 		if (o.Port is not (80 or 443 or 8080 or 8443)) { Console.Error.WriteLine("--port must be 80, 443, 8080 or 8443 (s&box loopback allowlist)"); return null; }
 		if (!o.Editor && !o.Dedicated) { Console.Error.WriteLine("--targets needs editor and/or dedicated"); return null; }
 		if (o.ServerUrl is not null && (o.ProjectId is null || o.PublicKey is null || o.SecretKey is null)) { Console.Error.WriteLine("--server-url needs --project, --public-key and --secret-key"); return null; }
+		if (o.ServerBinary is not null && o.ServerUrl is not null) { Console.Error.WriteLine("--server-binary and --server-url are exclusive"); return null; }
+		if (o.ServerBinary is not null && !File.Exists(o.ServerBinary)) { Console.Error.WriteLine($"--server-binary: {o.ServerBinary} does not exist"); return null; }
 		if (o.Library == "package" && !o.Editor) { Console.Error.WriteLine("--library package installs through the editor; add the editor target"); return null; }
 		if (string.IsNullOrEmpty(o.Engine)) o.Engine = Environment.GetEnvironmentVariable("SBOX_GAME") ?? DefaultEngine();
 		o.Engine = Path.GetFullPath(o.Engine);
@@ -195,23 +200,34 @@ static class E2E
 	static async Task<Server> StartServerAsync(Options o, string work, Evidence ev, List<Process> started)
 	{
 		var serverProject = Path.Combine(o.Root, "src", "SboxNetworkStorage.Server");
-		if (o.Build)
+		string[] command;
+		if (o.ServerBinary is not null)
 		{
-			var build = await Proc.RunAsync("dotnet", ["build", serverProject, "-c", "Release", "-v", "q", "-nologo"], o.Root, TimeSpan.FromMinutes(10));
-			if (build.Code != 0) throw new InvalidOperationException("server build failed:\n" + build.Stdout + build.Stderr);
+			command = [o.ServerBinary];
 		}
-		var dll = Path.Combine(serverProject, "bin", "Release", "net10.0", "sbox-ns.dll");
-		var ns = new NsCli(dll, Path.Combine(work, "ns", "config"), Path.Combine(work, "ns", "data"));
+		else
+		{
+			if (o.Build)
+			{
+				var build = await Proc.RunAsync("dotnet", ["build", serverProject, "-c", "Release", "-v", "q", "-nologo"], o.Root, TimeSpan.FromMinutes(10));
+				if (build.Code != 0) throw new InvalidOperationException("server build failed:\n" + build.Stdout + build.Stderr);
+			}
+			command = ["dotnet", Path.Combine(serverProject, "bin", "Release", "net10.0", "sbox-ns.dll")];
+		}
+		var ns = new NsCli(command, Path.Combine(work, "ns", "config"), Path.Combine(work, "ns", "data"));
 		var setup = await ns.RunAsync(["setup", "--non-interactive", "--database", "sqlite", "--listen", $"127.0.0.1:{o.Port}"]);
 		if (setup.Code != 0) throw new InvalidOperationException("sbox-ns setup failed: " + setup.Stderr);
 		var quick = await ns.RunAsync(["quickstart", "sbox-cli e2e", "--require-sbox-auth", o.RequireSboxAuth ? "true" : "false", "--json"]);
 		var q = JsonNode.Parse(quick.Stdout) ?? throw new InvalidOperationException("quickstart returned no JSON: " + quick.Stderr);
 		var log = Path.Combine(o.Out, "sbox-ns.log");
-		started.Add(Proc.Start("dotnet", [dll, "start", .. ns.DirArgs], o.Root, log));
+		started.Add(Proc.Start(command[0], [.. command[1..], "start", .. ns.DirArgs], o.Root, log));
 		var url = $"http://127.0.0.1:{o.Port}";
 		for (var i = 0; i < 120 && !await Http.OkAsync($"{url}/health"); i++) await Task.Delay(500);
 		if (!await Http.OkAsync($"{url}/health")) throw new InvalidOperationException($"sbox-ns did not answer /health; see {log}");
-		var commit = (await Proc.RunAsync("git", ["rev-parse", "HEAD"], o.Root, TimeSpan.FromSeconds(10))).Stdout.Trim();
+		// A prebuilt binary's source commit is not this checkout's; /v3/server-info still reports its version.
+		var commit = o.ServerBinary is null
+			? (await Proc.RunAsync("git", ["rev-parse", "HEAD"], o.Root, TimeSpan.FromSeconds(10))).Stdout.Trim()
+			: null;
 		return new Server(url, q["projectId"]!.GetValue<string>(), q["publicKey"]!.GetValue<string>(), q["secretKey"]!.GetValue<string>(), ns, commit);
 	}
 
@@ -602,11 +618,11 @@ sealed class SboxCli(string exe, string dll, string cwd, string log)
 	static string Trim(string s) => s.Length > 4000 ? s[..4000] + "…" : s.Trim();
 }
 
-sealed class NsCli(string dll, string config, string data)
+sealed class NsCli(string[] command, string config, string data)
 {
 	public string[] DirArgs => ["--config-dir", config, "--data-dir", data];
 	public Task<Proc.Result> RunAsync(string[] args, string? stdin = null) =>
-		Proc.RunAsync("dotnet", [dll, .. args, .. DirArgs], Environment.CurrentDirectory, TimeSpan.FromMinutes(2), stdin);
+		Proc.RunAsync(command[0], [.. command[1..], .. args, .. DirArgs], Environment.CurrentDirectory, TimeSpan.FromMinutes(2), stdin);
 }
 
 static class Http

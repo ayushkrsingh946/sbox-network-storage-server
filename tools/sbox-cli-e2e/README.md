@@ -38,8 +38,10 @@ evidence records the sbox-public commit instead. The rows it writes are `ci-only
 
 1. Builds this checkout and starts `sbox-ns` on `127.0.0.1:8080` with a throwaway config and data
    folder, then `quickstart` creates a project (s&box auth off unless `--require-sbox-auth`) with a
-   public and a secret key. `--server-url` with `--project/--public-key/--secret-key` tests an
-   existing server instead (a released build, PostgreSQL, or a hosted backend).
+   public and a secret key. `--server-binary <path>` does the same with a prebuilt `sbox-ns` (for
+   example an unpacked release, to compare a change against what owners run today).
+   `--server-url` with `--project/--public-key/--secret-key` tests an existing server instead
+   (PostgreSQL, or a hosted backend).
 2. Copies [`fixture/`](fixture) (game project `compat_probe` with endpoints, collections and game
    values as Sync Tool sources) and installs the library into `Libraries/sboxcool.network-storage`
    from `main`, `git:<ref>`, `r<revision>`, a local checkout (tracked files only, like a clean
