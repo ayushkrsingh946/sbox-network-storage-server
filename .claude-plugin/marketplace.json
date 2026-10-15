@@ -1,9 +1,11 @@
 {
   "name": "sbox-ns",
-  "description": "Coding-agent plugin for sbox-ns, the self-hosted s&box Network Storage server.",
   "owner": {
     "name": "sbox.cool",
     "url": "https://github.com/sbox-cool"
+  },
+  "metadata": {
+    "description": "Coding-agent plugin for sbox-ns, the self-hosted s&box Network Storage server."
   },
   "plugins": [
     {
