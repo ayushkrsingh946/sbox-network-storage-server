@@ -191,3 +191,27 @@ Distinct-player sketches merge across requests, flushes and days with approximat
 ## Safe binary rollback is a separate guarantee
 
 Schema rollback (preserved-data downgrades, schema floors, `rollback --keep-data`) is documented in [database.md](database.md). It certifies schema/config compatibility, not game behavior. For release notes, capture each prospective target's successful `compatibility --json` result against the release's schema/config and pass it as `--rollback-report /path/to/report.json` to `compat-release.py`; without reports, the generated notes explicitly certify no preserved-data target.
+
+## On the owner's server: preflight, watch, roll back
+
+CI cannot cover every library build in every published game, so each server also guards its own
+games (details in [self-hosting.md](self-hosting.md#updates)):
+
+- **Before an update**, `sbox-ns update` compares the release's signed `release.json`
+  `testedLibraries` with the library versions this server's games sent in the last 30 days. A
+  library with at least 1% of requests that the release lists as `fail` stops the update
+  (`--ignore-compat` overrides); untested builds are a warning. Unattended updates hold such a
+  release.
+- **After an update**, every request is counted per library version and server version
+  (`client_outcomes_hourly`, additive migration v7; telemetry only, nothing on the wire changes).
+  For 48 hours the server compares each library's error rate (5xx plus 4xx other than 401, 403, 409
+  and 429) with the previous release; a jump of at least 10 points and 2x, with at least 50
+  requests on both sides, is a regression. It sends one critical alert with the rollback commands,
+  shows it in `sbox-ns doctor` and the owner console's Server page, and `sbox-ns update verify`
+  prints the table (exit 5 on a regression).
+- **Rolling back** is one command: `sbox-ns rollback --keep-data` when every migration since is
+  additive, otherwise `sbox-ns rollback` (restores the pre-update backup). Unattended updates roll
+  back by themselves on a regression when that keeps all data (`updates.auto_rollback`, default on).
+
+These are self-reported library versions: they detect breakage, they never authenticate anything
+or refuse a request.
