@@ -64,6 +64,8 @@ $cfg | ConvertTo-Json | Set-Content "$fixture/Editor/Network Storage/config/publ
 Copy-Item "$root/ci-fixture/editor-sync.cs" "$out/editor-sync.cs"
 EndStep
 
+# PowerShell ships `cli` as an alias of Clear-Item, which would shadow this function.
+Remove-Item -Force Alias:cli -ErrorAction SilentlyContinue
 function Cli([string[]]$a) {
 	Push-Location $fixture
 	try { $o = & $cli @a 2>&1 | Out-String; $script:cliCode = $LASTEXITCODE; return $o } finally { Pop-Location }
