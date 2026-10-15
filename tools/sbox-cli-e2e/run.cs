@@ -744,7 +744,7 @@ sealed class Evidence(string dir)
 		var md = new StringBuilder("## sbox-cli e2e\n\n");
 		md.AppendLine($"- Server: {Identity["server"]?["version"]} ({Identity["server"]?["kind"]}, {Identity["server"]?["database"]}) commit {Identity["server"]?["commit"]}");
 		md.AppendLine($"- Library: {Identity["library"]?["version"]} from {Identity["library"]?["source"]} revision {Identity["library"]?["revision"]}");
-		md.AppendLine($"- Engine: {Identity["engine"]?["version"]} ({Identity["engine"]?["target"]}); OS: {Identity["os"]}");
+		md.AppendLine($"- Engine: {Identity["engine"]?["version"]}{(Identity["engine"]?["commit"] is JsonNode c ? $" (sbox-public {c})" : "")} ({Identity["engine"]?["target"]}); OS: {Identity["os"]}");
 		md.AppendLine($"- Result: **{(Passed ? "PASS" : "FAIL")}**\n");
 		foreach (var c in checks) md.AppendLine($"- [{(c?["pass"]?.GetValue<bool>() == true ? "x" : " ")}] {c?["section"]} `{c?["id"]}`: {c?["detail"]}{(c?["required"]?.GetValue<bool>() == false ? " (informational)" : "")}");
 		foreach (var (k, v) in observations) md.AppendLine($"- observation `{k}`: {v}");
