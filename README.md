@@ -256,15 +256,17 @@ shows observed library-version traffic and opt-in minimum impact.
 
 ### Client reachability
 
-Which kinds of URL s&box game clients can reach has not been verified yet.
-Every row is **untested**; reports are welcome.
+Checked in the s&box 26.10.13 editor (play mode) with real requests to this
+server; published games outside the editor are untested. The editor Sync Tool
+is not restricted, so a URL can sync while game calls to it fail. Details:
+[docs/client-setup.md](docs/client-setup.md#client-reachability).
 
-| Server URL type | Example | Status |
+| Server URL type | Example | Game code in the editor |
 | --- | --- | --- |
-| HTTPS domain | `https://ns.example.com` | **untested** |
-| HTTP domain | `http://ns.example.com:8080` | **untested** |
-| IP address and port | `http://203.0.113.10:8080` | **untested** |
-| localhost | `http://localhost:8080` | **untested** |
+| HTTPS domain (including `sbox-ns tunnel enable` names) | `https://ns.example.com` | allowed |
+| HTTP domain | `http://ns.example.com:8080` | allowed |
+| IP address | `http://203.0.113.10:8080` | **refused** |
+| localhost | `http://localhost:8080` | allowed on ports 80, 443, 8080 and 8443 only |
 
 ## Configuration
 

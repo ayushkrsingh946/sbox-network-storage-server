@@ -294,7 +294,7 @@ database migrations. `sbox-ns start` also generates any missing secret, so a
 Docker container works without running setup first. For scripted installs:
 
 ```sh
-sbox-ns setup --non-interactive --database sqlite --listen 0.0.0.0:8080 --public-url http://203.0.113.10:8080
+sbox-ns setup --non-interactive --database sqlite --listen 0.0.0.0:8080 --public-url http://ns.example.com:8080
 sbox-ns setup --non-interactive --database postgres --pg-host db.internal --listen 0.0.0.0:8080
 ```
 

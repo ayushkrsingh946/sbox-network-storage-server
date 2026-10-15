@@ -217,8 +217,9 @@ SMTP password) as `********`. Add `--show-secrets` to print the real value.
 listen = "0.0.0.0:8080"
 
 # The URL players and the s&box editor use to reach this server, for example
-# "https://ns.example.com" or "http://203.0.113.10:8080". Shown in setup and
-# doctor output. Empty means it is derived from `listen`.
+# "https://ns.example.com" or "http://ns.example.com:8080". s&box game code
+# refuses IP-address hosts, so use a domain name (client-setup.md). Shown in
+# setup and doctor output. Empty means it is derived from `listen`.
 public_url = ""
 
 # Where the database file, backups and ACME certificates are stored.
