@@ -17,6 +17,13 @@ Each run ends with one `tested` row in [`compat/library-matrix.json`](../compat/
 (see [Recording the result](#recording-the-result)). Tick the boxes in the PR that
 records the run, and link that PR from the row's `evidence`.
 
+**Scripted run.** [`tools/sbox-cli-e2e`](../tools/sbox-cli-e2e/README.md) drives the real editor and
+a dedicated server through sbox-cli (s&box 26.10.13+, Windows with Steam running for the editor) and
+records the five facts below itself. It covers B (Push All with post-push verification, Test Live), C
+(endpoint success and error code, `inc` with `{{values.*}}`, game values) and the dedicated secret-key
+check in D, and writes `summary.md`, `evidence.json` and a draft `tested` row. Everything else in this
+plan stays manual.
+
 ## Setup
 
 1. Server: `sbox-ns setup --non-interactive --database sqlite --listen 0.0.0.0:8080`,

@@ -1,0 +1,20 @@
+sourceVersion: 1
+kind: endpoint
+id: legacy-cond
+description: "Hand-written old-shape condition (PR 49 test)"
+method: "POST"
+steps:
+  -
+    id: "player"
+    type: "read"
+    collection: "players"
+    key: "{{steamId}}"
+  -
+    type: "condition"
+    field: "player"
+    operator: "is_null"
+    onFail: "return"
+response:
+  status: 200
+  body:
+    ok: true

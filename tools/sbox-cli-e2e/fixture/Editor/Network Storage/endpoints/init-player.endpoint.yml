@@ -1,0 +1,43 @@
+sourceVersion: 1
+kind: endpoint
+id: init-player
+description: "Initialize a new player with default values"
+method: "POST"
+steps:
+  -
+    id: "player"
+    type: "read"
+    collection: "players"
+    key: "{{steamId}}"
+  -
+    id: "is_new_player"
+    type: "condition"
+    check:
+      field: "{{player}}"
+      op: "not_exists"
+    onFail:
+      status: 409
+      error: "PLAYER_EXISTS"
+      message: "Player is already initialized."
+  -
+    id: "create"
+    type: "write"
+    collection: "players"
+    key: "{{steamId}}"
+    ops:
+      -
+        op: "set"
+        path: "currency"
+        value: 0
+      -
+        op: "set"
+        path: "xp"
+        value: 0
+      -
+        op: "set"
+        path: "level"
+        value: 1
+response:
+  status: 200
+  body:
+    ok: true

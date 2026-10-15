@@ -54,6 +54,8 @@ public static class NetworkStorageServices
         services.AddSingleton(TimeProvider.System);
         // Client-version analytics and opt-in library policy (docs/compatibility.md). The tracker buffers
         // per-request identity groups in memory; the writer flushes them into client_versions_daily.
+        // Shared with the CLI (`sbox-ns project clients` reads ClientVersionsQuery, which needs the matrix).
+        services.AddSingleton<LibraryCompatProvider>();
         services.AddSingleton<LibraryPolicyCache>();
         services.AddSingleton<ClientVersionTracker>();
         services.AddSingleton<IClientVersionStore>(sp =>

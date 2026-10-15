@@ -1,0 +1,15 @@
+sourceVersion: 1
+kind: collection
+id: players
+name: "players"
+scope: "user"
+schema:
+  currency:
+    type: "number"
+    default: 0
+  xp:
+    type: "number"
+    default: 0
+  level:
+    type: "number"
+    default: 1

@@ -1,0 +1,21 @@
+sourceVersion: 1
+kind: endpoint
+id: earn
+description: "inc op using a game value"
+method: "POST"
+steps:
+  -
+    id: "bump"
+    type: "write"
+    collection: "players"
+    key: "{{steamId}}"
+    ops:
+      -
+        op: "inc"
+        path: "xp"
+        value: "{{values.rules.xp_per_level}}"
+response:
+  status: 200
+  body:
+    ok: true
+    granted: "{{values.rules.xp_per_level}}"

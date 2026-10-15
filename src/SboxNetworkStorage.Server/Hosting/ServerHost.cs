@@ -70,7 +70,6 @@ public static class ServerHost
         builder.Services.AddNetworkStorageServer(config);
         builder.Services.AddRequestLimits(config);
         builder.Services.AddOwnerManagement(config);
-        builder.Services.AddSingleton<LibraryCompatProvider>();
         builder.Services.AddSingleton<UpdateNoticeState>();
         builder.Services.AddHostedService<UpdateCheckService>();
         builder.Services.AddSingleton<TunnelConnectorState>();
