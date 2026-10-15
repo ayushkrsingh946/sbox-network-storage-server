@@ -609,8 +609,10 @@ public static class NetworkStorageGatewayEndpoints
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { return; }
         catch { /* fail open */ }
 
-         JsonElement? body = null;
-        if (context.Request.ContentLength > 0)
+        // A chunked body has no Content-Length. The game library's heartbeat arrives that way and carries the
+        // steamId only in the body. An empty or non-JSON body fails to parse and stays null.
+        JsonElement? body = null;
+        if (context.Request.ContentLength is not 0)
         {
             try { body = await context.Request.ReadFromJsonAsync<JsonElement>(context.RequestAborted); }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException) { /* ignore bad body */ }

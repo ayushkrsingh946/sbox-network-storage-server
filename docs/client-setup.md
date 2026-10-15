@@ -17,8 +17,12 @@ the scheme, host and port of your server, with no path and no trailing slash.
 | --- | --- |
 | Domain with HTTPS (`tls.mode` = `acme` or `certificate`, or a reverse proxy) | `https://ns.example.com` |
 | Domain over plain HTTP | `http://ns.example.com:8080` |
-| Public IP and port | `http://203.0.113.10:8080` |
-| Same machine as the game (development) | `http://localhost:8080` |
+| Same machine as the game (development) | `http://localhost:8080` (ports 80, 443, 8080 or 8443 only) |
+
+s&box game code refuses a base URL whose host is an IP address, so a bare
+`http://203.0.113.10:8080` does not work: give the server a domain name (a DNS
+record, `sbox-ns tunnel enable` or `sbox-ns dns enable`). See
+[Client reachability](#client-reachability).
 
 Check the server responds from the machine running s&box:
 
@@ -157,20 +161,23 @@ On the server, `sbox-ns logs -f` follows the server log.
 
 ## Client reachability
 
-Whether s&box allows game clients to call a given kind of URL has **not been
-tested yet** against a self-hosted server. Every row below is untested. Please
-report what works for you in an issue so this table can be filled in.
+Checked with `Http.IsAllowed` in the s&box 26.10.13 editor (play mode), plus
+real requests to a local server. The editor Sync Tool is not restricted, so a
+URL can sync fine while game requests to it fail with
+`Access to '...' is not allowed`.
 
-| Server URL type | Example | Status |
+| Server URL type | Example | Game code in the editor |
 | --- | --- | --- |
-| HTTPS domain | `https://ns.example.com` | **untested** |
-| HTTP domain | `http://ns.example.com:8080` | **untested** |
-| IP address and port | `http://203.0.113.10:8080` | **untested** |
-| localhost | `http://localhost:8080` | **untested** |
+| HTTPS domain | `https://ns.example.com` | allowed (any port) |
+| HTTP domain | `http://ns.example.com:8080` | allowed (any port) |
+| IP address | `http://203.0.113.10:8080`, `https://203.0.113.10` | **refused**, public or private |
+| localhost / `127.0.0.1` / `[::1]` | `http://localhost:8080` | allowed on ports 80, 443, 8080 and 8443 only |
 
-If plain HTTP or bare IP addresses turn out to be blocked by the s&box sandbox,
-put the server behind a reverse proxy with a real domain and a TLS certificate
-(see [self-hosting.md](self-hosting.md#https)).
+A domain that does not resolve was also refused, so create the DNS record
+before testing. Published games outside the editor are untested. Please report what works for
+you in an issue. A domain with HTTPS is the safe choice
+(see [self-hosting.md](self-hosting.md#https)); `client_snippet` in
+[mcp.md](mcp.md) warns when the configured base URL would be refused.
 
 ## Moving an existing project from the managed service
 

@@ -209,6 +209,26 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
         Assert.Equal(0, host.BodyBytesRead);
     }
 
+    [SkippableFact]
+    public async Task HeartbeatWithChunkedBody_ReadsTheSteamIdFromTheBody()
+    {
+        // The game library's heartbeat arrives chunked (no Content-Length) with the steamId only in the body.
+        var project = await factory.CreateProjectAsync();
+        using var host = Limited(_ => { });
+        using var client = host.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/v3/storage/{project.ProjectId}/stats/heartbeat")
+        {
+            Content = new StringContent("{\"steamId\":\"76561198000000001\",\"event\":\"heartbeat\"}", Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("x-api-key", project.PublicKey);
+        request.Headers.Add(ChunkedHeader, "1");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("76561198000000001", body.GetProperty("steamId").GetString());
+    }
+
     // ── Rate limits ──
 
     [SkippableFact]

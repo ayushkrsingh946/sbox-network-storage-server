@@ -406,6 +406,7 @@ public static class DevCommands
                     {
                         publicKey is null ? "No enabled public key: create one with key_create type public." : null,
                         ServerBaseUrl.IsLoopback(baseUrl) ? "This base URL only works on this machine. Set server.public_url for players on other computers." : null,
+                        ServerBaseUrl.GameClientBlockReason(baseUrl),
                         baseUrl.StartsWith("http://", StringComparison.Ordinal) ? "Plain HTTP: s&box may block it outside the editor; prefer HTTPS (sbox-ns tunnel enable or tls.mode)." : null,
                         "Never put a secret key (sbox_sk_) in game code.",
                     }.Where(n => n is not null).ToArray()),
