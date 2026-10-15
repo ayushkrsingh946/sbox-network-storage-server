@@ -182,11 +182,20 @@ static class E2E
 			var seen = await WaitAsync(150, async () =>
 			{
 				clients = await server.Cli.RunAsync(["project", "clients", server.ProjectId, "--days", "1", "--json"]);
-				return version is null || clients.Stdout.Contains($"\"{version}\"");
+				return version is null || clients.Stdout.Contains($"\"{version}\"") || clients.Code != 0;
 			});
 			File.WriteAllText(Path.Combine(o.Out, "server-clients.json"), clients.Stdout + clients.Stderr);
-			if (version is not null)
+			if (version is not null && clients.Code != 0 && o.ServerBinary is not null)
+			{
+				// sbox-ns 0.5.4 and older crash on `project clients` outside the web host (fixed in #97), so a prebuilt
+				// older server (--server-binary) cannot report what it recorded. That is a server CLI defect, not a
+				// library/server compatibility result: record it without failing the run.
+				ev.Observe("version.header", $"not checked: `sbox-ns project clients` exited {clients.Code} on this server build");
+			}
+			else if (version is not null)
+			{
 				ev.Check("version.header", "G", seen, $"server recorded x-ns-library-version {version} (project clients)", required: true);
+			}
 		}
 
 		var engine = ev.Identity["engine"]?["version"]?.GetValue<string>();
