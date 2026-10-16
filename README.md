@@ -1,10 +1,11 @@
 # <img src="src/SboxNetworkStorage.Server/wwwroot/img/sbox-network-storage-icon-512.png" alt="Network Storage icon: dark interlocking ns glyph on a green tile" width="48" height="48" /> s&box Network Storage
 
-**Open-source game backend for s&box. Player-hosted, P2P or dedicated: your backend owns the saves, purchases and reward rules.**
+**Open-source game backend for s&box. Player-hosted, P2P or dedicated: your server validates saves, purchases, rewards and combat results, using game values your game reads too.**
 
 Self-host one `sbox-ns` binary with SQLite or PostgreSQL. No signup,
-subscription or mandatory telemetry. Your game hosts the sessions; your
-backend owns progression.
+subscription or mandatory telemetry. Game values, the shared numbers your game
+and server both read, are synced from the editor and versioned with each build.
+Your game hosts the sessions; your backend owns progression and checks the claims.
 
 This is the **backend server**. Games connect through the separate
 [client library and editor tools](https://github.com/sbox-cool/sbox-network-storage).
@@ -12,6 +13,24 @@ This is the **backend server**. Games connect through the separate
 **Try it without installing:** explore the read-only
 [live demo](https://demo.sboxns.com) running generated sample data.
 No login needed; every change is disabled server-side.
+
+## Security and anti-exploit
+
+- **Secret keys never ship.** A published game holds only the public key. The
+  secret key stays in editor tooling and on trusted dedicated servers. See
+  [hosting models](docs/hosting-models.md).
+- **Clients reach data through endpoints.** A new collection starts in
+  `accessMode: endpoint`. Game clients reach it only through endpoints and
+  queries, and a direct document call answers `403 ENDPOINT_ONLY`.
+- **The server recomputes claims.** An endpoint reads its limits from game values
+  and takes the time from the server clock (`{{_unixMs}}`). A `condition` step
+  stops the pipeline with an error before later `write` steps run. The
+  [combat example](docs/game-values.md#worked-example-validate-combat-without-a-dedicated-server)
+  shows two endpoints that do this.
+- **Sessions, encryption and limits.** Optional auth sessions, optional encrypted
+  requests with replay rejection, per-project rate limits, and request and audit logs.
+- **An honest limit.** Checks bound what a client can claim. They cannot prove
+  that a hit landed. Cap rewards and review the rules that matter most.
 
 ## Why self-host
 
@@ -37,16 +56,39 @@ dedicated-only endpoints. See [docs/hosting-models.md](docs/hosting-models.md)
 for where authority lives, which key each caller uses, and why secret keys
 never ship in games.
 
+## Game values
+
+Game values are the shared numbers your game and server both read: tuning
+constants, named groups and typed tables. Author them once; every published
+build keeps the values it shipped with.
+
+- **Author them in the owner console, over the API or with MCP.** Edit them on
+  the **Game values** page, `PUT /v3/manage/{projectId}/game-values`, or let a
+  coding agent work on them through MCP. YAML `game_values` collections pushed
+  by the Sync Tool are not served yet on 0.5.4
+  ([#107](https://github.com/sbox-cool/sbox-network-storage-server/issues/107)).
+- **Read them in one call.** `await NetworkStorage.GetGameValues();` loads every
+  group and table when the game starts. Game code cannot write them.
+- **Use the same numbers on the server.** Endpoints read
+  `{{values.combat.zombie_hp_per_level}}`, and `lookup` steps with `source: values`
+  read tables, so the client and the server agree.
+- **Version them with builds.** A publish writes a snapshot. **Push Staged**
+  ships changes with the next build. **Push Live** applies them to every build now.
+
+[Authoring, reading, revisions and a worked anti-exploit example](docs/game-values.md).
+
 ## Gallery
 
-Real screenshots. The first two are the public
-[demo](https://demo.sboxns.com); the last two are an owner's own server.
-Click any thumbnail for the full image.
+Owner console screenshots from release 0.5.4. Click any thumbnail for the full image.
 
 | | |
 | --- | --- |
-| <a href="docs/images/demo-dashboard.png"><img src="docs/images/demo-dashboard.png" width="400" alt="Demo project dashboard"></a><br>**Project dashboard** with generated sample data | <a href="docs/images/demo-player-records.png"><img src="docs/images/demo-player-records.png" width="400" alt="Demo player records"></a><br>**Player records** with levels, coins and quests |
-| <a href="docs/images/owner-record-editor.png"><img src="docs/images/owner-record-editor.png" width="400" alt="Record editor"></a><br>**Record editor** with schema validation and conflict protection | <a href="docs/images/owner-resources.png"><img src="docs/images/owner-resources.png" width="400" alt="Endpoint authoring"></a><br>**Backend authoring** with the same compiler as editor sync |
+| <a href="docs/images/console-project-overview.png"><img src="docs/images/console-project-overview.png" width="400" alt="Project overview in the owner console"></a><br>**Project overview** with generated sample data | <a href="docs/images/console-game-values.png"><img src="docs/images/console-game-values.png" width="400" alt="Game values page in the owner console"></a><br>**Game values** groups and tables, read by the game in one call |
+| <a href="docs/images/console-endpoint-pipeline.png"><img src="docs/images/console-endpoint-pipeline.png" width="400" alt="Endpoint pipeline in the owner console"></a><br>**Endpoint pipeline** with the steps of an endpoint in order | <a href="docs/images/console-endpoint-test.png"><img src="docs/images/console-endpoint-test.png" width="400" alt="Endpoint test in the owner console"></a><br>**Endpoint test** as a dry run that stores nothing |
+| <a href="docs/images/console-player-records.png"><img src="docs/images/console-player-records.png" width="400" alt="Player records in the owner console"></a><br>**Player records** keyed by Steam ID | <a href="docs/images/console-record-editor.png"><img src="docs/images/console-record-editor.png" width="400" alt="Record editor in the owner console"></a><br>**Record editor** with schema validation and conflict protection |
+| <a href="docs/images/console-version-history.png"><img src="docs/images/console-version-history.png" width="400" alt="Version history in the owner console"></a><br>**Version history** of published revisions | <a href="docs/images/console-server-monitoring.png"><img src="docs/images/console-server-monitoring.png" width="400" alt="Server monitoring in the owner console"></a><br>**Server monitoring** with live CPU, memory, network and latency charts |
+
+The public [demo](https://demo.sboxns.com) supplied the overview, records, record editor, version history and server monitoring shots. Game values, endpoint pipeline and endpoint test come from an owner instance seeded with the same demo data, because the public demo has no game values.
 
 ## Quickstart: Linux VPS to s&box game
 
@@ -219,9 +261,9 @@ and update your server base URL.
 
 - **Player and shared data:** per-player records keyed by Steam ID, global
   collections, named queries and leaderboards.
-- **Server authority:** endpoints and workflows execute on your server; game
-  values, player auth sessions and per-project rate limits support controlled
-  data access.
+- **Server authority:** endpoints and workflows execute on your server and check claims against game values and the server clock. Player auth sessions and per-project rate limits add controlled access.
+- **Game values:** named groups and typed tables that the game reads in one request and endpoints read on the server. They are versioned per published build. [Guide](docs/game-values.md).
+- **Owner console:** guided editors with raw YAML, dry-run endpoint tests, version history and live server monitoring.
 - **Two databases:** zero-config SQLite or PostgreSQL with a dedicated schema.
 - **One binary:** server and operator CLI, self-contained release builds for
   Linux, macOS and Windows, plus a Docker image.
@@ -403,7 +445,9 @@ Requires the .NET 10 SDK selected by `global.json`. See [CONTRIBUTING.md](CONTRI
 
 ## Security
 
-Please report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
+Please report vulnerabilities privately, see [SECURITY.md](SECURITY.md). The
+[security and anti-exploit section](#security-and-anti-exploit) above covers what
+ships in a game, what clients can reach, and where the limits are.
 
 ## Contributing
 
