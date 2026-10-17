@@ -89,7 +89,7 @@ public static class Commands
         return Ok;
     }
 
-    private sealed record Replay(Uri Target, TemplateContext Context, IReadOnlyList<CorpusFile> Corpus, TimeSpan Timeout)
+    private sealed record Replay(Uri Target, TemplateContext Context, IReadOnlyList<CorpusFile> Corpus, TimeSpan Timeout, string Root)
     {
         public static Replay FromOptions(Options options) => new(
             new Uri(options.Required("target").TrimEnd('/') + "/"),
@@ -100,14 +100,23 @@ public static class Commands
                 options.Optional("steam-id", "76561198000000001"),
                 options.Optional("steam-id-2", "76561198000000002")),
             CorpusLoader.Load(Options.ResolvePath(options.Optional("corpus", DefaultCorpus))),
-            TimeSpan.FromSeconds(int.Parse(options.Optional("timeout-seconds", "60"), System.Globalization.CultureInfo.InvariantCulture)));
+            TimeSpan.FromSeconds(int.Parse(options.Optional("timeout-seconds", "60"), System.Globalization.CultureInfo.InvariantCulture)),
+            RequestRoot(options));
 
         public async Task<RunResults> ExecuteAsync()
         {
             using var handler = new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false };
             using var http = new HttpClient(handler) { Timeout = Timeout };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("sbox-ns-parity/1.0");
-            return await new ScenarioRunner(http, Target, Context, Console.Out).RunAsync(Corpus, CancellationToken.None);
+            return await new ScenarioRunner(http, Target, Context, Console.Out, Root).RunAsync(Corpus, CancellationToken.None);
+        }
+
+        private static string RequestRoot(Options options)
+        {
+            var root = options.Optional("root", "/v3");
+            return (root is "/v3" or "/api" or "/api/v3")
+                ? root
+                : throw new ParityException($"--root must be /v3, /api or /api/v3 (got '{root}')");
         }
     }
 

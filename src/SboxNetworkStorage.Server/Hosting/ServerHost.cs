@@ -87,6 +87,8 @@ public static class ServerHost
 
         configureBuilder?.Invoke(builder);
         var app = builder.Build();
+        // Explicit v3 aliases and version-aware legacy storage dispatch run before routing.
+        app.UseMiddleware<ApiRootRewriteMiddleware>();
         app.UseMiddleware<CompatHeadersMiddleware>();
         app.UseMiddleware<ClientAddressMiddleware>();
         app.UseForwardedHeaders();
@@ -109,6 +111,7 @@ public static class ServerHost
         app.MapRecords();
         app.MapNetworkStorageGateway();
         app.MapStorageApi();
+        app.MapApiRootAliases();
 
         return app;
     }

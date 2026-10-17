@@ -9,8 +9,11 @@ using SboxNetworkStorage.Parity.Results;
 namespace SboxNetworkStorage.Parity.Replay;
 
 /// <summary>Replays the corpus in order against one server and records normalized responses.</summary>
-public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext context, TextWriter log)
+public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext context, TextWriter log, string requestRoot)
 {
+    /// <summary>Reserved <c>/api</c> families (same set as the server) keep their own meaning, so mirror runs send them under <c>/api/v3</c>.</summary>
+    private static readonly HashSet<string> ReservedApiFamilies = new(StringComparer.OrdinalIgnoreCase) { "storage", "pages", "network-storage", "v3" };
+
     public async Task<RunResults> RunAsync(IReadOnlyList<CorpusFile> corpus, CancellationToken ct)
     {
         var results = new RunResults
@@ -103,7 +106,7 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
 
     private HttpRequestMessage BuildRequest(Step step)
     {
-        var url = new StringBuilder(target.GetLeftPart(UriPartial.Authority)).Append(context.Expand(step.Path));
+        var url = new StringBuilder(target.GetLeftPart(UriPartial.Authority)).Append(WirePath(context.Expand(step.Path)));
         if (step.Query is { Count: > 0 })
         {
             url.Append('?').AppendJoin('&', step.Query.Select(q =>
@@ -138,6 +141,27 @@ public sealed class ScenarioRunner(HttpClient http, Uri target, TemplateContext 
         }
 
         return request;
+    }
+
+    /// <summary>
+    /// Maps an authored <c>/v3</c> path to the path sent for the requested root. Under <c>/api</c>, reserved
+    /// families are sent as <c>/api/v3</c> because their <c>/api</c> paths keep legacy meaning; other families use <c>/api</c>.
+    /// </summary>
+    private string WirePath(string path)
+    {
+        if (requestRoot == "/v3" || (path != "/v3" && !path.StartsWith("/v3/", StringComparison.Ordinal)))
+        {
+            return path;
+        }
+
+        var rest = path.Substring("/v3".Length);
+        if (requestRoot == "/api/v3")
+        {
+            return "/api/v3" + rest;
+        }
+
+        var family = rest.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+        return (ReservedApiFamilies.Contains(family) ? "/api/v3" : "/api") + rest;
     }
 
     private static string GenerateBody(GeneratedBody generated)

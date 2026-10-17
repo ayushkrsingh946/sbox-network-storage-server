@@ -8,8 +8,8 @@ Tracking: [server epic #57](https://github.com/sbox-cool/sbox-network-storage-se
 
 - Patch releases preserve existing request syntax, response meanings, error codes, authentication, save semantics and defaults. New fields/capabilities are additive. Follow the existing operator-version rules in [releasing.md](releasing.md); a server version bump does not authorize breaking the game API.
 - A rename introduces the replacement while continuing to accept the old form. Keep actual translation logic at the API boundary; do not scatter version checks through storage/endpoint execution. Record why the old form exists and its linked deprecation issue. Do not create empty compatibility abstractions ahead of a real rename.
-- Deprecation is a warning, not a rejection. Support a replaced library version (or API form) for **at least six calendar months after its successor ships**, with **at least 90 days of published removal notice**. The later date wins. Announced sunsets cannot be shortened. An editor-constructor incident is not evidence that published games are incompatible.
-- A removal needs a replacement already released in the library, matching issues in both repos, a migration guide, real old/new library test evidence, and an impact review including unidentified clients. Unknown clients are not proof that everyone upgraded. Prefer retaining `v3` and adding a new API generation over altering existing `v3` syntax. Any eventual removal is an explicitly migration-gated release, never a surprise patch or routine unattended update.
+- Deprecation is a warning, not a rejection and not a removal schedule. All public library methods and endpoints, and their meanings, are preserved indefinitely by default: no instant deprecation, no removal, no scheduled deletion. Warnings never authorize removal. Announced sunsets, if any, are informational only. An editor-constructor incident is not evidence that published games are incompatible.
+- A removal needs a replacement already released in the library, matching issues in both repos, a migration guide, real old/new library test evidence, an impact review including unidentified clients, and a separate explicit owner-approved multi-year migration decision. Unknown clients are not proof that everyone upgraded. Prefer retaining `v3` and adding a new API generation over altering existing `v3` syntax. Any eventual removal is an explicitly migration-gated release, never a surprise patch or routine unattended update.
 - Security/data-loss emergencies can use a narrow, advisory-linked block. Do not turn ordinary obsolescence into a security block. Player game-revision enforcement is separate from library compatibility; players cannot replace the library inside a published game.
 
 ### Every compatibility-affecting PR
@@ -82,7 +82,7 @@ require the unchanged parity corpus and SQLite/PostgreSQL suite.
 Library public methods and endpoint support are LTS surface. Do not rename,
 remove, narrow or change the meaning of a library method, endpoint, field,
 error code or auth requirement without a shipped replacement, both-repo
-`compat` issues/PRs, a migration guide, the six-month/90-day support window,
+`compat` issues/PRs, a migration guide, a separate explicit owner-approved multi-year migration decision,
 real old-client and new-client evidence, and an impact review covering
 unidentified traffic. Reviewers MUST reject silent removals, narrowed support,
 renames without translation, shortened notice, patch-only syntax changes, and
@@ -139,6 +139,21 @@ the issue as done and do not describe GUI behavior as supported until the `pass`
 exactly which rows are missing. Remove the label when the `pass` row exists, or when the change
 is reclassified to the code track with the green gate run cited.
 
+
+## Route root and storage versions
+
+The library default route root is planned to change from `/v3` to `/api` (library counterpart #36, not shipped). The root is configurable. Released libraries call `/v3/...`. There is no runtime capability switch: a library does not detect server routes and change root by itself. Servers that do not serve `/api` (every release before the `/api` root, targeted for server 0.5.5 and not yet released) need the library configured to root `v3` explicitly.
+
+- `/v3/*` and `/api/v3/*` are the only permanent surface for existing library methods and endpoints. They are kept indefinitely with their existing meanings; neither is deprecated or removed.
+- New features are served at `/api/*` only. They are not duplicated under `/v3`, and an API-only route never gains a `/v3` alias later.
+- For every existing non-reserved family, `/api/{family}/*` mirrors `/v3/{family}/*` through the same handler, auth, limits, metering, policy and error capture. Usage and analytics stay keyed by the canonical `/v3` path; the request log keeps the original path.
+- `/api/pages` and `/api/network-storage` are legacy routes with their existing meanings (for example `POST /api/network-storage/{projectId}/save-failure`). They are not mirrors.
+- `/api/storage` is version-aware. A valid `x-ns-library-version` of `1.2.0` or newer uses the canonical current v3 storage handlers. A missing, malformed (not SemVer or longer than 64 characters) or older value keeps the legacy `/api/storage` meaning unchanged; do not assume it matches `/v3/storage` for those callers.
+- Direct HTTP clients that are not the library send `x-ns-library-version: 1.2.0` when calling `/api/storage` to get the uniform storage semantics. The header selects routing only: it is not authentication, and authorization is unchanged.
+- Routing versions (the path prefix and `x-ns-library-version`) are syntax metadata, never authorization. Keys, `accessMode` and every other check still decide access.
+
+Older libraries keep calling `/v3/...`. That stays supported indefinitely: those clients can never be updated, so `/v3` is not deprecated and is not removed. `/v1` keeps its existing status. `/api` is additive-only like `/v3`: a future breaking change ships side by side under new resource names or an explicit generation segment (`/api/v4/...`), and never changes an existing `/api/{path}` or `/v3/{path}` in place.
+
 ## Client identity and response contract
 
 The wire headers are described in [game-client.md](game-client.md#library-compatibility):
@@ -152,7 +167,7 @@ handlers can supply the library version (`networkStorageVersion`,
 body fallback enriches telemetry, not authentication or a pre-handler
 enforcement decision. No additional body buffering/parsing is needed. Existing
 response bodies are unchanged except the additive `compat` object in
-`/v3/server-info`.
+`/api/server-info` (also `/v3/server-info`).
 
 The project's Errors tab captures the same request identity (library/context,
 package revision and game revision). Errors raised outside an HTTP request have
@@ -160,7 +175,7 @@ legacy/unknown context and no revision; no player IDs or API keys are added.
 
 Responses include `x-ns-server-version` and `x-ns-library-status`: `unknown`, `supported`, `outdated`, `deprecated`, `unsupported` or `blocked`. A known latest version and deprecation sunset are advertised in `x-ns-library-latest` and `x-ns-library-sunset` when relevant. The explicit project minimum can override the status of a refused request to `unsupported`.
 
-`GET /v3/server-info` adds `compat.library` with nullable `minimum`, `recommended`, `latest`, supported `legacy`, `deprecated`, `blocked`, `knownBroken` and `tested`, plus `compat.matrixUrl`. Null means no released/tested version has been established; it does not mean an invented `1.0.0`. Recommendations and sunsets do not expire working games automatically.
+`GET /api/server-info` (also `/v3/server-info`) adds `compat.library` with nullable `minimum`, `recommended`, `latest`, supported `legacy`, `deprecated`, `blocked`, `knownBroken` and `tested`, plus `compat.matrixUrl`. Null means no released/tested version has been established; it does not mean an invented `1.0.0`. Recommendations and sunsets do not expire working games automatically.
 
 The shipped matrix is immutable and offline: no unsigned remote source can impose a library minimum or a remote kill switch. The release feed may carry a `libraryCompat` overlay, but the overlay only ever tightens the *reported* status on servers that have not been updated (for example to flag a library with a security problem). It never refuses a request: enforcement reads the embedded matrix only, and requests without a parseable library version are never refused by any rule. Header identities and player counts are self-reported, not a security boundary; a hostile caller can spoof versions. Keep all real authentication/authorization checks.
 
@@ -193,7 +208,7 @@ python3 scripts/compat-release.py --matrix /path/to/release-evidence.json \
   --policy-source compat/library-matrix.json
 ```
 
-Release notes require a matching-commit `pass` for the recommended library. A maintainer can explicitly use `--allow-ci-only` only when a matching `ci-only` row exists; the output prominently says no editor pass is certified. `dotnet test` validates the committed matrix and exercises these gates; Python 3 is required. The PowerShell companion [`scripts/compat-tested-with.ps1`](../scripts/compat-tested-with.ps1) renders the same rows as the "Tested with" release-notes table; it is a notes renderer only, not the gate. The authoritative release gate is `scripts/compat-release.py` (see [releasing.md](releasing.md#release-evidence)): it also enforces the support window above, requiring a superseded deprecated library entry to sunset no earlier than six months after its successor's recorded `released` date and, when an `announced` date is recorded, no earlier than 90 days after it.
+Release notes require a matching-commit `pass` for the recommended library. A maintainer can explicitly use `--allow-ci-only` only when a matching `ci-only` row exists; the output prominently says no editor pass is certified. `dotnet test` validates the committed matrix and exercises these gates; Python 3 is required. The PowerShell companion [`scripts/compat-tested-with.ps1`](../scripts/compat-tested-with.ps1) renders the same rows as the "Tested with" release-notes table; it is a notes renderer only, not the gate. The authoritative release gate is `scripts/compat-release.py` (see [releasing.md](releasing.md#release-evidence)). For a deprecated library entry with a later supported successor, the gate enforces sunset floors: the recorded sunset must be at least six months after the successor's `released` date and, when `announced` is recorded, at least 90 days after that announcement. Announced sunsets cannot be shortened against the baseline. These floors limit how early a date may be written; a recorded sunset is informational and never authorizes removal (see [Non-breaking release rules](#non-breaking-release-rules)).
 
 A source commit cannot contain its own hash in a newly committed evidence row. Keep the release evidence as a **detached build/release artifact** after testing the final source commit; record it in the repo subsequently. Never change the tested commit to the later bookkeeping commit. Use `--matrix` for that artifact, and attach the generated table and matrix to the release. A binary's `tested` advertisement only includes records actually embedded for its version; `matrixUrl` also points to the maintained evidence history, not an authenticated policy override. The maintainer owns release-workflow attachment and the real s&box editor run.
 

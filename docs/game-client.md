@@ -13,19 +13,16 @@ Library page: `sbox.game/sboxcool/network-storage`. API and library docs:
 
 ## Base URL rule
 
-The client appends the API version itself (`/v3/...`), so the base URL is
-only scheme, host and port with no path and no trailing slash, for example
-`http://your-server:8080`. Verify the server answers from the machine
-running s&box:
+The client appends the API root itself: released libraries call `/v3/...`, and the library default is planned to change to `/api/...` (counterpart #36, not shipped). The root is configurable. The base URL is only scheme, host and port with no path and no trailing slash, for example `http://your-server:8080`. `/v3/{path}` and `/api/v3/{path}` are the permanent surface for existing methods and endpoints; new features are served at `/api/{path}` only, and `/api/{path}` mirrors existing non-reserved `/v3` families. Verify the server answers from the machine running s&box:
 
 ```sh
 curl -i http://your-server:8080/health
-curl http://your-server:8080/v3/server-info
+curl http://your-server:8080/api/server-info
 ```
 
 ## Server info handshake
 
-`GET /v3/server-info` is public and returns server identity, answered
+`GET /api/server-info` (also `/v3/server-info`) is public and returns server identity, answered
 natively without a database write:
 
 ```json
@@ -34,8 +31,9 @@ natively without a database write:
   "product": "sbox-network-storage-server",
   "version": "0.0.0-dev",
   "apiVersions": ["v3"],
+  "api": { "root": "/api", "aliases": ["/v3"], "since": "0.5.5" },
   "database": "sqlite",
-  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel"],
+  "capabilities": ["records", "global-records", "endpoints", "workflows", "queries", "game-values", "rate-limits", "auth-sessions", "analytics", "package-sync", "https-tunnel", "api-root"],
   "tunnel": { "enabled": false, "name": "", "hostname": "", "registry": "", "connectorState": "disabled", "connectorVersion": "", "processId": null, "updatedAt": "2026-10-10T00:00:00+00:00" },
   "compat": { "library": { "minimum": "1.1.0", "recommended": "1.1.0", "latest": "1.1.0", "legacy": "supported", "deprecated": [], "blocked": [], "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "Stale library breaks editor startup on s&box engine 26.10 or later.", "issue": "sbox-cool/sbox-network-storage#4" }], "tested": [] }, "matrixUrl": "https://github.com/sbox-cool/sbox-network-storage-server/blob/main/compat/library-matrix.json" },
   "update": null
@@ -71,7 +69,7 @@ The library sends these on runtime and Sync Tool requests. All are optional.
 
 |Header|Value|Meaning|
 |---|---|---|
-|`x-ns-library-version`|SemVer, e.g. `1.1.0`|Version of the Network Storage library. Missing or invalid (not `MAJOR.MINOR.PATCH[-pre][+build]`, longer than 64 characters) is the `legacy` bucket, never an error. The old constant `1.0` counts as `legacy`.|
+|`x-ns-library-version`|SemVer, e.g. `1.1.0`|Version of the Network Storage library. Missing or invalid (not `MAJOR.MINOR.PATCH[-pre][+build]`, longer than 64 characters) is the `legacy` bucket, never an error. The old constant `1.0` counts as `legacy`. On `/api/storage`, `1.2.0` or newer selects the canonical storage handlers; see [route root and storage versions](compatibility.md#route-root-and-storage-versions).|
 |`x-ns-library-revision`|integer, e.g. `309133`|s&box package revision of the library, best effort. Ignored when not a non-negative integer.|
 |`x-ns-client-type`|`game`, `editor` or `dedicated`|Which kind of client is calling. Any other value is ignored.|
 |`x-ns-revision-id`|integer|Game revision the client was built from (published bundles only).|
@@ -101,13 +99,13 @@ headers only: no response body changes, and older libraries ignore them.
 |`x-ns-server-version`|always|The server version (`BuildInfo.Version`), e.g. `0.5.0`.|
 |`x-ns-library-status`|always|`supported`, `outdated`, `deprecated`, `unsupported`, `blocked` or `unknown`.|
 |`x-ns-library-latest`|status `outdated` or worse|Newest library version the server knows.|
-|`x-ns-library-sunset`|status `deprecated`|Date (`yyyy-MM-dd`) support for that version ends.|
+|`x-ns-library-sunset`|status `deprecated`|Informational date (`yyyy-MM-dd`) attached to the deprecation warning; it never authorizes removal.|
 
 |Status|Meaning|
 |---|---|
 |`supported`|At or above the recommended version.|
 |`outdated`|Supported, but a newer version is recommended.|
-|`deprecated`|Support ends on the sunset date.|
+|`deprecated`|Warning only: the library version still works. Any sunset date is informational.|
 |`unsupported`|Below the matrix `minimum`, or a build known to be broken (for example on the engine builds named in the matrix).|
 |`blocked`|A security or data-loss problem, listed in the matrix `blocked` ranges.|
 |`unknown`|No valid library version was sent: the `legacy` bucket. The server serves it as before; the status is `unknown` because it cannot tell which build this is.|
@@ -116,7 +114,7 @@ When several rules match, the strictest status wins. The server only reports
 status. Runtime requests are served whatever the status; the editor and the
 dashboard are where developers are pushed to update.
 
-### `compat` block of `/v3/server-info`
+### `compat` block of `/api/server-info`
 
 ```json
 "compat": {
@@ -125,8 +123,8 @@ dashboard are where developers are pushed to update.
     "recommended": "1.1.0",
     "latest": "1.1.0",
     "legacy": "supported",
-    "deprecated": [{ "range": "<1.2.0", "sunset": "2027-03-01" }],
-    "blocked": [{ "range": "1.2.1", "reason": "...", "advisory": "GHSA-..." }],
+    "deprecated": [],
+    "blocked": [],
     "knownBroken": [{ "version": "1.0.165702", "revision": 165702, "engine": ">=26.10", "reason": "...", "issue": "sbox-cool/sbox-network-storage#4" }],
     "tested": [{ "server": "0.5.0", "library": "1.1.0", "revision": 310500, "engine": "26.10.02", "os": "Windows 11", "database": ["sqlite"], "result": "pass", "evidence": ["..."] }]
   },
@@ -163,14 +161,14 @@ are ignored, as is an overlay whose optional `schemaVersion` is newer than the m
 schema this server reads (1). A feed response without `libraryCompat` keeps the current
 overlay, but only for a while: after 3 consecutive checks with no overlay (or failed
 checks) the overlay expires and the embedded matrix applies again. An empty `{}` removes
-it immediately. `/v3/server-info` reports whether one is in effect in the `compat` block
+it immediately. `/api/server-info` reports whether one is in effect in the `compat` block
 (`"overlay": {"applied": true}`). Nothing needs network access:
 without the feed, the embedded matrix applies.
 
 ## Revision init handshake
 
 At game startup the client sends a one-time handshake with its running
-revision: `POST /v3/manage/{projectId}/revision-init`. The server compares
+revision: `POST /api/manage/{projectId}/revision-init`. The server compares
 it against the synced game package and reports whether the client is
 outdated. The route is read-only and never mutates the store.
 
@@ -231,15 +229,15 @@ too. Without a policy it is absent. With server-side enforcement switched
 on, expired known revisions get HTTP 403 `REVISION_BLOCKED` (secret keys
 exempt). Details: [version-policy.md](version-policy.md).
 The game package the server compares against is synced from the editor Sync
-Tool (`POST /v3/manage/{projectId}/package-sync`), exactly as with the
+Tool (`POST /api/manage/{projectId}/package-sync`), exactly as with the
 managed service. Sync your `Editor/Network Storage/` sources after pointing
 the editor at your server (see [client-setup.md](client-setup.md)), then
 publish a new build so players run against the synced revision.
 
 ## Query results
 
-`GET /v3/queries/{projectId}/{queryId}` (also `/v1/queries/...` and
-`/api/storage/{projectId}/queries/...`) runs a query over whole collections,
+`GET /api/queries/{projectId}/{queryId}` (also `/v1/queries/...`,
+`/v3/queries/...`; `/api/storage/{projectId}/queries/...` follows the [storage version rules](compatibility.md#route-root-and-storage-versions)) runs a query over whole collections,
 so the server keeps each query's latest result and shares it between
 callers:
 
