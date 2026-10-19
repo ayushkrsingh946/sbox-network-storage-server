@@ -37,6 +37,16 @@ public sealed class PostgresNetworkStorageStore : RelationalNetworkStorageStore
 
     protected override IReadOnlyList<SchemaMigration> Migrations => PostgresMigrations.All;
 
+    protected override string GameLogAttrsValueSql => "CAST(@attrs_json AS jsonb)";
+
+    // GIN on search_tokens (array containment); tokens are the same whitespace-split values the ingest writes.
+    protected override string GameLogTextPredicateSql(int tokenCount) =>
+        $"e.search_tokens @> ARRAY[{string.Join(", ", Enumerable.Range(0, tokenCount).Select(static i => $"@tok{i}"))}]::text[]";
+
+    // GIN (jsonb_path_ops) containment, so the index applies: the string form always, the literal form for numbers and booleans.
+    protected override string GameLogAttrPredicateSql(int index) =>
+        $"(e.attrs_json @> @attr_json{index}::jsonb OR e.attrs_json @> @attr_typed{index}::jsonb)";
+
     protected override async ValueTask<DbConnection> OpenConnectionAsync(CancellationToken ct)
         => await _dataSource.OpenConnectionAsync(ct);
 

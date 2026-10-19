@@ -25,6 +25,7 @@ public static class PostgresMigrations
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
         new(8, "Durable Discord webhook outbox and per-target delivery state for endpoint webhook steps", SchemaChange.Additive, V8),
         new(9, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V9),
+        new(10, "Structured game logs: per-project entries with GIN-indexed tokens and jsonb attrs (off by default)", SchemaChange.Additive, V10),
     ];
 
     // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
@@ -41,6 +42,24 @@ public static class PostgresMigrations
             PRIMARY KEY (project_id, grant_id));
         CREATE INDEX ix_media_grants_rate ON {p}media_grants (project_id, owner_steam_id, purpose, issued_at_unix_ms);
         CREATE INDEX ix_media_grants_issued ON {p}media_grants (issued_at_unix_ms);
+        """;
+
+    // Additive: one new table, its indexes and GIN indexes. Older binaries never touch them.
+    // search_tokens is the same whitespace-split token list the C# tokenizer writes to search_text (see GameLogTokenizer.SearchText).
+    private static string V10(string p) => $"""
+        CREATE TABLE {p}game_log_entries (
+            project_id {Key}, entry_id {Key}, ts_unix_ms bigint NOT NULL, stream text NOT NULL, level text NOT NULL, event text NOT NULL,
+            actor_steam_id text, target_steam_id text, revision_id bigint, client_type text, library_version text,
+            message text NOT NULL, attrs_json jsonb NOT NULL, trace_id text, search_text text NOT NULL,
+            source text NOT NULL CHECK (source IN ('client', 'server')),
+            search_tokens text[] GENERATED ALWAYS AS (string_to_array(search_text, ' ')) STORED,
+            PRIMARY KEY (project_id, entry_id));
+        CREATE INDEX ix_game_log_project_ts ON {p}game_log_entries (project_id, ts_unix_ms DESC, entry_id DESC);
+        CREATE INDEX ix_game_log_project_actor_ts ON {p}game_log_entries (project_id, actor_steam_id, ts_unix_ms DESC);
+        CREATE INDEX ix_game_log_project_target_ts ON {p}game_log_entries (project_id, target_steam_id, ts_unix_ms DESC);
+        CREATE INDEX ix_game_log_project_event_ts ON {p}game_log_entries (project_id, event, ts_unix_ms DESC);
+        CREATE INDEX ix_game_log_search_tokens ON {p}game_log_entries USING gin (search_tokens);
+        CREATE INDEX ix_game_log_attrs ON {p}game_log_entries USING gin (attrs_json jsonb_path_ops);
         """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the

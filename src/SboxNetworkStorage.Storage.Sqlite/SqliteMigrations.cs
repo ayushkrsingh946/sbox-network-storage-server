@@ -24,6 +24,7 @@ public static class SqliteMigrations
         new(7, "Hourly per-library request outcomes by server version for post-update regression checks", SchemaChange.Additive, V7),
         new(8, "Durable Discord webhook outbox and per-target delivery state for endpoint webhook steps", SchemaChange.Additive, V8),
         new(9, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V9),
+        new(10, "Structured game logs: per-project entries with an FTS5 free-text index (off by default)", SchemaChange.Additive, V10),
     ];
 
     // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
@@ -40,6 +41,29 @@ public static class SqliteMigrations
             PRIMARY KEY (project_id, grant_id)) STRICT, WITHOUT ROWID;
         CREATE INDEX ix_media_grants_rate ON {p}media_grants (project_id, owner_steam_id, purpose, issued_at_unix_ms);
         CREATE INDEX ix_media_grants_issued ON {p}media_grants (issued_at_unix_ms);
+        """;
+
+    // Additive: one new table, its indexes, an FTS5 external-content mirror and two triggers. Older binaries never touch them.
+    // seq is an INTEGER PRIMARY KEY (rowid alias) so the FTS5 content link survives VACUUM.
+    private static string V10(string p) => $"""
+        CREATE TABLE {p}game_log_entries (
+            seq INTEGER PRIMARY KEY, project_id TEXT NOT NULL, entry_id TEXT NOT NULL, ts_unix_ms INTEGER NOT NULL,
+            stream TEXT NOT NULL, level TEXT NOT NULL, event TEXT NOT NULL,
+            actor_steam_id TEXT, target_steam_id TEXT, revision_id INTEGER, client_type TEXT, library_version TEXT,
+            message TEXT NOT NULL, attrs_json TEXT NOT NULL, trace_id TEXT, search_text TEXT NOT NULL,
+            source TEXT NOT NULL CHECK (source IN ('client', 'server')),
+            UNIQUE (project_id, entry_id)) STRICT;
+        CREATE INDEX ix_game_log_project_ts ON {p}game_log_entries (project_id, ts_unix_ms DESC, entry_id DESC);
+        CREATE INDEX ix_game_log_project_actor_ts ON {p}game_log_entries (project_id, actor_steam_id, ts_unix_ms DESC);
+        CREATE INDEX ix_game_log_project_target_ts ON {p}game_log_entries (project_id, target_steam_id, ts_unix_ms DESC);
+        CREATE INDEX ix_game_log_project_event_ts ON {p}game_log_entries (project_id, event, ts_unix_ms DESC);
+        CREATE VIRTUAL TABLE {p}game_log_fts USING fts5(search_text, content='{p}game_log_entries', content_rowid='seq', tokenize='unicode61 remove_diacritics 0');
+        CREATE TRIGGER game_log_entries_fts_ai AFTER INSERT ON {p}game_log_entries BEGIN
+            INSERT INTO {p}game_log_fts (rowid, search_text) VALUES (new.seq, new.search_text);
+        END;
+        CREATE TRIGGER game_log_entries_fts_ad AFTER DELETE ON {p}game_log_entries BEGIN
+            INSERT INTO {p}game_log_fts ({p}game_log_fts, rowid, search_text) VALUES ('delete', old.seq, old.search_text);
+        END;
         """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the
