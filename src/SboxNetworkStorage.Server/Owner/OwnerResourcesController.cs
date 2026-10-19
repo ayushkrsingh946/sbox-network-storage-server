@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -139,7 +140,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         try
         {
             var resource = OwnerResourceSource.Parse(kind, definition, id, store.MaxPayloadBytes, out var resourceId);
-            var (diagnostics, result) = await OwnerResourceSource.SaveAsync(mutations, audit, "owner-dashboard", projectId, kind, resource, resourceId, resources, false, ct);
+            var (diagnostics, result) = await OwnerResourceSource.SaveAsync(mutations, audit, "owner-dashboard", projectId, kind, resource, resourceId, resources, HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), false, ct);
             if (diagnostics.Any(item => item.IsError))
             {
                 Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -174,7 +175,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
     {
         var loaded = await LoadAsync(projectId, kind, id, ct);
         if (loaded is null) return NotFound();
-        var diagnostics = OwnerResourceSource.Check(kind, definition, id, loaded.Value.Resources, store.MaxPayloadBytes, out var source, out _);
+        var diagnostics = OwnerResourceSource.Check(kind, definition, id, loaded.Value.Resources, store.MaxPayloadBytes, HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), out var source, out _);
         return Json(new { ok = !diagnostics.Any(item => item.IsError), diagnostics, source }, Web);
     }
 
@@ -200,6 +201,16 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
         }, Web);
     }
 
+    /// <summary>TypeScript declarations for this project's endpoint scripts: the shipped ns.d.ts plus the project's own names.</summary>
+    [HttpGet(Root + "/endpoint-typings")]
+    public async Task<IActionResult> EndpointTypingsDocument(string projectId, CancellationToken ct)
+    {
+        var loaded = await LoadAsync(projectId, "endpoint", null, ct);
+        if (loaded is null) return NotFound();
+        var scriptRuntimes = HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>();
+        return Content(EndpointTypings.ForProject(loaded.Value.Resources, scriptRuntimes), "text/plain; charset=utf-8");
+    }
+
     /// <summary>Creates the companion definitions an example needs (never overwrites existing resources).</summary>
     [HttpPost(Root + "/catalog/{exampleId}/companions")]
     public async Task<IActionResult> CreateCompanions(string projectId, string exampleId, CancellationToken ct)
@@ -222,7 +233,7 @@ public sealed class OwnerResourcesController(INetworkStorageProjectService proje
                 ? MergeGameValues(resources.GameValues, OwnerYamlDefinitions.ParseDefinition(companion.Source, out _))
                 : OwnerResourceSource.Wrap(companion.ResourceId, companion.Source, companion.Kind);
             var (diagnostics, result) = await OwnerResourceSource.SaveAsync(mutations, audit, "owner-dashboard", projectId, companion.Kind,
-                resource, companion.ResourceId, resources, false, ct);
+                resource, companion.ResourceId, resources, HttpContext.RequestServices.GetRequiredService<IReadOnlyList<IEndpointScriptRuntime>>(), false, ct);
             var errors = diagnostics.Where(item => item.IsError).Select(item => item.Message).ToList();
             if (errors.Count > 0 || result is null || result.StatusCode >= 400)
                 failed.Add(new { id = companion.Id, message = errors.Count > 0 ? string.Join(" ", errors) : JsonSerializer.Serialize(result?.Body) });

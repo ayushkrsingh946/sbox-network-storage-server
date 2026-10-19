@@ -24,7 +24,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Storage;
 /// workspace record while the dashboard shows the current store record is
 /// impossible.
 /// </summary>
-public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit, IEndpointSnapshotDataSource
+public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndpointRecordSizeLimit, IEndpointSnapshotDataSource, IEndpointScanCounter
 {
     private readonly INetworkStorageStore _store;
     private readonly ILogger<StoreEndpointDataSource> _logger;
@@ -258,6 +258,22 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
         }
     }
 
+    /// <summary>Live row count for the collection's routing (global or per-steamid), read without loading any row.</summary>
+    public async Task<long> CountCollectionAsync(string projectId, string collectionId, CancellationToken ct)
+    {
+        try
+        {
+            var global = await IsGlobalCollectionAsync(projectId, collectionId, ct);
+            return await _store.CountLiveRecordsAsync(projectId, collectionId, global, null, ct);
+        }
+        catch (Exception ex)
+        {
+            // A failed count is not a refusal: the scan that follows reports its own failure, as it always has.
+            _logger.LogDebug(ex, "Failed to count collection {ProjectId}/{CollectionId} in the store", projectId, collectionId);
+            return 0;
+        }
+    }
+
     public async Task<Dictionary<string, object?>?> ReadWorkflowDefinitionAsync(
         string projectId, string workflowId, CancellationToken ct)
     {
@@ -284,6 +300,50 @@ public sealed partial class StoreEndpointDataSource : IEndpointDataSource, IEndp
             _logger.LogDebug(ex, "Failed to read workflow definition {ProjectId}/{WorkflowId} from Store", projectId, workflowId);
             return null;
         }
+    }
+
+    public async Task<IReadOnlyList<string>> ListWorkflowIdsAsync(string projectId, CancellationToken ct)
+    {
+        // Same precedence as ReadWorkflowDefinitionAsync: pinned snapshot first, then live rows. Errors propagate so
+        // a script never runs with a silently shorter catalog.
+        var rows = _snapshot is not null ? _snapshot.Workflows : await _store.ListWorkflowsAsync(projectId, ct);
+        return RowIds(rows, "workflow_id", "id", "name");
+    }
+
+    public async Task<IReadOnlyList<string>> ListEndpointIdsAsync(string projectId, CancellationToken ct)
+    {
+        // Same precedence as ReadEndpointDefinitionAsync: pinned snapshot first, then live rows merged with staged ones.
+        IReadOnlyList<JsonElement> rows;
+        if (_snapshot is not null)
+        {
+            rows = _snapshot.Endpoints;
+        }
+        else
+        {
+            rows = await _store.ListEndpointsAsync(projectId, ct);
+            if (_overlay is not null) rows = _overlay.MergeEndpointRows(rows);
+        }
+        return RowIds(rows, "slug");
+    }
+
+    /// <summary>The distinct ids of <paramref name="rows"/>, in ordinal order. Each row contributes its first non-empty string property among <paramref name="properties"/>.</summary>
+    private static IReadOnlyList<string> RowIds(IEnumerable<JsonElement> rows, params string[] properties)
+    {
+        var ids = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            if (row.ValueKind != JsonValueKind.Object) continue;
+            foreach (var property in properties)
+            {
+                if (row.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+                    && value.GetString() is { Length: > 0 } id)
+                {
+                    ids.Add(id);
+                    break;
+                }
+            }
+        }
+        return ids.ToList();
     }
 
     public async Task<IEndpointWriteTransaction> BeginWriteTransactionAsync(CancellationToken ct)

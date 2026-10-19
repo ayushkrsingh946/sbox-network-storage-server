@@ -6,6 +6,7 @@ using SboxNetworkStorage.Application.Errors;
 using SboxNetworkStorage.Application.NetworkStorage;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Application.NetworkStorage.Endpoints;
+using SboxNetworkStorage.Application.NetworkStorage.Endpoints.Scripting;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Application.Workspace;
 
@@ -183,6 +184,9 @@ public static class NetworkStorageServices
         // Concrete registrations let staged ("next") endpoint calls derive revision-overlay copies.
         services.AddScoped<StoreEndpointDataSource>();
         services.AddScoped<IEndpointDataSource>(sp => sp.GetRequiredService<StoreEndpointDataSource>());
+        services.AddSingleton<IReadOnlyList<IEndpointScriptRuntime>>(sp => EndpointExecutor.CreateScriptRuntimes(config.GetBoolean("endpoints.scripts"), sp.GetRequiredService<ILogger<JavaScriptEndpointRuntime>>()));
+        // One gate for the process: the executor is scoped, so a per-request gate would bound nothing.
+        services.AddSingleton<ScriptConcurrencyGate>();
         services.AddScoped<EndpointExecutor>();
         services.AddScoped<IEndpointWebhookSender, HttpEndpointWebhookSender>();
         // Webhook delivery outbox (docs/alerting.md, "Endpoint webhook outbox"). Only projects that set
