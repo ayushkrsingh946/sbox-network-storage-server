@@ -92,6 +92,25 @@ public abstract class MediaStoreTests : IAsyncLifetime
     }
 
     [SkippableFact]
+    public async Task Listing_returns_every_object_in_the_project_including_expired_ones()
+    {
+        await Media.UpsertMediaObjectAsync(Record("med_b", expiresAt: 1_500), CancellationToken.None);
+        await Media.UpsertMediaObjectAsync(Record("med_a", size: 9), CancellationToken.None);
+        await Media.UpsertMediaObjectAsync(Record("med_c", projectId: "proj_other"), CancellationToken.None);
+        var listed = await Media.ListMediaObjectsAsync("proj_example", CancellationToken.None);
+        Assert.Equal(new[] { "med_a", "med_b" }, listed.Select(o => o.MediaId));
+    }
+
+    [SkippableFact]
+    public async Task Upsert_replaces_the_row_for_the_same_media_id()
+    {
+        await Media.UpsertMediaObjectAsync(Record("med_1", size: 700), CancellationToken.None);
+        var replaced = Record("med_1", size: 900);
+        await Media.UpsertMediaObjectAsync(replaced, CancellationToken.None);
+        Assert.Equal(new[] { replaced }, await Media.ListMediaObjectsAsync("proj_example", CancellationToken.None));
+    }
+
+    [SkippableFact]
     public async Task Quota_sums_sizes_per_purpose_within_a_project()
     {
         await Media.InsertMediaObjectAsync(Record("med_1", size: 700), CancellationToken.None);

@@ -252,11 +252,20 @@ them; until it ships, stored bytes grow for as long as the blob backend has room
 
 ## Backups and export
 
-**Deferred.** `sbox-ns db backup` and `sbox-ns export` do not include media
-objects or blobs. Media metadata sits in the database, so a database backup
+**Partly implemented.** `sbox-ns export` and the owner dashboard export include
+media objects and their bytes. Each project's `media-objects.jsonl` rows are
+written with the project, and each object's bytes are written to
+`blobs/media/<projectId>/<sha256>` in the archive (format v3). The export refuses
+to write an archive if a row has no stored bytes. Import writes the bytes back to
+the configured blob backend (local folder or S3) and refuses bytes that do not
+match their archive name.
+
+Upload grants (`media_grants`) are not exported. A grant is a single-use upload
+token, so a grant pending on the old server is not carried over.
+
+**Deferred.** `sbox-ns db backup` still does not include blobs. A database backup
 keeps the object rows, but the bytes in the local media folder or the S3 bucket
 are not in the backup. Back up the media folder or the bucket separately.
-Export and import of media are not implemented.
 
 ## Compatibility
 

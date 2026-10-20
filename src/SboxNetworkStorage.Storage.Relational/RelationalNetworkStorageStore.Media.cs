@@ -109,10 +109,52 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
             """, [Text("project", projectId), Text("media", mediaId)]);
         await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SingleRow, ct);
         if (!await reader.ReadAsync(ct)) return null;
-        return new MediaObjectRecord(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
+        return ReadMediaObject(reader);
+    }
+
+    /// <summary>Every object row in the project, expired ones included; see <see cref="IMediaStore.ListMediaObjectsAsync"/>.</summary>
+    public async Task<IReadOnlyList<MediaObjectRecord>> ListMediaObjectsAsync(string projectId, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, $"""
+            SELECT project_id, media_id, purpose, sha256, content_type, size_bytes, width, height, owner_steam_id, visibility,
+                   created_at_unix_ms, expires_at_unix_ms
+            FROM {TablePrefix}media_objects WHERE project_id = @project ORDER BY media_id
+            """, [Text("project", projectId)]);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var rows = new List<MediaObjectRecord>();
+        while (await reader.ReadAsync(ct)) rows.Add(ReadMediaObject(reader));
+        return rows;
+    }
+
+    public async Task UpsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct)
+    {
+        StoreValidation.Id(record.ProjectId);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, $"""
+            INSERT INTO {TablePrefix}media_objects
+                (project_id, media_id, purpose, sha256, content_type, size_bytes, width, height, owner_steam_id, visibility,
+                 created_at_unix_ms, expires_at_unix_ms)
+            VALUES (@project, @media, @purpose, @sha, @type, @size, @width, @height, @owner, @visibility, @created, @expires)
+            ON CONFLICT (project_id, media_id) DO UPDATE SET
+                purpose = excluded.purpose, sha256 = excluded.sha256, content_type = excluded.content_type,
+                size_bytes = excluded.size_bytes, width = excluded.width, height = excluded.height,
+                owner_steam_id = excluded.owner_steam_id, visibility = excluded.visibility,
+                created_at_unix_ms = excluded.created_at_unix_ms, expires_at_unix_ms = excluded.expires_at_unix_ms
+            """,
+            [Text("project", record.ProjectId), Text("media", record.MediaId), Text("purpose", record.Purpose),
+                Text("sha", record.Sha256), Text("type", record.ContentType), Int64("size", record.SizeBytes),
+                Int32("width", record.Width), Int32("height", record.Height), Text("owner", record.OwnerSteamId),
+                Text("visibility", record.Visibility), Int64("created", record.CreatedAtUnixMs),
+                Int64("expires", record.ExpiresAtUnixMs)]);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    private static MediaObjectRecord ReadMediaObject(DbDataReader reader) =>
+        new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3),
             reader.GetString(4), reader.GetInt64(5), (int)reader.GetInt64(6), (int)reader.GetInt64(7), reader.GetString(8),
             reader.GetString(9), reader.GetInt64(10), reader.GetInt64(11));
-    }
 
     public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct)
     {

@@ -1,5 +1,6 @@
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 
 namespace SboxNetworkStorage.Server.Cli;
 
@@ -22,12 +23,13 @@ public static class ExportCommands
         await using var services = CliServices.Build(config);
         var store = services.GetRequiredService<INetworkStorageStore>();
         var admin = services.GetRequiredService<INetworkStorageStoreAdmin>();
+        var blobs = services.GetRequiredService<IMediaBlobStore>();
         await admin.MigrateAsync(CancellationToken.None);
 
         StagedExport staged;
         try
         {
-            staged = await ServerArchive.PrepareExportAsync(store, admin, config, includeSecrets, CancellationToken.None);
+            staged = await ServerArchive.PrepareExportAsync(store, admin, blobs, config, includeSecrets, CancellationToken.None);
         }
         catch (ExportArchiveException ex)
         {
@@ -117,13 +119,14 @@ public static class ExportCommands
         await using var services = CliServices.Build(config);
         var store = services.GetRequiredService<INetworkStorageStore>();
         var admin = services.GetRequiredService<INetworkStorageStoreAdmin>();
+        var blobs = services.GetRequiredService<IMediaBlobStore>();
         await admin.MigrateAsync(CancellationToken.None);
 
         ImportResult result;
         try
         {
             await using var archive = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true);
-            result = await ServerArchive.ImportAsync(archive, store, config, options, CancellationToken.None);
+            result = await ServerArchive.ImportAsync(archive, store, blobs, config, options, CancellationToken.None);
         }
         catch (ExportArchiveException ex)
         {

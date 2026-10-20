@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Modules;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Operations;
@@ -34,7 +35,7 @@ public sealed class ModuleExportImportTests : IDisposable
         {
             var admin = factory.Services.GetRequiredService<Storage.Relational.INetworkStorageStoreAdmin>();
             await using var staged = await ServerArchive.PrepareProjectExportAsync(
-                factory.Services.GetRequiredService<INetworkStorageStore>(), admin, factory.Config, projectId, Ct);
+                factory.Services.GetRequiredService<INetworkStorageStore>(), admin, factory.Services.GetRequiredService<IMediaBlobStore>(), factory.Config, projectId, Ct);
             using var buffer = new MemoryStream();
             await staged.WriteToAsync(buffer, Ct);
             archive = buffer.ToArray();
@@ -44,7 +45,7 @@ public sealed class ModuleExportImportTests : IDisposable
         ImportResult result;
         {
             using var stream = new MemoryStream(archive);
-            result = await ProjectArchive.ImportAsync(stream, target, factory.Config, Ct);
+            result = await ProjectArchive.ImportAsync(stream, target, factory.Services.GetRequiredService<IMediaBlobStore>(), factory.Config, Ct);
         }
         Assert.Contains(result.Manifest.Projects, entry => entry.Id == projectId);
         var collections = await target.ListCollectionsAsync(projectId, Ct);

@@ -13,8 +13,19 @@ public static partial class ExportFormat
 {
     public const string FormatName = "sbox-ns-export";
 
-    /// <summary>Bump when the archive layout or a dump file shape changes incompatibly.</summary>
-    public const int CurrentVersion = 2;
+    /// <summary>Bump when the archive layout or a dump file shape changes incompatibly. v3 adds media objects and blobs.</summary>
+    public const int CurrentVersion = 3;
+
+    /// <summary>
+    /// Last version whose archives never contain media. Archives without media are still written at this version, so
+    /// older servers keep importing them.
+    /// </summary>
+    public const int LastVersionWithoutMedia = 2;
+
+    public static int VersionFor(bool includesMedia) => includesMedia ? CurrentVersion : LastVersionWithoutMedia;
+
+    /// <summary>First version whose archives may contain media objects and blob entries.</summary>
+    public const int MediaVersion = 3;
 
     public const string ManifestEntry = "manifest.json";
     public const string DataPrefix = "data/";
@@ -23,13 +34,14 @@ public static partial class ExportFormat
     public const string MembershipsEntry = "data/memberships.jsonl";
     public const string ProjectsPrefix = "data/projects/";
     public const string FileExtension = ".tar.gz";
+    public const string MediaBlobsPrefix = "blobs/media/";
 
     /// <summary>Per-project dump files (<c>data/projects/&lt;projectId&gt;/&lt;resource&gt;.jsonl</c>).</summary>
     public static readonly IReadOnlyList<string> ProjectResources =
     [
         "project", "collections", "records", "ledger-entries", "global-records", "endpoints", "workflows",
         "queries", "api-keys", "pages", "game-values", "rate-limits", "checkpoint-cursor", "player-profiles",
-        "player-sessions", "player-events", "audit-logs", "usage", "project-secrets",
+        "player-sessions", "player-events", "audit-logs", "usage", "project-secrets", "media-objects",
     ];
 
     public static readonly JsonSerializerOptions ManifestJson = new()
@@ -39,6 +51,29 @@ public static partial class ExportFormat
     };
 
     public static string ProjectEntry(string projectId, string resource) => $"{ProjectsPrefix}{projectId}/{resource}.jsonl";
+
+    /// <summary>Archive entry holding one media blob's bytes, keyed by the project that owns the row that references it.</summary>
+    public static string MediaBlobEntry(string projectId, string sha256) => $"{MediaBlobsPrefix}{projectId}/{sha256}";
+
+    /// <summary>Splits a <see cref="MediaBlobEntry"/> name; false for any other name, including malformed ones.</summary>
+    public static bool TryParseMediaBlobEntry(string entry, out string projectId, out string sha256)
+    {
+        projectId = string.Empty;
+        sha256 = string.Empty;
+        if (!entry.StartsWith(MediaBlobsPrefix, StringComparison.Ordinal)) return false;
+        var rest = entry[MediaBlobsPrefix.Length..];
+        var slash = rest.IndexOf('/');
+        if (slash <= 0) return false;
+        var id = rest[..slash];
+        var sha = rest[(slash + 1)..];
+        if (!IsValidProjectId(id) || !IsMediaSha256(sha)) return false;
+        projectId = id;
+        sha256 = sha;
+        return true;
+    }
+
+    /// <summary>Media blob names use the lowercase hex form the blob stores write; anything else is refused.</summary>
+    public static bool IsMediaSha256(string? value) => value is not null && MediaSha256Pattern().IsMatch(value);
 
     /// <summary>Same identifier rule the stores enforce, so a project id is always a safe path segment.</summary>
     public static bool IsValidProjectId(string? value) => value is not null && ProjectIdPattern().IsMatch(value);
@@ -79,6 +114,9 @@ public static partial class ExportFormat
 
     [GeneratedRegex("^[0-9a-fA-F]{64}$", RegexOptions.None, 100)]
     private static partial Regex Sha256HexPattern();
+
+    [GeneratedRegex(@"^[0-9a-f]{64}\z", RegexOptions.None, 100)]
+    private static partial Regex MediaSha256Pattern();
 }
 
 /// <summary>Contents of <c>manifest.json</c>.</summary>

@@ -10,7 +10,7 @@ namespace SboxNetworkStorage.Server.Operations;
 /// columns); child rows carry their parent keys (<c>collection_id</c>, <c>record_key</c>,
 /// <c>steam_id</c>). Work is batched per collection / player, never per database.
 /// </summary>
-public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRoot, IProjectSecretStore? secrets = null)
+public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRoot, IProjectSecretStore? secrets = null, MediaExport? media = null)
 {
     private const string UsersDirectory = "network-storage/users";
     private readonly List<string> _entries = [];
@@ -160,6 +160,8 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
             }));
         }
 
+        await WriteMediaObjectsAsync(projectId, counts, ct);
+
         var collections = await store.ListCollectionsAsync(projectId, ct);
         await WriteListAsync(projectId, "collections", collections, counts);
 
@@ -279,6 +281,51 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
         await using var file = Open(ExportFormat.ProjectEntry(projectId, resource));
         write(file);
         Count(file, resource, counts);
+    }
+
+    /// <summary>
+    /// Writes the project's media object rows, expired ones included, and stages each distinct blob once. A row whose
+    /// bytes cannot be exported fails the whole export through <see cref="MediaExport"/>.
+    /// </summary>
+    private async Task WriteMediaObjectsAsync(string projectId, SortedDictionary<string, long> counts, CancellationToken ct)
+    {
+        if (media is null)
+        {
+            return;
+        }
+
+        var rows = await media.ListAsync(projectId, ct);
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        var staged = new HashSet<string>(StringComparer.Ordinal);
+        await using var file = Open(ExportFormat.ProjectEntry(projectId, "media-objects"));
+        foreach (var row in rows)
+        {
+            if (staged.Add(row.Sha256))
+            {
+                _entries.Add(await media.StageBlobAsync(row, ct));
+            }
+
+            file.WriteObject(writer =>
+            {
+                writer.WriteString("media_id", row.MediaId);
+                writer.WriteString("purpose", row.Purpose);
+                writer.WriteString("sha256", row.Sha256);
+                writer.WriteString("content_type", row.ContentType);
+                writer.WriteNumber("size_bytes", row.SizeBytes);
+                writer.WriteNumber("width", row.Width);
+                writer.WriteNumber("height", row.Height);
+                writer.WriteString("owner_steam_id", row.OwnerSteamId);
+                writer.WriteString("visibility", row.Visibility);
+                writer.WriteNumber("created_at_unix_ms", row.CreatedAtUnixMs);
+                writer.WriteNumber("expires_at_unix_ms", row.ExpiresAtUnixMs);
+            });
+        }
+
+        Count(file, "media-objects", counts);
     }
 
     private static void Count(JsonLinesFile file, string resource, SortedDictionary<string, long> counts)

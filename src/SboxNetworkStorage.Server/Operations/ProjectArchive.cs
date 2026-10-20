@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text.Json;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 
 namespace SboxNetworkStorage.Server.Operations;
 
@@ -12,7 +13,7 @@ public static class ProjectArchive
     public const long MaxUploadBytes = 64 * 1024 * 1024;
     private const long MaxExpandedBytes = 256 * 1024 * 1024;
 
-    public static async Task<ImportResult> ImportAsync(Stream archive, INetworkStorageStore store,
+    public static async Task<ImportResult> ImportAsync(Stream archive, INetworkStorageStore store, IMediaBlobStore blobs,
         EffectiveConfig config, CancellationToken ct)
     {
         if (!archive.CanSeek || archive.Length > MaxUploadBytes)
@@ -21,7 +22,7 @@ public static class ProjectArchive
         var manifest = await ValidateAsync(archive, ct);
         var projectId = manifest.Projects[0].Id;
         archive.Position = start;
-        return await ServerArchive.ImportProjectAsync(archive, store, config, projectId, ct);
+        return await ServerArchive.ImportProjectAsync(archive, store, blobs, config, projectId, ct);
     }
 
     private static async Task<ExportManifest> ValidateAsync(Stream archive, CancellationToken ct)
@@ -87,7 +88,12 @@ public static class ProjectArchive
                 }
                 else if (!entry.Name.StartsWith(projectPrefix, StringComparison.Ordinal)
                     || !ExportFormat.ProjectResources.Any(resource => entry.Name == ExportFormat.ProjectEntry(id, resource)))
-                    throw new ExportArchiveException("Project archive contains an unrelated entry.");
+                {
+                    if (!ExportFormat.TryParseMediaBlobEntry(entry.Name, out var blobProjectId, out _) || blobProjectId != id)
+                        throw new ExportArchiveException("Project archive contains an unrelated entry.");
+                    if (manifest.FormatVersion < ExportFormat.MediaVersion)
+                        throw new ExportArchiveException("Media blobs require a format v3 archive.");
+                }
             }
             return manifest ?? throw new ExportArchiveException("Project archive is empty.");
         }

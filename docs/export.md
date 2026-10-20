@@ -89,6 +89,7 @@ manifest.json                          format version, sbox-ns version, schema v
 data/workspace-objects.jsonl           project lists, packages, key indexes, owner login
 data/memberships.jsonl                 project ownership
 data/projects/<id>/<resource>.jsonl    one JSON object per line, per resource
+blobs/media/<projectId>/<sha256>       media object bytes (format 3 only)
 config/...                             the config folder (see above)
 ```
 
@@ -97,6 +98,8 @@ entries, global records, endpoints, workflows, queries, API keys, pages, game
 values, rate limits, checkpoint cursor, player profiles, each player's current
 session, player analytics events, audit logs, and the cumulative storage
 footprint.
+
+Media objects (format 3, when a project has any) include the object rows and the stored bytes of each object. Upload grants (`media_grants`) are not exported. A grant is a short-lived single-use upload token, so a grant still pending on the old server is not carried over.
 
 Not included, because they are operational history the server rebuilds:
 request logs, storage error logs, query run history, monthly/daily usage
@@ -145,6 +148,8 @@ importers sharing a database have only one winner; a losing import changes
 nothing. Malformed rows, cancellation and storage failures roll back the entire
 project, so after fixing the cause the corrected archive can be retried normally.
 
+Portable project archives are capped at 64 MiB for the upload and 256 MiB expanded, and media bytes count toward both. Media bytes are checked against their archive names and written during the project's import transaction. A rolled-back import can therefore leave blob files that no object row references. They are unreferenced and safe to delete.
+
 API key rows must have the shape sbox-ns writes, or the import is refused: a
 public key is stored in full and starts with `sbox_ns_`; a secret key is stored
 only masked (`sbox_sk_xxxx...xxxx`) with a 64-character hex `key_hash`, so an
@@ -179,7 +184,7 @@ out of migration archives).
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `format` | string | Always `"sbox-ns-export"` |
-| `formatVersion` | integer | `1` remains readable; this server writes `2`, which adds optional whole-server project-secret ciphertext. Older servers refuse v2 before importing |
+| `formatVersion` | integer | `1` and `2` remain readable. This server writes `2`, or `3` when the archive contains media objects (see below). Older servers refuse a version above their own before importing |
 | `sboxNsVersion` | string | Producer and its version, informational (e.g. `"sboxcool-hosted 2026.10"`) |
 | `schemaVersion` | integer | Producer schema version, informational (`1`) |
 | `provider` | string | Source store, informational (e.g. `"scylladb"`) |
@@ -223,6 +228,9 @@ false); `*_json` columns marked *JSON* take any JSON value and may be omitted
 | `.../player-events.jsonl` | `steam_id`, `created_at_unix_ms`, `event_id`, `event_type`, `category`, `label`, `endpoint_slug`, `collection_id`; `payload_json` (JSON) |
 | `.../audit-logs.jsonl` | `created_at_unix_ms`, `log_id`, `user_id`, `action`, `actor_json`, `target_json`, `summary_json`, `diff_json` (all strings) |
 | `.../usage.jsonl` | one row: `storage_bytes` (cumulative storage footprint) |
+| `.../media-objects.jsonl` | `media_id`, `purpose`, `sha256` (64 lowercase hex), `content_type`, `owner_steam_id`, `visibility`, `size_bytes`, `created_at_unix_ms`, `expires_at_unix_ms`; `width`, `height` (integers). Format v3 only |
+
+Media objects are format 3 entries. Each `media-objects.jsonl` row names a blob at `blobs/media/<projectId>/<sha256>`. The export reads every blob and refuses to write an archive when a row has no stored bytes or the bytes do not hash to the row's `sha256`. The import checks each blob against its archive name before writing anything, and refuses a blob that no row references.
 
 **Single owner.** A self-hosted server has exactly one account, the local owner
 with user id `1`. Archives from a multi-user source must be rewritten to it:

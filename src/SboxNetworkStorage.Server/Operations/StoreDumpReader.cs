@@ -8,7 +8,7 @@ namespace SboxNetworkStorage.Server.Operations;
 /// the same archive twice leaves the same rows. Write timestamps the store stamps
 /// itself (<c>updated_at_unix_ms</c> on versioned rows) take the import time.
 /// </summary>
-public sealed class StoreDumpReader(INetworkStorageStore store)
+public sealed class StoreDumpReader(INetworkStorageStore store, MediaImport? media = null)
 {
     private static readonly JsonElement JsonNull = JsonDocument.Parse("null").RootElement.Clone();
 
@@ -89,6 +89,7 @@ public sealed class StoreDumpReader(INetworkStorageStore store)
             Str(row, "key_hash"), Str(row, "key_identifier"), Str(row, "label"), Bool(row, "enabled"),
             Json(row, "permissions_json"), Long(row, "version"), ct),
         "project-secrets" => row => RestoreSecretAsync(p, row, ct),
+        "media-objects" => row => RestoreMediaObjectAsync(p, row, ct),
         "pages" => row => store.UpsertPageAsync(p, Str(row, "page_slug"), Str(row, "title"), Str(row, "content_json"),
             Long(row, "created_at_unix_ms"), Long(row, "updated_at_unix_ms"), ct),
         "game-values" => row => store.UpsertGameValuesAsync(p, Json(row, "payload_json"), OptStr(row, "version_hash"), Long(row, "version"), ct),
@@ -125,6 +126,31 @@ public sealed class StoreDumpReader(INetworkStorageStore store)
             throw new ExportArchiveException("Invalid sealed project secret.");
         if (await secrets.SetProjectSecretAsync(projectId, name, sealedValue, Long(row, "updated_at_unix_ms"), 64, ct) == ProjectSecretWriteResult.LimitReached)
             throw new ExportArchiveException("The project secret limit would be exceeded.");
+    }
+
+    /// <summary>
+    /// Restores one object row. The row must name bytes that were staged from this archive with the same length; the
+    /// bytes are written to the blob store once, and the row is upserted so a re-import converges.
+    /// </summary>
+    private async Task RestoreMediaObjectAsync(string projectId, JsonElement row, CancellationToken ct)
+    {
+        if (media is null || store is not IMediaStore objects)
+            throw new ExportArchiveException("This import cannot restore media objects.");
+        var record = new MediaObjectRecord(projectId, Str(row, "media_id"), Str(row, "purpose"), Str(row, "sha256"),
+            Str(row, "content_type"), Long(row, "size_bytes"), Dimension(row, "width"), Dimension(row, "height"),
+            Str(row, "owner_steam_id"), Str(row, "visibility"), Long(row, "created_at_unix_ms"), Long(row, "expires_at_unix_ms"));
+        if (!ExportFormat.IsMediaSha256(record.Sha256))
+            throw new FormatException("media object sha256 is not a lowercase hex digest");
+        await media.RestoreRowAsync(record, ct);
+        await objects.UpsertMediaObjectAsync(record, ct);
+    }
+
+    private static int Dimension(JsonElement row, string name)
+    {
+        var value = Long(row, name);
+        if (value is < 0 or > int.MaxValue)
+            throw new FormatException($"{name} is out of range");
+        return (int)value;
     }
 
     /// <summary>

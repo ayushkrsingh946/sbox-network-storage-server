@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SboxNetworkStorage.Application.Common;
 using SboxNetworkStorage.Application.Workspace;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Operations;
@@ -19,7 +20,7 @@ namespace SboxNetworkStorage.Server.Owner;
 /// audit-logged per project. Antiforgery is enforced by the global <c>AutoValidateAntiforgeryToken</c> filter.
 /// </summary>
 [Authorize(AuthenticationSchemes = OwnerHostingExtensions.Scheme)]
-public sealed class OwnerExportController(INetworkStorageStore store, INetworkStorageStoreAdmin admin, EffectiveConfig config,
+public sealed class OwnerExportController(INetworkStorageStore store, INetworkStorageStoreAdmin admin, IMediaBlobStore blobs, EffectiveConfig config,
     IWorkspaceStore workspace, IAuditLogger audit, OwnerAccountService accounts, OwnerExportGate exportGate,
     ILogger<OwnerExportController> logger) : Controller
 {
@@ -43,7 +44,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
             StagedExport staged;
             try
             {
-                staged = await ServerArchive.PrepareExportAsync(store, admin, config, includeSecrets, ct);
+                staged = await ServerArchive.PrepareExportAsync(store, admin, blobs, config, includeSecrets, ct);
             }
             catch (ExportArchiveException ex)
             {
@@ -89,7 +90,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         {
             if (!(await workspace.GetUserProjectsAsync(Owner, ct)).Any(project => project.Id == projectId))
                 return NotFound();
-            await using var staged = await ServerArchive.PrepareProjectExportAsync(store, admin, config, projectId, ct);
+            await using var staged = await ServerArchive.PrepareProjectExportAsync(store, admin, blobs, config, projectId, ct);
             Response.ContentType = "application/gzip";
             Response.Headers.ContentDisposition = $"attachment; filename=\"sbox-ns-project-{projectId}-{staged.Manifest.CreatedAt:yyyyMMdd-HHmmss}.tar.gz\"";
             await audit.LogActionAsync(new AuditLogRequest(projectId, Owner.ToString(CultureInfo.InvariantCulture),
@@ -117,7 +118,7 @@ public sealed class OwnerExportController(INetworkStorageStore store, INetworkSt
         try
         {
             await using var input = archive.OpenReadStream();
-            var result = await ProjectArchive.ImportAsync(input, store, config, ct);
+            var result = await ProjectArchive.ImportAsync(input, store, blobs, config, ct);
             var projectId = result.Manifest.Projects[0].Id;
             await audit.LogActionAsync(new AuditLogRequest(projectId, Owner.ToString(CultureInfo.InvariantCulture),
                 "project.import", new { id = Owner, type = "owner-dashboard" }, new { id = projectId, type = "project" },

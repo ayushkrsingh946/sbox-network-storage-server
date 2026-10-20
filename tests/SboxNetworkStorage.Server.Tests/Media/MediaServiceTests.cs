@@ -380,6 +380,16 @@ public sealed class MediaServiceTests
 
         public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct) =>
             Task.FromResult(Objects.Where(o => o.ProjectId == projectId && o.Purpose == purpose && o.ExpiresAtUnixMs > nowUnixMs).Sum(o => o.SizeBytes));
+
+        public Task<IReadOnlyList<MediaObjectRecord>> ListMediaObjectsAsync(string projectId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<MediaObjectRecord>>(Objects.Where(o => o.ProjectId == projectId).ToList());
+
+        public Task UpsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct)
+        {
+            Objects.RemoveAll(o => o.ProjectId == record.ProjectId && o.MediaId == record.MediaId);
+            Objects.Add(record);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeBlobStore : IMediaBlobStore

@@ -1,17 +1,21 @@
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
+using SboxNetworkStorage.Infrastructure.NetworkStorage.Media;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Operations;
 using SboxNetworkStorage.Server.Owner;
 using SboxNetworkStorage.Server.Tests.Hosting;
 using SboxNetworkStorage.Server.Tests.Support;
+using SboxNetworkStorage.Storage;
 using SboxNetworkStorage.Storage.Relational;
 using SboxNetworkStorage.Storage.Postgres;
 using SboxNetworkStorage.Storage.Sqlite;
@@ -32,12 +36,19 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     private static readonly CancellationToken Ct = CancellationToken.None;
 
     private readonly TFactory factory = new();
+    private readonly string blobRoot = Path.Combine(Path.GetTempPath(), "sbox-ns-media-" + Guid.NewGuid().ToString("N"));
 
     protected ServerExportImportTests() => Skip.IfNot(factory.IsAvailable, factory.SkipReason);
 
-    public void Dispose() => factory.Dispose();
+    public void Dispose()
+    {
+        factory.Dispose();
+        if (Directory.Exists(blobRoot)) Directory.Delete(blobRoot, recursive: true);
+    }
 
     private INetworkStorageStore Source => factory.Services.GetRequiredService<INetworkStorageStore>();
+
+    private IMediaBlobStore Blobs => factory.Services.GetRequiredService<IMediaBlobStore>();
 
     [SkippableFact]
     public async Task RoundTripIntoFreshDatabaseReproducesEveryResource()
@@ -48,10 +59,97 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
 
         var result = await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
 
-        Assert.Equal(ExportFormat.CurrentVersion, result.Manifest.FormatVersion);
+        Assert.Equal(ExportFormat.VersionFor(includesMedia: false), result.Manifest.FormatVersion);
         Assert.Contains(result.Manifest.Projects, p => p.Id == projectId && p.Counts["records"] == 2);
         Assert.Equal(result.Manifest.TotalRows, result.RowsApplied);
         await AssertSameDataAsync(Source, target, projectId);
+    }
+
+    [SkippableFact]
+    public async Task MediaObjectsAndBytesSurviveWholeServerRoundTrip()
+    {
+        var projectId = await SeedAsync();
+        var bytes = Encoding.UTF8.GetBytes("whole-server-media-bytes");
+        var record = await SeedMediaAsync(projectId, bytes);
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+        var blobs = FreshBlobStore("whole-server");
+
+        var result = await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false), blobs);
+
+        Assert.Equal(ExportFormat.VersionFor(includesMedia: true), result.Manifest.FormatVersion);
+        Assert.Contains(result.Manifest.Projects, p => p.Id == projectId && p.Counts["media-objects"] == 1);
+        await AssertMediaRestoredAsync(target, blobs, record, bytes);
+    }
+
+    [SkippableFact]
+    public async Task MediaObjectsAndBytesSurvivePortableProjectRoundTrip()
+    {
+        var projectId = await SeedAsync();
+        var bytes = Encoding.UTF8.GetBytes("portable-media-bytes");
+        var record = await SeedMediaAsync(projectId, bytes);
+        var archive = await ProjectExportAsync(projectId);
+        var target = await factory.NewStoreAsync();
+        var blobs = FreshBlobStore("portable");
+        using var stream = new MemoryStream(archive);
+
+        var result = await ProjectArchive.ImportAsync(stream, target, blobs, factory.Config, Ct);
+
+        Assert.Equal(ExportFormat.VersionFor(includesMedia: true), result.Manifest.FormatVersion);
+        await AssertMediaRestoredAsync(target, blobs, record, bytes);
+    }
+
+    [SkippableFact]
+    public async Task ExportRefusesMediaObjectWhoseBytesAreMissing()
+    {
+        var projectId = await SeedAsync();
+        await SeedMediaAsync(projectId, Encoding.UTF8.GetBytes("never-written"), writeBytes: false);
+
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(() => ExportAsync(Source, factory.Config, includeSecrets: false));
+
+        Assert.Contains("has no stored bytes", error.Message);
+    }
+
+    [SkippableFact]
+    public async Task ImportRefusesMediaBytesThatDoNotMatchTheirArchiveName()
+    {
+        var projectId = await SeedAsync();
+        var record = await SeedMediaAsync(projectId, Encoding.UTF8.GetBytes("original-media-bytes"));
+        var entries = ReadArchive(await ExportAsync(Source, factory.Config, includeSecrets: false));
+        entries[ExportFormat.MediaBlobEntry(projectId, record.Sha256)] = Encoding.UTF8.GetBytes("tampered-media-bytes");
+        var archive = BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray());
+        var target = await factory.NewStoreAsync();
+        var blobs = FreshBlobStore("tampered");
+
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(() =>
+            ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false), blobs));
+
+        Assert.Contains("does not match its archive name", error.Message);
+        Assert.False(await blobs.ExistsAsync(projectId, record.Sha256, Ct));
+        await AssertProjectAbsentAsync(target, projectId);
+    }
+
+    [SkippableFact]
+    public async Task FormatVersionTwoArchiveWithMediaObjectsIsRefused()
+    {
+        var projectId = await SeedAsync();
+        await SeedMediaAsync(projectId, Encoding.UTF8.GetBytes("v2-media-bytes"));
+        var entries = ReadArchive(await ExportAsync(Source, factory.Config, includeSecrets: false));
+        foreach (var name in entries.Keys.Where(name => name.StartsWith(ExportFormat.MediaBlobsPrefix, StringComparison.Ordinal)).ToArray())
+        {
+            entries.Remove(name);
+        }
+        var manifest = JsonNode.Parse(entries[ExportFormat.ManifestEntry])!.AsObject();
+        manifest["formatVersion"] = ExportFormat.LastVersionWithoutMedia;
+        entries[ExportFormat.ManifestEntry] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        var archive = BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray());
+        var target = await factory.NewStoreAsync();
+
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(() =>
+            ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false)));
+
+        Assert.Contains("Media objects require a format v3 archive.", error.Message);
+        await AssertProjectAbsentAsync(target, projectId);
     }
 
     [SkippableFact]
@@ -102,19 +200,19 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         await Source.PutWorkspaceObjectAsync($"network-storage/users/1/{id}/authoring.yml", "collections: {}", Ct);
         await Source.PutWorkspaceObjectAsync($"network-storage/users/1/{other.ProjectId}/private.json", "private", Ct);
         var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
-        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, factory.Config, id, Ct);
+        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, Blobs, factory.Config, id, Ct);
         using var archive = new MemoryStream();
         await staged.WriteToAsync(archive, Ct);
         var target = await factory.NewStoreAsync();
         await target.UpsertProjectAsync("existing", Json(new { name = "Keep me" }), 1, Ct);
         archive.Position = 0;
-        await ProjectArchive.ImportAsync(archive, target, factory.Config, Ct);
+        await ProjectArchive.ImportAsync(archive, target, Blobs, factory.Config, Ct);
         Assert.NotNull(await target.ReadRecordAsync(id, Collection, PlayerA, Ct));
         Assert.Null(await target.ReadProjectAsync(other.ProjectId, Ct));
         Assert.Equal("collections: {}", await target.ReadWorkspaceObjectAsync($"network-storage/users/1/{id}/authoring.yml", Ct));
         Assert.NotNull(await target.ReadProjectAsync("existing", Ct));
         archive.Position = 0;
-        await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+        await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, Blobs, factory.Config, Ct));
     }
 
     [SkippableFact]
@@ -122,7 +220,7 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     {
         var id = await SeedAsync();
         var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
-        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, factory.Config, id, Ct);
+        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, Blobs, factory.Config, id, Ct);
         using var buffer = new MemoryStream();
         await staged.WriteToAsync(buffer, Ct);
         var entries = ReadArchive(buffer.ToArray());
@@ -130,7 +228,7 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
             "{\"path\":\"network-storage/users/1/projects.json\",\"content\":\"[]\"}\n");
         using var archive = new MemoryStream(BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray()));
         var target = await factory.NewStoreAsync();
-        await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+        await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, Blobs, factory.Config, Ct));
         Assert.Null(await target.ReadProjectAsync(id, Ct));
         Assert.Empty(await target.ListWorkspaceObjectsAsync("", Ct));
     }
@@ -149,7 +247,7 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         using var archive = new MemoryStream(BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray()));
         var target = await factory.NewStoreAsync();
 
-        var error = await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, Blobs, factory.Config, Ct));
 
         Assert.Contains(expected, error.Message);
         Assert.Null(await target.ReadProjectAsync(id, Ct));
@@ -173,14 +271,14 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         using (var archive = new MemoryStream(broken))
         {
             var error = await Assert.ThrowsAsync<ExportArchiveException>(
-                () => ProjectArchive.ImportAsync(archive, target, factory.Config, Ct));
+                () => ProjectArchive.ImportAsync(archive, target, Blobs, factory.Config, Ct));
             Assert.Contains("record_key", error.Message);
         }
         await AssertProjectAbsentAsync(target, id);
 
         entries[recordsEntry] = goodRecords;
         using var corrected = new MemoryStream(BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray()));
-        var result = await ProjectArchive.ImportAsync(corrected, target, factory.Config, Ct);
+        var result = await ProjectArchive.ImportAsync(corrected, target, Blobs, factory.Config, Ct);
         Assert.Equal(result.Manifest.TotalRows, result.RowsApplied);
         Assert.NotNull(await target.ReadProjectAsync(id, Ct));
         Assert.Single(await target.ListProjectsForUserAsync("1", Ct));
@@ -215,7 +313,7 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
             using var archive = new RewindBarrierStream(bytes, ready);
             try
             {
-                await ProjectArchive.ImportAsync(archive, store, factory.Config, Ct);
+                await ProjectArchive.ImportAsync(archive, store, Blobs, factory.Config, Ct);
                 return true;
             }
             catch (ExportArchiveException ex)
@@ -598,7 +696,7 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
 
         var target = await factory.NewStoreAsync();
         using var stream = new MemoryStream(await download.Content.ReadAsByteArrayAsync());
-        await ServerArchive.ImportAsync(stream, target, factory.Config, new ImportOptions(false, false), Ct);
+        await ServerArchive.ImportAsync(stream, target, Blobs, factory.Config, new ImportOptions(false, false), Ct);
         await AssertSameDataAsync(Source, target, projectId, ignoreAudit: true);
     }
 
@@ -725,6 +823,29 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         return p;
     }
 
+    private async Task<MediaObjectRecord> SeedMediaAsync(string projectId, byte[] bytes, bool writeBytes = true)
+    {
+        var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var record = new MediaObjectRecord(projectId, $"media-{sha[..12]}", "photo", sha, "image/png", bytes.Length, 4, 2,
+            PlayerA, "public", 5_000, 9_000_000_000_000);
+        await factory.Services.GetRequiredService<IMediaStore>().UpsertMediaObjectAsync(record, Ct);
+        if (writeBytes) await Blobs.WriteAsync(projectId, sha, bytes, Ct);
+        return record;
+    }
+
+    private LocalDiskMediaBlobStore FreshBlobStore(string name) => new(Path.Combine(blobRoot, name));
+
+    private static async Task AssertMediaRestoredAsync(INetworkStorageStore target, IMediaBlobStore blobs, MediaObjectRecord expected, byte[] bytes)
+    {
+        var restored = Assert.Single(await ((IMediaStore)target).ListMediaObjectsAsync(expected.ProjectId, Ct));
+        Assert.Equal(expected, restored);
+        using var blob = await blobs.OpenReadAsync(expected.ProjectId, expected.Sha256, Ct);
+        Assert.NotNull(blob);
+        using var copy = new MemoryStream();
+        await blob.Content.CopyToAsync(copy, Ct);
+        Assert.Equal(bytes, copy.ToArray());
+    }
+
     private static async Task AssertSameDataAsync(INetworkStorageStore source, INetworkStorageStore target, string p, bool ignoreAudit = false)
     {
         const string Updated = "updated_at_unix_ms";
@@ -808,7 +929,7 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     private async Task<byte[]> ExportAsync(INetworkStorageStore store, EffectiveConfig config, bool includeSecrets)
     {
         var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
-        await using var staged = await ServerArchive.PrepareExportAsync(store, admin, config, includeSecrets, Ct);
+        await using var staged = await ServerArchive.PrepareExportAsync(store, admin, Blobs, config, includeSecrets, Ct);
         using var buffer = new MemoryStream();
         await staged.WriteToAsync(buffer, Ct);
         return buffer.ToArray();
@@ -817,16 +938,16 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     private async Task<byte[]> ProjectExportAsync(string projectId)
     {
         var admin = factory.Services.GetRequiredService<INetworkStorageStoreAdmin>();
-        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, factory.Config, projectId, Ct);
+        await using var staged = await ServerArchive.PrepareProjectExportAsync(Source, admin, Blobs, factory.Config, projectId, Ct);
         using var buffer = new MemoryStream();
         await staged.WriteToAsync(buffer, Ct);
         return buffer.ToArray();
     }
 
-    private static async Task<ImportResult> ImportAsync(byte[] archive, INetworkStorageStore target, EffectiveConfig config, ImportOptions options)
+    private async Task<ImportResult> ImportAsync(byte[] archive, INetworkStorageStore target, EffectiveConfig config, ImportOptions options, IMediaBlobStore? blobs = null)
     {
         using var stream = new MemoryStream(archive);
-        return await ServerArchive.ImportAsync(stream, target, config, options, Ct);
+        return await ServerArchive.ImportAsync(stream, target, blobs ?? Blobs, config, options, Ct);
     }
 
     private async Task<byte[]> ManifestBytesAsync()
