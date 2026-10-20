@@ -284,8 +284,8 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
     }
 
     /// <summary>
-    /// Writes the project's media object rows, expired ones included, and stages each distinct blob once. A row whose
-    /// bytes cannot be exported fails the whole export through <see cref="MediaExport"/>.
+    /// Writes the project's media object rows, expired ones included. Every row is checked against its bytes;
+    /// each blob entry goes into the archive once. A row whose bytes cannot be exported fails the whole export through <see cref="MediaExport"/>.
     /// </summary>
     private async Task WriteMediaObjectsAsync(string projectId, SortedDictionary<string, long> counts, CancellationToken ct)
     {
@@ -300,13 +300,14 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
             return;
         }
 
-        var staged = new HashSet<string>(StringComparer.Ordinal);
+        var stagedEntries = new HashSet<string>(StringComparer.Ordinal);
         await using var file = Open(ExportFormat.ProjectEntry(projectId, "media-objects"));
         foreach (var row in rows)
         {
-            if (staged.Add(row.Sha256))
+            var entry = await media.StageBlobAsync(row, ct);
+            if (stagedEntries.Add(entry))
             {
-                _entries.Add(await media.StageBlobAsync(row, ct));
+                _entries.Add(entry);
             }
 
             file.WriteObject(writer =>

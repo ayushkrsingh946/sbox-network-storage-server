@@ -13,6 +13,9 @@ public sealed class MediaExport(IMediaStore media, IMediaBlobStore blobs, string
 {
     private const int CopyBufferBytes = 81920;
 
+    /// <summary>Size of each blob already staged, keyed by project and hash, so every row is checked and a blob is copied once.</summary>
+    private readonly Dictionary<(string ProjectId, string Sha256), long> _staged = new();
+
     public Task<IReadOnlyList<MediaObjectRecord>> ListAsync(string projectId, CancellationToken ct) =>
         media.ListMediaObjectsAsync(projectId, ct);
 
@@ -23,6 +26,15 @@ public sealed class MediaExport(IMediaStore media, IMediaBlobStore blobs, string
         {
             throw new ExportArchiveException($"Media object '{record.MediaId}' has a malformed hash; export refused.");
         }
+        var entry = ExportFormat.MediaBlobEntry(record.ProjectId, record.Sha256);
+        if (_staged.TryGetValue((record.ProjectId, record.Sha256), out var stagedSize))
+        {
+            if (stagedSize != record.SizeBytes)
+            {
+                throw new ExportArchiveException($"Media object '{record.MediaId}' disagrees with another row for the same bytes about size; export refused.");
+            }
+            return entry;
+        }
 
         using var blob = await blobs.OpenReadAsync(record.ProjectId, record.Sha256, ct)
             ?? throw new ExportArchiveException($"Media object '{record.MediaId}' has no stored bytes; export refused.");
@@ -31,7 +43,6 @@ public sealed class MediaExport(IMediaStore media, IMediaBlobStore blobs, string
             throw new ExportArchiveException($"Media object '{record.MediaId}' does not match its recorded size; export refused.");
         }
 
-        var entry = ExportFormat.MediaBlobEntry(record.ProjectId, record.Sha256);
         var path = StagingPath(stagingRoot, entry);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
@@ -54,6 +65,7 @@ public sealed class MediaExport(IMediaStore media, IMediaBlobStore blobs, string
             throw new ExportArchiveException($"Media object '{record.MediaId}' does not match its recorded hash; export refused.");
         }
 
+        _staged[(record.ProjectId, record.Sha256)] = record.SizeBytes;
         return entry;
     }
 

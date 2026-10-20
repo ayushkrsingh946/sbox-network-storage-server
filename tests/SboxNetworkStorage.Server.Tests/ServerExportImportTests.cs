@@ -111,6 +111,19 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
     }
 
     [SkippableFact]
+    public async Task ExportRefusesTwoRowsForTheSameBytesThatDisagreeOnSize()
+    {
+        var projectId = await SeedAsync();
+        var first = await SeedMediaAsync(projectId, Encoding.UTF8.GetBytes("shared-media-bytes"));
+        var mismatched = first with { MediaId = "media-zz-mismatched", SizeBytes = first.SizeBytes + 1 };
+        await factory.Services.GetRequiredService<IMediaStore>().UpsertMediaObjectAsync(mismatched, Ct);
+
+        var error = await Assert.ThrowsAsync<ExportArchiveException>(() => ExportAsync(Source, factory.Config, includeSecrets: false));
+
+        Assert.Contains("disagrees with another row", error.Message);
+    }
+
+    [SkippableFact]
     public async Task ImportRefusesMediaBytesThatDoNotMatchTheirArchiveName()
     {
         var projectId = await SeedAsync();
