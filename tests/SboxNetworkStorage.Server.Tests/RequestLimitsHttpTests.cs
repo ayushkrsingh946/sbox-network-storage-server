@@ -198,6 +198,57 @@ public abstract class RequestLimitsHttpTests<TFactory> : IClassFixture<TFactory>
     }
 
     [SkippableFact]
+    public async Task ChunkedManagementMutation_PersistsTheSubmittedDefinition()
+    {
+        var project = await factory.CreateProjectAsync();
+        using var host = Limited(_ => { });
+        using var client = host.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/v3/manage/{project.ProjectId}/endpoints")
+        {
+            Content = new StringContent(
+                """{"endpoint":{"slug":"streamed","method":"POST","enabled":true,"steps":[],"response":{"status":200,"body":{"marker":"chunked-definition"}}}}""",
+                Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("x-api-key", project.SecretKey);
+        request.Headers.Add(ChunkedHeader, "1");
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        await using var scope = host.Services.CreateAsyncScope();
+        var row = await scope.ServiceProvider.GetRequiredService<INetworkStorageStore>()
+            .ReadEndpointAsync(project.ProjectId, result.GetProperty("resourceId").GetString()!, CancellationToken.None);
+        Assert.NotNull(row);
+        var definition = row.Value.GetProperty("definition_json");
+        if (definition.ValueKind == JsonValueKind.String)
+            definition = JsonSerializer.Deserialize<JsonElement>(definition.GetString()!);
+        Assert.Equal("chunked-definition",
+            definition.GetProperty("response").GetProperty("body").GetProperty("marker").GetString());
+    }
+
+    [SkippableFact]
+    public async Task ChunkedManagementMutationOverTheLimit_IsRejectedBeforePersistence()
+    {
+        var project = await factory.CreateProjectAsync();
+        using var host = Limited(o => o.ManagementBodyBytes = 1024);
+        using var client = host.CreateClient();
+        using var content = new GeneratedContent(total: 8192, declaredLength: null);
+        content.Headers.ContentType = new("application/json");
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/v3/manage/{project.ProjectId}/endpoints") { Content = content };
+        request.Headers.Add("x-api-key", project.SecretKey);
+        request.Headers.Add(ChunkedHeader, "1");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("PAYLOAD_TOO_LARGE", body.GetProperty("error").GetString());
+        Assert.True(host.BodyBytesRead <= 1025, $"{host.BodyBytesRead} body bytes were read");
+        await using var scope = host.Services.CreateAsyncScope();
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<INetworkStorageStore>()
+            .ListEndpointsAsync(project.ProjectId, CancellationToken.None));
+    }
+
+    [SkippableFact]
     public async Task ManagementMutationWithInvalidKey_Returns401WithoutReadingTheBody()
     {
         var project = await factory.CreateProjectAsync();
