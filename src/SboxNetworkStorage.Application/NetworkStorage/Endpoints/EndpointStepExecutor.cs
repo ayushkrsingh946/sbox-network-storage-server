@@ -1566,6 +1566,7 @@ public sealed partial class EndpointStepExecutor
 /// Endpoint execution result: HTTP status + JS-value-model body. <see cref="RetryAfterSeconds"/> is set on
 /// queue denials (429) and becomes the Retry-After response header. <see cref="FetchBlocked"/> lists the outbound
 /// calls a script made that the allow-list or address rules refused, for the owner's diagnostics.
+/// <c>GlobalScope</c> marks the denial of a <c>scope: global</c> definition; public callers record nothing for it.
 /// </summary>
 public sealed record EndpointExecutionResult(
     bool Ok,
@@ -1573,7 +1574,8 @@ public sealed record EndpointExecutionResult(
     object? Body,
     string? OwnerDetail = null,
     int? RetryAfterSeconds = null,
-    IReadOnlyList<EndpointFetchBlockedCall>? FetchBlocked = null);
+    IReadOnlyList<EndpointFetchBlockedCall>? FetchBlocked = null,
+    bool GlobalScope = false);
 
 /// <summary>Inputs for a single endpoint execution.</summary>
 public sealed record EndpointExecutionRequest(

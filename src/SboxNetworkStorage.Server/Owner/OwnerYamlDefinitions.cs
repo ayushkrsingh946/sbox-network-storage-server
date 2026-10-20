@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
+using YamlDotNet.Core.Events;
+using YamlDotNet.Serialization.EventEmitters;
 
 namespace SboxNetworkStorage.Server.Owner;
 
@@ -16,6 +18,7 @@ public static class OwnerYamlDefinitions
     private static readonly IDeserializer YamlDeserializer = new DeserializerBuilder().Build();
     private static readonly ISerializer YamlSerializer = new SerializerBuilder()
         .DisableAliases()
+        .WithEventEmitter(next => new LiteralMultilineStrings(next))
         .Build();
 
     /// <summary>
@@ -50,7 +53,36 @@ public static class OwnerYamlDefinitions
     {
         if (definition.ValueKind != JsonValueKind.Object)
             throw new ArgumentException("Definition must be an object.");
-        return YamlSerializer.Serialize(ToYamlValue(definition));
+        var value = (Dictionary<string, object?>)ToYamlValue(definition)!;
+        if (!definition.TryGetProperty("script", out var script) || script.ValueKind != JsonValueKind.String
+            || string.IsNullOrWhiteSpace(script.GetString()))
+            return YamlSerializer.Serialize(value);
+        // The dashboard editor reads only a top-level `script: |` block. YamlDotNet quotes a multi-line string
+        // when a line ends in spaces, so the script is serialised as a placeholder and spliced in as a literal block.
+        var placeholder = "__script_" + Guid.NewGuid().ToString("N") + "__";
+        value["script"] = placeholder;
+        var lines = YamlSerializer.Serialize(value).Split('\n').ToList();
+        var index = lines.FindIndex(line => line.TrimEnd('\r') == "script: " + placeholder);
+        if (index < 0) throw new InvalidOperationException("The serialized script placeholder was not found.");
+        lines.RemoveAt(index);
+        lines.InsertRange(index, ScriptBlock(script.GetString()!));
+        return string.Join('\n', lines);
+    }
+
+    // The literal block the editor reads. `|2` keeps a leading space on the first content line, and the
+    // chomping indicator keeps the exact trailing line breaks, so the value round-trips unchanged.
+    private static IEnumerable<string> ScriptBlock(string text)
+    {
+        var normalized = text.Replace("\r\n", "\n");
+        var trailingBreaks = normalized.Length - normalized.TrimEnd('\n').Length;
+        var chomp = trailingBreaks == 0 ? "-" : trailingBreaks == 1 ? "" : "+";
+        var lines = normalized.Split('\n').ToList();
+        if (lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+        var firstContent = lines.FirstOrDefault(line => line.Length > 0);
+        var indicator = firstContent is not null && firstContent[0] == ' ' ? "2" : "";
+        yield return $"script: |{indicator}{chomp}";
+        foreach (var line in lines)
+            yield return line.Length == 0 ? "" : "  " + line;
     }
 
     private static bool TryParseJsonObject(string text, out JsonElement json)
@@ -101,4 +133,21 @@ public static class OwnerYamlDefinitions
         JsonValueKind.False => false,
         _ => null,
     };
+
+    // YamlDotNet writes some multi-line strings as folded `>` blocks, which join their lines. The
+    // dashboard's script editor reads only `script: |` blocks, so every multi-line string is written
+    // as a literal block. libyaml falls back to a quoted scalar when a literal block is not allowed,
+    // for example when a line ends in spaces.
+    private sealed class LiteralMultilineStrings(IEventEmitter next) : ChainedEventEmitter(next)
+    {
+        public override void Emit(ScalarEventInfo eventInfo, IEmitter emitter)
+        {
+            if (eventInfo.Source.Value is string text && text.Contains('\n'))
+            {
+                eventInfo.Style = ScalarStyle.Literal;
+            }
+
+            base.Emit(eventInfo, emitter);
+        }
+    }
 }

@@ -113,9 +113,10 @@ public static class OwnerHostingExtensions
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
                 context.Response.Headers["X-Content-Type-Options"] = "nosniff";
                 var turnstile = context.RequestServices.GetRequiredService<OwnerTurnstile>().Enabled;
+                var styles = IsDefinitionEditor(context.Request) ? "'self' 'unsafe-inline'" : "'self'";
                 context.Response.Headers["Content-Security-Policy"] = turnstile
-                    ? "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-                    : "default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+                    ? $"default-src 'none'; img-src 'self' data:; font-src data:; style-src {styles}; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; worker-src 'self' blob:; connect-src 'self' https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+                    : $"default-src 'none'; img-src 'self' data:; font-src data:; style-src {styles}; script-src 'self'; worker-src 'self' blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
             }
             await next(context);
         });
@@ -124,6 +125,9 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.vendor-bootstrap.css")!, "text/css"));
         app.MapGet("/owner-assets/vendor/bootstrap.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.vendor-bootstrap.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/vendor/monaco/{*path}", (string path) => OwnerMonacoAssets.Open(path) is { } asset
+            ? Results.Stream(asset.Stream, asset.ContentType)
+            : Results.NotFound());
         app.MapGet("/owner-assets/management.css", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.management.css")!, "text/css"));
         app.MapGet("/owner-assets/theme.js", () => Results.Stream(
@@ -157,6 +161,20 @@ public static class OwnerHostingExtensions
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.toast.js")!, "text/javascript"));
         app.MapGet("/owner-assets/workbench.css", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.workbench.css")!, "text/css"));
+        app.MapGet("/owner-assets/endpoint-page.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.endpoint-page.css")!, "text/css"));
+        app.MapGet("/owner-assets/script-block.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-block.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/script-docs.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-docs.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/script-language.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-language.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/endpoint-try.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.endpoint-try.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/script-editor.js", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-editor.js")!, "text/javascript"));
+        app.MapGet("/owner-assets/script-editor.css", () => Results.Stream(
+            typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.script-editor.css")!, "text/css"));
         app.MapGet("/owner-assets/highlight.js", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.highlight.js")!, "text/javascript"));
         app.MapGet("/owner-assets/workbench.js", () => Results.Stream(
@@ -176,6 +194,15 @@ public static class OwnerHostingExtensions
         app.MapGet("/owner-assets/heroicons.LICENSE.txt", () => Results.Stream(
             typeof(OwnerHostingExtensions).Assembly.GetManifestResourceStream("SboxNetworkStorage.Server.Owner.heroicons.LICENSE.txt")!, "text/plain"));
         return app;
+    }
+
+    // Monaco injects its own stylesheet at runtime, which needs inline style. Only definition editor
+    // responses allow it; every other dashboard page keeps style-src 'self'.
+    private static bool IsDefinitionEditor(HttpRequest request)
+    {
+        var path = request.Path.Value ?? string.Empty;
+        return path.Contains("/resources/", StringComparison.Ordinal)
+            && (path.EndsWith("/new", StringComparison.Ordinal) || string.Equals(request.Query["tab"], "edit", StringComparison.Ordinal));
     }
 }
 
