@@ -147,6 +147,51 @@ public abstract class EndpointWriteQueueConcurrencyTests<TFactory>(TFactory fact
         Assert.Equal(1L, saved.Value.GetProperty("version").GetInt64());
     }
 
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FetchMutation_IsNotRepeatedWhenCommittingPassReloadsRecords(bool changeRecord)
+    {
+        Skip.IfNot(factory.IsAvailable, factory.SkipReason);
+        var store = await factory.NewStoreAsync();
+        var project = NewProjectId();
+        const string script = """
+            export default function handle(req, ns) {
+              const player = ns.records.get("players", req.input.steamId);
+              if (player === null) return { loading: true };
+              const response = ns.fetch("https://api.example.com/rewards", {
+                method: "POST", body: { xp: player.xp }
+              });
+              if (response === null) return { loading: true };
+              ns.records.put("players", req.input.steamId, { xp: player.xp + 1 });
+              return { ok: true };
+            }
+            """;
+        await SeedAsync(store, project, "fetch-reward", JsonSerializer.Serialize(new { runtime = "javascript", script }));
+        await store.UpsertProjectAsync(project, Json("""{"fetchAllowedHosts":["api.example.com"]}"""), 1, default);
+        var transport = new ConcurrentUpdateFetchTransport(store, project, changeRecord);
+        var executor = new EndpointExecutor(new StoreEndpointDataSource(store, NullLogger<StoreEndpointDataSource>.Instance),
+            scriptRuntimes: EndpointExecutor.CreateScriptRuntimes(scriptsEnabled: true), fetchTransport: transport);
+
+        var result = await InvokeAsync(executor, project, "fetch-reward");
+
+        var request = Assert.Single(transport.Requests);
+        Assert.Equal(0, JsonSerializer.Deserialize<JsonElement>(request.Body!).GetProperty("xp").GetInt32());
+        var saved = await store.ReadRecordAsync(project, "players", SteamId, default);
+        Assert.NotNull(saved);
+        Assert.Equal(changeRecord ? 10 : 1, saved.Value.GetProperty("payload_json").GetProperty("xp").GetInt32());
+        Assert.Equal(2L, saved.Value.GetProperty("version").GetInt64());
+        if (changeRecord)
+        {
+            Assert.Equal(502, result?.Status);
+            Assert.Contains("FETCH_REPLAY_CONFLICT", JsonSerializer.Serialize(result!.Body));
+        }
+        else
+        {
+            Assert.Equal(200, result?.Status);
+        }
+    }
+
     [SkippableFact]
     public async Task TwentyConcurrentRecordApiIncrementsAllApply()
     {
@@ -171,6 +216,21 @@ public abstract class EndpointWriteQueueConcurrencyTests<TFactory>(TFactory fact
         Assert.True(stats.Counters.Completed >= 21, $"record writes should pass through the write queue; completed={stats.Counters.Completed}");
         Assert.Equal(0, stats.ActiveKeys);
         Assert.Equal(0, stats.QueuedRequests);
+    }
+
+    private sealed class ConcurrentUpdateFetchTransport(INetworkStorageStore store, string project, bool changeRecord) : IScriptFetchTransport
+    {
+        public bool AllowPrivateNetworks => false;
+        public List<ScriptFetchRequest> Requests { get; } = [];
+
+        public async Task<ScriptFetchResult> SendAsync(ScriptFetchRequest request, EndpointFetchPolicy policy, CancellationToken ct)
+        {
+            Requests.Add(request);
+            // A concurrent writer commits while the external mutation is in flight, before the executor takes its locks.
+            if (changeRecord && Requests.Count == 1)
+                await store.UpsertRecordAsync(project, "players", SteamId, Json("""{"xp":10}"""), false, 2, ct);
+            return ScriptFetchResult.Ok(new ScriptFetchResponse(200, new Dictionary<string, string>(), """{"ok":true}"""));
+        }
     }
 
     private static string NewProjectId() => "wq" + Guid.NewGuid().ToString("N")[..12];

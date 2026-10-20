@@ -19,8 +19,8 @@ public sealed record ScriptFetchTraceEntry(int Ordinal, string Host, string Meth
 /// Per-execution state of <c>ns.fetch</c>, shared by every round of one request. The script calls
 /// <see cref="Call"/> synchronously. A valid call that has no result yet is queued and returns null. The
 /// executor then calls <see cref="LoadPendingAsync"/>, and the handler re-runs and finds the stored result. A
-/// call is identified by its ordinal within the run plus its request, so a re-run gets the same result without
-/// a second request.
+/// call is identified by its ordinal within the run. An executed ordinal may only replay the same request;
+/// changed arguments are refused rather than issuing another external side effect from a discarded pass.
 /// </summary>
 public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchTransport transport, bool captureTrace = false)
 {
@@ -52,7 +52,7 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
 
     private static readonly string LimitMessage = $"ns.fetch: one execution may make at most {MaxRequestsPerExecution} outbound requests.";
 
-    private readonly Dictionary<string, ScriptFetchResult> _completed = new(StringComparer.Ordinal);
+    private readonly Dictionary<int, (string Key, ScriptFetchResult Result)> _completed = [];
     private readonly List<PendingCall> _pending = [];
     private readonly SortedDictionary<int, ScriptFetchTraceEntry>? _trace = captureTrace ? new() : null;
     private readonly List<EndpointFetchBlockedCall> _blocked = [];
@@ -100,10 +100,16 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
             throw;
         }
 
-        if (_completed.TryGetValue(call.Key, out var done))
+        if (_completed.TryGetValue(ordinal, out var done))
         {
-            SetCompletedTrace(call, done);
-            return Deliver(done);
+            if (!string.Equals(done.Key, call.Key, StringComparison.Ordinal))
+            {
+                SetTrace(ordinal, call.Host, call.Request.Method, null, "FETCH_REPLAY_CONFLICT", "request_changed");
+                throw new ScriptFetchException("FETCH_REPLAY_CONFLICT",
+                    "ns.fetch: an executed call changed during a script rerun; no second request was sent. An earlier external effect may already have completed.");
+            }
+            SetCompletedTrace(call, done.Result);
+            return Deliver(done.Result);
         }
 
         if (FetchHostRules.TryGetIpLiteral(call.Host, out var literal)
@@ -138,7 +144,7 @@ public sealed class ScriptFetchSession(EndpointFetchPolicy policy, IScriptFetchT
         {
             var call = calls[i];
             var result = results[i];
-            _completed[call.Key] = result;
+            _completed[call.Ordinal] = (call.Key, result);
             SetCompletedTrace(call, result);
         }
     }
