@@ -15,10 +15,10 @@ name: Canary verify
 #
 # Configuration: variable OSS_CANARY_URL (canary base URL); secrets OSS_CANARY_PROJECT_ID,
 # OSS_CANARY_PUBLIC_KEY, OSS_CANARY_SECRET_KEY (fixture project on the canary) and
-# OSS_RELEASE_OPS_TOKEN (bearer token for the release-channel ops endpoint).
+# OSS_RELEASE_OPS_TOKEN (bearer token for the release-channel ops endpoint). These are optional:
+# when OSS_CANARY_URL is absent, the scheduled check succeeds without running canary promotion.
 # Optional automatic official deployment: secret OSS_WEBSITE_DISPATCH_TOKEN with
 # repository-dispatch permission and variable OSS_WEBSITE_REPOSITORY (owner/repo).
-# Without these, promotion still succeeds; deploy the website workflow manually.
 
 on:
   schedule:
@@ -54,9 +54,12 @@ jobs:
           CANARY_URL: ${{ vars.OSS_CANARY_URL }}
         run: |
           set -euo pipefail
+          # The OSS canary is optional for installations that only publish GitHub releases.
+          # Do not turn an unconfigured optional deployment into a red scheduled check.
           if [ -z "${CANARY_URL:-}" ]; then
-            echo "::error::Set the OSS_CANARY_URL repository variable to the canary base URL."
-            exit 1
+            echo "::notice::OSS_CANARY_URL is not configured; skipping canary verification and promotion."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           fetch() { curl -fsS --max-time 30 --retry 3 --retry-delay 10 --retry-all-errors "$1"; }
           running="$(fetch "${CANARY_URL%/}/v3/server-info" | jq -r '.version // empty')"
