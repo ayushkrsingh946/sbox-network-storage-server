@@ -71,24 +71,24 @@ public static partial class AuthSessionEndpoints
         if (!project.Ok) { await SessionErrorAsync(context, requestId, project.ErrorCode!, project.ErrorDetail); return; }
 
         var body = await ReadBodyAsync(context);
-        var steamId = ReadSteamId(context, body);
-        if (string.IsNullOrEmpty(steamId) || !IsPlausibleSteamId(steamId))
+        var claimed = PlayerIdentity.ClaimedSteamId(context.Request, body ?? default);
+        if (string.IsNullOrEmpty(claimed) || !IsPlausibleSteamId(claimed))
         {
             await SessionErrorAsync(context, requestId, "INVALID_STEAMID", "Create session requires a plausible x-steam-id value.");
             return;
         }
 
         var verifier = context.RequestServices.GetRequiredService<ISboxAuthVerifier>();
-        var sbox = await verifier.CheckAsync(BuildSboxCheck(context, project.ProjectId, "__auth_session_create"), context.RequestAborted);
-        if (!sbox.Ok) { await SessionErrorAsync(context, requestId, "SBOX_AUTH_FAILED", sbox.Error); return; }
-        if (!string.IsNullOrEmpty(sbox.SteamId) && !string.Equals(sbox.SteamId, steamId, StringComparison.Ordinal))
+        var sbox = await verifier.CheckAsync(BuildSboxCheck(context, body, project.ProjectId, "__auth_session_create"), context.RequestAborted);
+        if (!sbox.Ok || string.IsNullOrEmpty(sbox.SteamId)) { await SessionErrorAsync(context, requestId, "SBOX_AUTH_FAILED", sbox.Error); return; }
+        if (!ClaimsMatchVerifiedIdentity(context, body, sbox.SteamId))
         {
             await SessionErrorAsync(context, requestId, "AUTH_SESSION_STEAMID_MISMATCH", null);
             return;
         }
 
         var service = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>();
-        var created = service.Create(project.UserId, project.ProjectId, steamId, project.TtlSeconds, new Dictionary<string, object?>
+        var created = service.Create(project.UserId, project.ProjectId, sbox.SteamId, project.TtlSeconds, new Dictionary<string, object?>
         {
             ["createdFrom"] = "builtin-session-endpoint",
             ["userAgent"] = context.Request.Headers.UserAgent.ToString(),
@@ -128,9 +128,10 @@ public static partial class AuthSessionEndpoints
         if (!valid.Ok) { await SessionErrorAsync(context, requestId, valid.Code!, valid.Message); return; }
 
         var verifier = context.RequestServices.GetRequiredService<ISboxAuthVerifier>();
-        var sbox = await verifier.CheckAsync(BuildSboxCheck(context, project.ProjectId, "__auth_session_reauth"), context.RequestAborted);
-        if (!sbox.Ok) { await SessionErrorAsync(context, requestId, "SBOX_AUTH_FAILED", sbox.Error); return; }
-        if (!string.IsNullOrEmpty(sbox.SteamId) && !string.Equals(sbox.SteamId, valid.Session!.SteamId, StringComparison.Ordinal))
+        var sbox = await verifier.CheckAsync(BuildSboxCheck(context, body, project.ProjectId, "__auth_session_reauth"), context.RequestAborted);
+        if (!sbox.Ok || string.IsNullOrEmpty(sbox.SteamId)) { await SessionErrorAsync(context, requestId, "SBOX_AUTH_FAILED", sbox.Error); return; }
+        if (!ClaimsMatchVerifiedIdentity(context, body, sbox.SteamId)
+            || !string.Equals(sbox.SteamId, valid.Session!.SteamId, StringComparison.Ordinal))
         {
             await SessionErrorAsync(context, requestId, "AUTH_SESSION_STEAMID_MISMATCH", null);
             return;
@@ -199,21 +200,14 @@ public static partial class AuthSessionEndpoints
         return new SessionProject(true, null, null, auth.UserId, projectId, ttl);
     }
 
-    private static SboxAuthCheck BuildSboxCheck(HttpContext context, string projectId, string endpointSlug)
+    private static SboxAuthCheck BuildSboxCheck(HttpContext context, JsonElement? body, string projectId, string endpointSlug)
     {
         var apiKey = context.Request.Headers["x-api-key"].FirstOrDefault();
         if (string.IsNullOrEmpty(apiKey)) apiKey = context.Request.Query["apiKey"].FirstOrDefault();
-        var hostToken = FirstNonEmpty(
-            context.Request.Headers["x-sbox-token"].FirstOrDefault(),
-            context.Request.Headers["x-sbox-auth-token"].FirstOrDefault(),
-            context.Request.Query["token"].FirstOrDefault());
-        var hostSteamId = FirstNonEmpty(
-            context.Request.Headers["x-steam-id"].FirstOrDefault(),
-            context.Request.Headers["x-sbox-steam-id"].FirstOrDefault(),
-            context.Request.Query["steamId"].FirstOrDefault());
+        var element = body ?? default;
         return new SboxAuthCheck(
-            hostToken,
-            hostSteamId,
+            PlayerIdentity.ReadHostToken(context.Request, element),
+            PlayerIdentity.ClaimedSteamId(context.Request, element),
             context.Request.Headers["x-on-behalf-of"].FirstOrDefault(),
             context.Request.Headers["x-on-behalf-of-token"].FirstOrDefault(),
             context.Request.Headers["x-proxy-signature"].FirstOrDefault(),
@@ -221,6 +215,19 @@ public static partial class AuthSessionEndpoints
             projectId,
             endpointSlug,
             ClientAddress.Resolve(context));
+    }
+
+    /// <summary>
+    /// Every Steam ID claim the request supplies must agree with the verified identity. For delegated
+    /// requests the caller's own claim is the host's Steam ID, so the verified client is the player
+    /// (mirrors <see cref="PlayerIdentity.ResolveAsync"/>).
+    /// </summary>
+    private static bool ClaimsMatchVerifiedIdentity(HttpContext context, JsonElement? body, string verifiedSteamId)
+    {
+        var element = body ?? default;
+        var delegated = !string.IsNullOrEmpty(context.Request.Headers["x-on-behalf-of"].FirstOrDefault());
+        var expected = delegated ? PlayerIdentity.ClaimedSteamId(context.Request, element) : verifiedSteamId;
+        return PlayerIdentity.SuppliedClaimsMatch(context.Request, element, expected);
     }
 
     private static async Task<JsonElement?> ReadBodyAsync(HttpContext context)
@@ -236,20 +243,6 @@ public static partial class AuthSessionEndpoints
         {
             return null;
         }
-    }
-
-    private static string ReadSteamId(HttpContext context, JsonElement? body)
-    {
-        var header = context.Request.Headers["x-steam-id"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(header)) return header;
-        var query = context.Request.Query["steamId"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(query)) return query;
-        if (body is { ValueKind: JsonValueKind.Object } b && b.TryGetProperty("steamId", out var value))
-        {
-            if (value.ValueKind == JsonValueKind.String) return value.GetString() ?? string.Empty;
-            if (value.ValueKind == JsonValueKind.Number) return value.ToString();
-        }
-        return string.Empty;
     }
 
     private static string ReadAuthSessionToken(HttpContext context, JsonElement? body)

@@ -28,13 +28,33 @@ internal readonly record struct PlayerIdentityResult(string? SteamId, int Status
 /// </summary>
 internal static class PlayerIdentity
 {
-    /// <summary>The Steam ID the caller claims, from headers, query or the JSON body.</summary>
-    internal static string ClaimedSteamId(HttpRequest request, JsonElement body) => FirstNonEmpty(
-        request.Headers["x-steam-id"].FirstOrDefault(),
-        request.Headers["x-sbox-steam-id"].FirstOrDefault(),
-        request.Query["steamId"].FirstOrDefault(),
-        request.Query["steamid"].FirstOrDefault(),
-        ReadBodyString(body, "steamId")) ?? "";
+    /// <summary>The Steam ID the caller claims, from headers, query or the JSON body (trimmed; first supplied wins).</summary>
+    internal static string ClaimedSteamId(HttpRequest request, JsonElement body) => ClaimValues(request, body).FirstOrDefault() ?? "";
+
+    /// <summary>The s&amp;box token presented with the request (header, query or body), or null.</summary>
+    internal static string? ReadHostToken(HttpRequest request, JsonElement body) => FirstNonEmpty(
+        request.Headers["x-sbox-token"].FirstOrDefault(),
+        request.Headers["x-sbox-auth-token"].FirstOrDefault(),
+        request.Query["token"].FirstOrDefault(), ReadBodyString(body, "token"));
+
+    /// <summary>True when every Steam ID the request supplies, from any source, equals <paramref name="expectedClaim"/>.</summary>
+    internal static bool SuppliedClaimsMatch(HttpRequest request, JsonElement body, string expectedClaim)
+        => ClaimValues(request, body).All(claim => string.Equals(claim, expectedClaim, StringComparison.Ordinal));
+
+    /// <summary>Every non-blank, trimmed Steam ID claim, in precedence order.</summary>
+    private static IEnumerable<string> ClaimValues(HttpRequest request, JsonElement body)
+    {
+        var sources = new[]
+        {
+            request.Headers["x-steam-id"].FirstOrDefault(),
+            request.Headers["x-sbox-steam-id"].FirstOrDefault(),
+            request.Query["steamId"].FirstOrDefault(),
+            request.Query["steamid"].FirstOrDefault(),
+            ReadBodyString(body, "steamId"),
+        };
+        foreach (var source in sources)
+            if (source?.Trim() is { Length: > 0 } claim) yield return claim;
+    }
 
     /// <summary>
     /// Resolves the player for a public-key request. When <paramref name="required"/>
@@ -50,10 +70,7 @@ internal static class PlayerIdentity
     {
         var request = context.Request;
         var sessionToken = ReadSessionToken(request, body);
-        var token = FirstNonEmpty(
-            request.Headers["x-sbox-token"].FirstOrDefault(),
-            request.Headers["x-sbox-auth-token"].FirstOrDefault(),
-            request.Query["token"].FirstOrDefault(), ReadBodyString(body, "token"));
+        var token = ReadHostToken(request, body);
         var clientSteamId = request.Headers["x-on-behalf-of"].FirstOrDefault();
         var clientToken = request.Headers["x-on-behalf-of-token"].FirstOrDefault();
         var proxySignature = request.Headers["x-proxy-signature"].FirstOrDefault();
@@ -90,18 +107,6 @@ internal static class PlayerIdentity
             if (!result.Ok || string.IsNullOrEmpty(result.SteamId))
                 return PlayerIdentityResult.Reject("SBOX_AUTH_FAILED", result.Error ?? "Player identity could not be verified.");
 
-            if (!string.IsNullOrEmpty(clientSteamId))
-            {
-                // The shared proxy verifier authenticates the host and signature,
-                // not the client token. A public key is not a delegation authority:
-                // verify the client as well before accepting its player identity.
-                result = await verifier.CheckAsync(
-                    new SboxAuthCheck(clientToken ?? "", clientSteamId, null, null, null, apiKey, projectId, endpointSlug, ClientAddress.Resolve(context)),
-                    context.RequestAborted);
-                if (!result.Ok || string.IsNullOrEmpty(result.SteamId))
-                    return PlayerIdentityResult.Reject("SBOX_AUTH_FAILED", result.Error ?? "Delegated player identity could not be verified.");
-            }
-
             if (verifiedSteamId is not null && !string.Equals(verifiedSteamId, result.SteamId, StringComparison.Ordinal))
                 return PlayerIdentityResult.Reject("AUTH_SESSION_STEAMID_MISMATCH", "Auth session and s&box token identify different players.", StatusCodes.Status403Forbidden);
             verifiedSteamId = result.SteamId;
@@ -109,18 +114,11 @@ internal static class PlayerIdentity
 
         // Check every supported claim, not just the highest-precedence one. Proxy
         // requests carry the verified host in these fields and the client separately.
-        var expectedClaim = string.IsNullOrEmpty(clientSteamId) ? verifiedSteamId : claimedSteamId;
-        if (!MatchesClaim(request.Headers["x-steam-id"].FirstOrDefault())
-            || !MatchesClaim(request.Headers["x-sbox-steam-id"].FirstOrDefault())
-            || !MatchesClaim(request.Query["steamId"].FirstOrDefault())
-            || !MatchesClaim(request.Query["steamid"].FirstOrDefault())
-            || !MatchesClaim(ReadBodyString(body, "steamId")))
+        var expectedClaim = string.IsNullOrEmpty(clientSteamId) ? verifiedSteamId! : claimedSteamId;
+        if (!SuppliedClaimsMatch(request, body, expectedClaim))
             return PlayerIdentityResult.Reject("AUTH_SESSION_STEAMID_MISMATCH", "Supplied Steam ID does not match the verified identity.", StatusCodes.Status403Forbidden);
 
         return PlayerIdentityResult.Verified(verifiedSteamId!);
-
-        bool MatchesClaim(string? claim) => string.IsNullOrEmpty(claim)
-            || string.Equals(claim, expectedClaim, StringComparison.Ordinal);
     }
 
     /// <summary>The auth-session token presented with the request (header, bearer, query, or body), or null.</summary>

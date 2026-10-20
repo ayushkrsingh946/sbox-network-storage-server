@@ -1,3 +1,4 @@
+using SboxNetworkStorage.Server.Tests.Support;
 using System.Net;
 using System.Text;
 using Microsoft.Extensions.Caching.Memory;
@@ -43,6 +44,69 @@ public sealed class FacepunchSboxAuthVerifierTests
         Assert.Equal("{\"steamid\":\"76561197960287930\",\"token\":\"token-1\"}", handler.Body);
     }
 
+    private const string HostSteamId = "76561197960287931";
+
+    [Fact]
+    public async Task ProxyWithUnverifiedClientToken_IsRejectedEvenWhenHostAndSignatureAreValid()
+    {
+        var facepunch = new FacepunchTokenTransport(new Dictionary<string, string> { ["host-token"] = HostSteamId });
+        var verifier = Verifier(facepunch, Throttle(), Tokens());
+
+        var result = await verifier.CheckAsync(Proxy("host-token", SteamId, "forged-token"), CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Null(result.SteamId);
+        Assert.Equal(2, facepunch.Calls);
+    }
+
+    [Fact]
+    public async Task ProxyClientTokenOwnedByAnotherPlayer_IsRejected()
+    {
+        var facepunch = new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            ["host-token"] = HostSteamId,
+            ["other-token"] = "76561197960287932",
+        });
+        var verifier = Verifier(facepunch, Throttle(), Tokens());
+
+        var result = await verifier.CheckAsync(Proxy("host-token", SteamId, "other-token"), CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Null(result.SteamId);
+    }
+
+    [Fact]
+    public async Task ProxyWithVerifiedHostAndClient_ReturnsClientSteamId()
+    {
+        var facepunch = new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            ["host-token"] = HostSteamId,
+            ["player-token"] = SteamId,
+        });
+        var verifier = Verifier(facepunch, Throttle(), Tokens());
+
+        var result = await verifier.CheckAsync(Proxy("host-token", SteamId, "player-token"), CancellationToken.None);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(SteamId, result.SteamId);
+        Assert.Equal(2, facepunch.Calls);
+    }
+
+    private static SboxAuthCheck Proxy(string hostToken, string clientSteamId, string clientToken) => new(
+        HostToken: hostToken,
+        HostSteamId: HostSteamId,
+        ClientSteamId: clientSteamId,
+        ClientToken: clientToken,
+        ProxySignature: FacepunchSboxAuthVerifier.ComputeProxySignature("api-key", "project-1", "endpoint-1", clientSteamId, clientToken),
+        ApiKey: "api-key",
+        ProjectId: "project-1",
+        EndpointSlug: "endpoint-1",
+        ClientIp: "198.51.100.1");
+
+    private static SboxAuthFailureThrottle Throttle() => new(Bounded(), TimeProvider.System);
+
+    private static SboxTokenCache Tokens() => new(Bounded(), TimeProvider.System);
+
     private const string SteamId = "76561197960287930";
 
     private static MemoryCache Bounded(int limit = 100) => new(new MemoryCacheOptions { SizeLimit = limit });
@@ -51,7 +115,7 @@ public sealed class FacepunchSboxAuthVerifierTests
         => new(token, steamId, null, null, null, "api-key", project, "endpoint-1", ip);
 
     private static FacepunchSboxAuthVerifier Verifier(
-        CountingHandler handler, SboxAuthFailureThrottle throttle, SboxTokenCache tokens)
+        HttpMessageHandler handler, SboxAuthFailureThrottle throttle, SboxTokenCache tokens)
         => new(new HttpClient(handler), NullLogger<FacepunchSboxAuthVerifier>.Instance, throttle, tokens);
 
     [Fact]
