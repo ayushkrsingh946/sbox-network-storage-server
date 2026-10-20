@@ -338,6 +338,22 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
     }
 
     [SkippableFact]
+    public async Task Create_DelegatedRequestedPlayerDiffersFromVerifiedClient_IsRejectedWithoutSession()
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            [HostToken] = HostSteamId,
+            [OtherPlayerToken] = OtherSteamId,
+        }));
+        using var response = await client.SendAsync(CreateProxyRequest($"/v3/auth-sessions/{ProjectId}/create", "__auth_session_create", OtherSteamId, OtherPlayerToken, requestedSteamId: SteamId));
+
+        var body = await BodyAsync(response);
+        Assert.False(body.GetProperty("ok").GetBoolean());
+        Assert.Equal("AUTH_SESSION_STEAMID_MISMATCH", body.GetProperty("error").GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("sessionToken", out _));
+    }
+
+    [SkippableFact]
     public async Task Reauth_DelegatedWithForgedClientToken_DoesNotRenewVictimSession()
     {
         using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
@@ -402,13 +418,18 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
         return request;
     }
 
-    private static HttpRequestMessage CreateProxyRequest(string path, string endpointSlug, string clientSteamId, string clientToken)
+    private static HttpRequestMessage CreateProxyRequest(string path, string endpointSlug, string clientSteamId, string clientToken, string? requestedSteamId = null)
     {
-        var request = CreateDirectRequest(path, HostSteamId, HostToken);
+        var request = new HttpRequestMessage(HttpMethod.Post, path);
+        request.Headers.Add("x-api-key", ApiKey);
+        request.Headers.Add("x-sbox-steam-id", HostSteamId);
+        request.Headers.Add("x-sbox-token", HostToken);
         request.Headers.Add("x-on-behalf-of", clientSteamId);
         request.Headers.Add("x-on-behalf-of-token", clientToken);
         request.Headers.Add("x-proxy-signature",
             FacepunchSboxAuthVerifier.ComputeProxySignature(ApiKey, ProjectId, endpointSlug, clientSteamId, clientToken));
+        var steamId = requestedSteamId ?? clientSteamId;
+        request.Content = new StringContent($"{{\"steamId\":\"{steamId}\"}}", System.Text.Encoding.UTF8, "application/json");
         return request;
     }
 

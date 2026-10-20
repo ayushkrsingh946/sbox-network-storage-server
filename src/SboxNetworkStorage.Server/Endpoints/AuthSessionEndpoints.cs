@@ -71,7 +71,7 @@ public static partial class AuthSessionEndpoints
         if (!project.Ok) { await SessionErrorAsync(context, requestId, project.ErrorCode!, project.ErrorDetail); return; }
 
         var body = await ReadBodyAsync(context);
-        var claimed = PlayerIdentity.ClaimedSteamId(context.Request, body ?? default);
+        var claimed = PlayerIdentity.RequestedSteamId(context.Request, body ?? default);
         if (string.IsNullOrEmpty(claimed) || !IsPlausibleSteamId(claimed))
         {
             await SessionErrorAsync(context, requestId, "INVALID_STEAMID", "Create session requires a plausible x-steam-id value.");
@@ -81,7 +81,7 @@ public static partial class AuthSessionEndpoints
         var verifier = context.RequestServices.GetRequiredService<ISboxAuthVerifier>();
         var sbox = await verifier.CheckAsync(BuildSboxCheck(context, body, project.ProjectId, "__auth_session_create"), context.RequestAborted);
         if (!sbox.Ok || string.IsNullOrEmpty(sbox.SteamId)) { await SessionErrorAsync(context, requestId, "SBOX_AUTH_FAILED", sbox.Error); return; }
-        if (!ClaimsMatchVerifiedIdentity(context, body, sbox.SteamId))
+        if (!PlayerIdentity.RequestedClaimsMatch(context.Request, body ?? default, sbox.SteamId))
         {
             await SessionErrorAsync(context, requestId, "AUTH_SESSION_STEAMID_MISMATCH", null);
             return;
@@ -130,7 +130,7 @@ public static partial class AuthSessionEndpoints
         var verifier = context.RequestServices.GetRequiredService<ISboxAuthVerifier>();
         var sbox = await verifier.CheckAsync(BuildSboxCheck(context, body, project.ProjectId, "__auth_session_reauth"), context.RequestAborted);
         if (!sbox.Ok || string.IsNullOrEmpty(sbox.SteamId)) { await SessionErrorAsync(context, requestId, "SBOX_AUTH_FAILED", sbox.Error); return; }
-        if (!ClaimsMatchVerifiedIdentity(context, body, sbox.SteamId)
+        if (!PlayerIdentity.RequestedClaimsMatch(context.Request, body ?? default, sbox.SteamId)
             || !string.Equals(sbox.SteamId, valid.Session!.SteamId, StringComparison.Ordinal))
         {
             await SessionErrorAsync(context, requestId, "AUTH_SESSION_STEAMID_MISMATCH", null);
@@ -215,19 +215,6 @@ public static partial class AuthSessionEndpoints
             projectId,
             endpointSlug,
             ClientAddress.Resolve(context));
-    }
-
-    /// <summary>
-    /// Every Steam ID claim the request supplies must agree with the verified identity. For delegated
-    /// requests the caller's own claim is the host's Steam ID, so the verified client is the player
-    /// (mirrors <see cref="PlayerIdentity.ResolveAsync"/>).
-    /// </summary>
-    private static bool ClaimsMatchVerifiedIdentity(HttpContext context, JsonElement? body, string verifiedSteamId)
-    {
-        var element = body ?? default;
-        var delegated = !string.IsNullOrEmpty(context.Request.Headers["x-on-behalf-of"].FirstOrDefault());
-        var expected = delegated ? PlayerIdentity.ClaimedSteamId(context.Request, element) : verifiedSteamId;
-        return PlayerIdentity.SuppliedClaimsMatch(context.Request, element, expected);
     }
 
     private static async Task<JsonElement?> ReadBodyAsync(HttpContext context)

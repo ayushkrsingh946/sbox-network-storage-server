@@ -29,7 +29,7 @@ internal readonly record struct PlayerIdentityResult(string? SteamId, int Status
 internal static class PlayerIdentity
 {
     /// <summary>The Steam ID the caller claims, from headers, query or the JSON body (trimmed; first supplied wins).</summary>
-    internal static string ClaimedSteamId(HttpRequest request, JsonElement body) => ClaimValues(request, body).FirstOrDefault() ?? "";
+    internal static string ClaimedSteamId(HttpRequest request, JsonElement body) => ClaimValues(request, body, includeHostHeader: true).FirstOrDefault() ?? "";
 
     /// <summary>The s&amp;box token presented with the request (header, query or body), or null.</summary>
     internal static string? ReadHostToken(HttpRequest request, JsonElement body) => FirstNonEmpty(
@@ -39,15 +39,15 @@ internal static class PlayerIdentity
 
     /// <summary>True when every Steam ID the request supplies, from any source, equals <paramref name="expectedClaim"/>.</summary>
     internal static bool SuppliedClaimsMatch(HttpRequest request, JsonElement body, string expectedClaim)
-        => ClaimValues(request, body).All(claim => string.Equals(claim, expectedClaim, StringComparison.Ordinal));
+        => ClaimValues(request, body, includeHostHeader: true).All(claim => string.Equals(claim, expectedClaim, StringComparison.Ordinal));
 
-    /// <summary>Every non-blank, trimmed Steam ID claim, in precedence order.</summary>
-    private static IEnumerable<string> ClaimValues(HttpRequest request, JsonElement body)
+    /// <summary>Every non-blank, trimmed Steam ID claim, in precedence order. The host header is included only when asked.</summary>
+    private static IEnumerable<string> ClaimValues(HttpRequest request, JsonElement body, bool includeHostHeader)
     {
         var sources = new[]
         {
             request.Headers["x-steam-id"].FirstOrDefault(),
-            request.Headers["x-sbox-steam-id"].FirstOrDefault(),
+            includeHostHeader ? request.Headers["x-sbox-steam-id"].FirstOrDefault() : null,
             request.Query["steamId"].FirstOrDefault(),
             request.Query["steamid"].FirstOrDefault(),
             ReadBodyString(body, "steamId"),
@@ -55,6 +55,16 @@ internal static class PlayerIdentity
         foreach (var source in sources)
             if (source?.Trim() is { Length: > 0 } claim) yield return claim;
     }
+
+    /// <summary>The Steam ID the caller names as the requested player (trimmed; first supplied wins). The proxy host's x-sbox-steam-id is not a player claim.</summary>
+    internal static string RequestedSteamId(HttpRequest request, JsonElement body) => ClaimValues(request, body, includeHostHeader: false).FirstOrDefault() ?? "";
+
+    /// <summary>
+    /// True when every Steam ID the caller names as the requested player equals <paramref name="verifiedSteamId"/>.
+    /// Used by the auth-session routes: the proxy host's identity is verified by its own host token, so it is not compared here.
+    /// </summary>
+    internal static bool RequestedClaimsMatch(HttpRequest request, JsonElement body, string verifiedSteamId)
+        => ClaimValues(request, body, includeHostHeader: false).All(claim => string.Equals(claim, verifiedSteamId, StringComparison.Ordinal));
 
     /// <summary>
     /// Resolves the player for a public-key request. When <paramref name="required"/>

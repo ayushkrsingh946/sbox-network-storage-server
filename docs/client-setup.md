@@ -117,7 +117,7 @@ untrusted:
   target the player's own document: the key is the verified Steam ID, or starts
   with `{steamId}_` for save slots. Anything else answers `403 FORBIDDEN`. Reads of
   public collections are not limited to the player's own documents.
-- A delegated request (`x-on-behalf-of` with `x-on-behalf-of-token` and `x-proxy-signature`) acts as the player only when Facepunch also verifies the player's own token for that Steam ID. A valid host token and proxy signature alone are not enough.
+- A delegated request (`x-on-behalf-of` with `x-on-behalf-of-token` and `x-proxy-signature`) acts as the player only when Facepunch also verifies the player's own token for that Steam ID. A valid host token and proxy signature alone are not enough. On the auth-session routes the requested player (`x-steam-id`, `steamId` query, or `steamId` body) must equal that verified player; `x-sbox-steam-id` names the proxy host and is verified by the host token, not compared to the player.
 - With s&box authentication turned off (development), the Steam ID the client
   sends is trusted as is, but the `accessMode` and `allowRecordDelete` rules
   still apply.
