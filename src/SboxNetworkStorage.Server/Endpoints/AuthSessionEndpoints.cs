@@ -206,7 +206,7 @@ public static partial class AuthSessionEndpoints
         if (string.IsNullOrEmpty(apiKey)) apiKey = context.Request.Query["apiKey"].FirstOrDefault();
         var element = body ?? default;
         return new SboxAuthCheck(
-            PlayerIdentity.ReadHostToken(context.Request, element),
+            PlayerIdentity.ReadHostToken(context.Request, element) ?? string.Empty,
             PlayerIdentity.ClaimedSteamId(context.Request, element),
             context.Request.Headers["x-on-behalf-of"].FirstOrDefault(),
             context.Request.Headers["x-on-behalf-of-token"].FirstOrDefault(),
