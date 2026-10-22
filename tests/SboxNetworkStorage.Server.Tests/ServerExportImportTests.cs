@@ -82,6 +82,39 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         await AssertMediaRestoredAsync(target, blobs, record, bytes);
     }
 
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfigRestoreKeepsThisServersMediaLocation(bool sourceSetsItInConfD)
+    {
+        var projectId = await SeedAsync();
+        var bytes = Encoding.UTF8.GetBytes("config-restore-media-bytes");
+        var record = await SeedMediaAsync(projectId, bytes);
+        var source = CreateConfigFolder("media-source");
+        var sourceMedia = Path.Combine(source.DataDirectory, "old-media");
+        if (sourceSetsItInConfD)
+            File.WriteAllText(Path.Combine(source.ConfigDirectory, ConfigLoader.ConfDirectory, "20-media.toml"), $"[media]\nlocal_dir = \"{sourceMedia.Replace("\\", "\\\\")}\"\n");
+        else
+            ConfigFiles.SetValue(source.ConfigDirectory, SettingDefinitions.Find("media.local_dir")!, sourceMedia);
+        ConfigFiles.SetValue(source.ConfigDirectory, SettingDefinitions.Find("server.public_url")!, "https://source.example.com");
+        var archive = await ExportAsync(Source, source, includeSecrets: false);
+        var targetConfig = CreateConfigFolder("media-target");
+        var targetMedia = Path.Combine(targetConfig.DataDirectory, "new-media");
+        ConfigFiles.SetValue(targetConfig.ConfigDirectory, SettingDefinitions.Find("media.local_dir")!, targetMedia);
+        targetConfig = ConfigLoader.Load(targetConfig.ConfigDirectory, targetConfig.DataDirectory, environment: _ => null);
+
+        var target = await factory.NewStoreAsync();
+
+        await ImportAsync(archive, target, targetConfig, new ImportOptions(false, RestoreConfig: true), new LocalDiskMediaBlobStore(targetMedia));
+
+        var restored = ConfigLoader.Load(targetConfig.ConfigDirectory, targetConfig.DataDirectory, environment: _ => null);
+        Assert.True(restored.IsValid, string.Join("; ", restored.Issues));
+        Assert.Equal("https://source.example.com", restored.GetString("server.public_url"));
+        var mediaDirectory = restored.GetPath("media.local_dir", restored.DataDirectory);
+        Assert.Equal(targetMedia, mediaDirectory);
+        await AssertMediaRestoredAsync(target, new LocalDiskMediaBlobStore(mediaDirectory), record, bytes);
+    }
+
     [SkippableFact]
     public async Task MediaObjectsAndBytesSurvivePortableProjectRoundTrip()
     {

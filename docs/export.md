@@ -76,6 +76,9 @@ The reverse (PostgreSQL to SQLite) works the same way.
   database this server is configured for. The archived copy is saved as
   `database.toml.from-export` for reference. If you keep database settings in
   `conf.d/`, review them after the import.
+- The media storage settings (`media.backend`, `media.local_dir` and
+  `media.s3.*`) keep this server's values, in whichever restored file now sets
+  them: the media bytes have already been written to this server's media store.
 - Every replaced file is kept next to it as `*.before-import`.
 
 Files are written atomically (temp file + rename). Restart the server after
