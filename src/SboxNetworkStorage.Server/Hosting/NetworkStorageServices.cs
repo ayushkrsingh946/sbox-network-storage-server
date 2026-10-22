@@ -251,6 +251,12 @@ public static class NetworkStorageServices
             sp.GetRequiredService<ILogger<RequestEncryptionKeyStore>>()));
         services.AddSingleton<IAuthSessionSecretProvider, ConfigurationAuthSessionSecretProvider>();
         services.AddSingleton<INetworkStorageAuthSessionService, NetworkStorageAuthSessionService>();
+        services.AddSingleton<IAuthSessionRevocationStore>(sp =>
+        {
+            var admin = sp.GetRequiredService<INetworkStorageStoreAdmin>();
+            return admin is IAuthSessionRevocationStore revocations ? revocations
+                : throw new InvalidOperationException($"The configured {nameof(INetworkStorageStoreAdmin)} ({admin.GetType().FullName}) does not implement {nameof(IAuthSessionRevocationStore)}: auth-session revocation needs a relational store.");
+        });
         services.AddHostedService<AuthSessionSecretValidationHostedService>();
         // The verifier is a transient typed client; throttle and token-cache state lives in
         // singletons so it is shared by every request.

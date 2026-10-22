@@ -13,19 +13,14 @@ public static partial class ExportFormat
 {
     public const string FormatName = "sbox-ns-export";
 
-    /// <summary>Bump when the archive layout or a dump file shape changes incompatibly. v3 adds media objects and blobs.</summary>
-    public const int CurrentVersion = 3;
-
-    /// <summary>
-    /// Last version whose archives never contain media. Archives without media are still written at this version, so
-    /// older servers keep importing them.
-    /// </summary>
+    /// <summary>v3 adds media objects and blobs; v4 adds durable auth-session revocations.</summary>
+    public const int CurrentVersion = 4;
     public const int LastVersionWithoutMedia = 2;
-
-    public static int VersionFor(bool includesMedia) => includesMedia ? CurrentVersion : LastVersionWithoutMedia;
-
-    /// <summary>First version whose archives may contain media objects and blob entries.</summary>
     public const int MediaVersion = 3;
+    public const int RevocationsVersion = 4;
+
+    public static int VersionFor(bool includesMedia, bool includesRevocations)
+        => includesRevocations ? RevocationsVersion : includesMedia ? MediaVersion : LastVersionWithoutMedia;
 
     public const string ManifestEntry = "manifest.json";
     public const string DataPrefix = "data/";
@@ -42,6 +37,7 @@ public static partial class ExportFormat
         "project", "collections", "records", "ledger-entries", "global-records", "endpoints", "workflows",
         "queries", "api-keys", "pages", "game-values", "rate-limits", "checkpoint-cursor", "player-profiles",
         "player-sessions", "player-events", "audit-logs", "usage", "project-secrets", "media-objects",
+        "auth-session-revocations",
     ];
 
     public static readonly JsonSerializerOptions ManifestJson = new()

@@ -43,6 +43,7 @@ public static partial class AuthSessionEndpoints
         ["AUTH_SESSION_REQUIRED"] = (401, "Auth session token is required.", $"{Wiki}/sbox-auth#session-caching"),
         ["AUTH_SESSION_INVALID"] = (401, "Auth session token is invalid.", $"{Wiki}/sbox-auth#session-caching"),
         ["AUTH_SESSION_EXPIRED"] = (401, "Auth session has expired.", $"{Wiki}/sbox-auth#session-caching"),
+        ["AUTH_SESSION_REVOKED"] = (401, "Auth session has been revoked.", $"{Wiki}/sbox-auth#session-caching"),
         ["AUTH_SESSION_STEAMID_MISMATCH"] = (403, "Auth session does not match the supplied Steam ID.", $"{Wiki}/sbox-auth#session-caching"),
         ["INVALID_STEAMID"] = (400, "Steam ID must be a plausible numeric s&box/Steam ID.", $"{Wiki}/sbox-auth#implementing-auth-in-your-game"),
         ["PROJECT_DISABLED"] = (403, "This project is currently disabled.", $"{Wiki}/quick-start#2-create-a-project"),
@@ -107,7 +108,7 @@ public static partial class AuthSessionEndpoints
         if (string.IsNullOrEmpty(token)) { await SessionErrorAsync(context, requestId, "AUTH_SESSION_REQUIRED", null); return; }
 
         var service = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>();
-        var result = service.Refresh(project.ProjectId, token, project.TtlSeconds);
+        var result = await service.RefreshAsync(project.ProjectId, token, project.TtlSeconds, context.RequestAborted);
         if (!result.Ok) { await SessionErrorAsync(context, requestId, result.Code!, result.Message); return; }
 
         await WriteTokenSuccessAsync(context, requestId, result.Token ?? token, result.TtlSeconds, result.Session!);
@@ -124,7 +125,7 @@ public static partial class AuthSessionEndpoints
         if (string.IsNullOrEmpty(token)) { await SessionErrorAsync(context, requestId, "AUTH_SESSION_REQUIRED", null); return; }
 
         var service = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>();
-        var valid = service.Validate(project.ProjectId, token);
+        var valid = await service.ValidateAsync(project.ProjectId, token, ct: context.RequestAborted);
         if (!valid.Ok) { await SessionErrorAsync(context, requestId, valid.Code!, valid.Message); return; }
 
         var verifier = context.RequestServices.GetRequiredService<ISboxAuthVerifier>();
@@ -137,7 +138,7 @@ public static partial class AuthSessionEndpoints
             return;
         }
 
-        var refreshed = service.Refresh(project.ProjectId, token, project.TtlSeconds);
+        var refreshed = await service.RefreshAsync(project.ProjectId, token, project.TtlSeconds, context.RequestAborted);
         if (!refreshed.Ok) { await SessionErrorAsync(context, requestId, refreshed.Code!, refreshed.Message); return; }
 
         await WriteTokenSuccessAsync(context, requestId, refreshed.Token ?? token, refreshed.TtlSeconds, refreshed.Session!);
@@ -154,7 +155,7 @@ public static partial class AuthSessionEndpoints
         if (string.IsNullOrEmpty(token)) { await SessionErrorAsync(context, requestId, "AUTH_SESSION_REQUIRED", null); return; }
 
         var service = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>();
-        var result = service.Revoke(project.ProjectId, token);
+        var result = await service.RevokeAsync(project.ProjectId, token, context.RequestAborted);
         if (!result.Ok) { await SessionErrorAsync(context, requestId, result.Code!, result.Message); return; }
 
         var body200 = new Dictionary<string, object?>

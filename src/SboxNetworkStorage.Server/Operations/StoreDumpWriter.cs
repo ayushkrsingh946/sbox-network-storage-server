@@ -10,7 +10,8 @@ namespace SboxNetworkStorage.Server.Operations;
 /// columns); child rows carry their parent keys (<c>collection_id</c>, <c>record_key</c>,
 /// <c>steam_id</c>). Work is batched per collection / player, never per database.
 /// </summary>
-public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRoot, IProjectSecretStore? secrets = null, MediaExport? media = null)
+public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRoot, IAuthSessionRevocationStore revocations,
+    IProjectSecretStore? secrets = null, MediaExport? media = null)
 {
     private const string UsersDirectory = "network-storage/users";
     private readonly List<string> _entries = [];
@@ -215,6 +216,19 @@ public sealed class StoreDumpWriter(INetworkStorageStore store, string stagingRo
             }
             Count(file, "project-secrets", counts);
         }
+        var markers = await revocations.ListAsync(projectId, ct);
+        await WriteRowsAsync(projectId, "auth-session-revocations", counts, file =>
+        {
+            foreach (var marker in markers)
+            {
+                file.WriteObject(writer =>
+                {
+                    writer.WriteString("session_id", marker.SessionId);
+                    writer.WriteNumber("revoked_at_unix_ms", marker.RevokedAtUnixMs);
+                    writer.WriteNumber("purge_after_unix_ms", marker.PurgeAfterUnixMs);
+                });
+            }
+        });
         await WriteListAsync(projectId, "pages", await store.ListPagesAsync(projectId, ct), counts);
         await WriteSingleAsync(projectId, "game-values", await store.ReadGameValuesAsync(projectId, ct), counts);
         await WriteSingleAsync(projectId, "rate-limits", await store.ReadRateLimitRulesAsync(projectId, ct), counts);

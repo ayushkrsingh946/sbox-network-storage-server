@@ -35,19 +35,19 @@ public sealed record AuthSessionOutcome(
 
 /// <summary>
 /// Native .NET replacement for <c>services/network-storage-auth-sessions.js</c>.
-/// Auth sessions are <b>stateless</b> signed tokens
-/// (<c>sbox_sess_&lt;base64url(payload)&gt;.&lt;base64url(HMAC-SHA256(payload))&gt;</c>):
-/// there is no server-side session store, so validation re-signs the raw payload
-/// substring with the shared secret. Tokens are therefore interchangeable with
-/// the legacy server implementation as long as both resolve the same secret — making the
-/// route cutover safe by construction.
+/// Auth sessions are signed tokens
+/// (<c>sbox_sess_&lt;base64url(payload)&gt;.&lt;base64url(HMAC-SHA256(payload))&gt;</c>): validation
+/// re-signs the raw payload substring with the shared secret, so tokens stay interchangeable with
+/// the legacy server implementation as long as both resolve the same secret. Revocation is durable:
+/// it is recorded per session family in <see cref="Storage.IAuthSessionRevocationStore"/> and every
+/// operation that accepts a token checks it. Store failures propagate (fail closed).
 /// </summary>
 public interface INetworkStorageAuthSessionService
 {
     AuthSessionOutcome Create(long userId, string projectId, string steamId, int ttlSeconds, IReadOnlyDictionary<string, object?>? metadata = null);
-    AuthSessionOutcome Validate(string projectId, string token, string steamId = "");
-    AuthSessionOutcome Refresh(string projectId, string token, int ttlSeconds);
-    AuthSessionOutcome Revoke(string projectId, string token);
+    Task<AuthSessionOutcome> ValidateAsync(string projectId, string token, string steamId = "", CancellationToken ct = default);
+    Task<AuthSessionOutcome> RefreshAsync(string projectId, string token, int ttlSeconds, CancellationToken ct = default);
+    Task<AuthSessionOutcome> RevokeAsync(string projectId, string token, CancellationToken ct = default);
 }
 
 /// <summary>

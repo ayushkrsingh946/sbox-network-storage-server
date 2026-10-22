@@ -32,11 +32,12 @@ public static class ServerArchive
         try
         {
             var createdAt = DateTimeOffset.UtcNow;
-            var dump = new StoreDumpWriter(store, staging, includeSecrets ? admin as IProjectSecretStore : null,
+            var dump = new StoreDumpWriter(store, staging, RevocationsOf(admin),
+                includeSecrets ? admin as IProjectSecretStore : null,
                 new MediaExport(RequireMediaStore(admin), blobs, staging));
             var (workspaceObjects, memberships, projects) = await dump.WriteAsync(ct);
             var stagedConfig = ConfigArchive.Stage(config, includeSecrets, staging);
-            var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.VersionFor(IncludesMedia(projects)), BuildInfo.Version,
+            var manifest = new ExportManifest(ExportFormat.FormatName, VersionFor(projects), BuildInfo.Version,
                 await admin.GetSchemaVersionAsync(ct), admin.ProviderName, createdAt, IncludesConfig: true, includeSecrets,
                 workspaceObjects, memberships, projects);
             await File.WriteAllBytesAsync(Path.Combine(staging, ExportFormat.ManifestEntry),
@@ -59,9 +60,10 @@ public static class ServerArchive
         var staging = CreateStagingDirectory(config);
         try
         {
-            var dump = new StoreDumpWriter(store, staging, media: new MediaExport(RequireMediaStore(admin), blobs, staging));
+            var dump = new StoreDumpWriter(store, staging, RevocationsOf(admin),
+                media: new MediaExport(RequireMediaStore(admin), blobs, staging));
             var (objects, memberships, projects) = await dump.WriteProjectAsync(projectId, ct);
-            var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.VersionFor(IncludesMedia(projects)), BuildInfo.Version,
+            var manifest = new ExportManifest(ExportFormat.FormatName, VersionFor(projects), BuildInfo.Version,
                 await admin.GetSchemaVersionAsync(ct), admin.ProviderName, DateTimeOffset.UtcNow,
                 IncludesConfig: false, IncludesSecrets: false, objects, memberships, projects);
             await File.WriteAllBytesAsync(Path.Combine(staging, ExportFormat.ManifestEntry),
@@ -74,6 +76,14 @@ public static class ServerArchive
             throw;
         }
     }
+
+    /// <summary>
+    /// Revocation markers are secure state: an export never silently omits them, so a store that cannot
+    /// enumerate them fails the export instead.
+    /// </summary>
+    private static IAuthSessionRevocationStore RevocationsOf(INetworkStorageStoreAdmin admin)
+        => admin as IAuthSessionRevocationStore
+            ?? throw new ExportArchiveException("This store cannot export auth session revocations.");
 
     /// <summary>
     /// Restores an archive into <paramref name="store"/> (the currently configured
@@ -315,6 +325,8 @@ public static class ServerArchive
                 if (resource == "project-secrets" && count > 0
                     && (!manifest.IncludesSecrets || !manifest.IncludesConfig || manifest.FormatVersion < 2))
                     throw new ExportArchiveException("Project secrets require a whole-server format v2 archive that includes secrets.");
+                if (resource == "auth-session-revocations" && count > 0 && manifest.FormatVersion < ExportFormat.RevocationsVersion)
+                    throw new ExportArchiveException("Auth session revocations require a format v4 archive.");
                 if (resource == "media-objects" && count > 0 && manifest.FormatVersion < ExportFormat.MediaVersion)
                     throw new ExportArchiveException("Media objects require a format v3 archive.");
 
@@ -330,8 +342,10 @@ public static class ServerArchive
     private static IMediaStore RequireMediaStore(INetworkStorageStoreAdmin admin)
         => admin as IMediaStore ?? throw new ExportArchiveException("This store cannot export media objects.");
 
-    private static bool IncludesMedia(IEnumerable<ExportedProject> projects)
-        => projects.Any(project => project.Counts.TryGetValue("media-objects", out var rows) && rows > 0);
+    private static int VersionFor(IReadOnlyList<ExportedProject> projects)
+        => ExportFormat.VersionFor(
+            projects.Any(project => project.Counts.TryGetValue("media-objects", out var rows) && rows > 0),
+            projects.Any(project => project.Counts.TryGetValue("auth-session-revocations", out var rows) && rows > 0));
 
     private static async Task<long> CountDataRowsAsync(string name, Stream content, CancellationToken ct)
     {

@@ -373,7 +373,7 @@ public static class EndpointExecutionEndpoints
         {
             // The library derives the envelope key from its public ApiKey (x-public-key / ?apiKey).
             var decrypted = EncryptedEndpointEnvelope.Decrypt(gateEnvelope, FirstNonEmpty(publicKey, apiKeyQuery) ?? "",
-                projectId, endpointSlug, hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId));
+                projectId, endpointSlug, hasSecretKey ? null : steamId, await ResolveAuthSessionIdAsync(context, body, projectId));
             if (!decrypted.Ok)
             {
                 await WriteEndpointErrorAsync(context, decrypted.Status, decrypted.Code!, decrypted.Message!);
@@ -386,7 +386,7 @@ public static class EndpointExecutionEndpoints
         {
             // The gate denied a v2 envelope without a key, so envelopePrivateKey is set here.
             var decrypted = EncryptedRequestV2.Decrypt(gateEnvelope, envelopePrivateKey!, projectId, endpointSlug,
-                hasSecretKey ? null : steamId, ResolveAuthSessionId(context, body, projectId),
+                hasSecretKey ? null : steamId, await ResolveAuthSessionIdAsync(context, body, projectId),
                 context.RequestServices.GetService<ILoggerFactory>()?.CreateLogger("EncryptedRequestV2"), out var responseKey);
             if (!decrypted.Ok)
             {
@@ -801,11 +801,12 @@ public static class EndpointExecutionEndpoints
     }
 
     /// <summary>Id of the valid auth session presented with this request (same sources as identity resolution).</summary>
-    private static string? ResolveAuthSessionId(HttpContext context, JsonElement body, string projectId)
+    private static async Task<string?> ResolveAuthSessionIdAsync(HttpContext context, JsonElement body, string projectId)
     {
         var token = PlayerIdentity.ReadSessionToken(context.Request, body);
         if (token is null) return null;
-        var valid = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>().Validate(projectId, token);
+        var valid = await context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>()
+            .ValidateAsync(projectId, token, ct: context.RequestAborted);
         return valid.Ok ? valid.Session?.Id : null;
     }
 

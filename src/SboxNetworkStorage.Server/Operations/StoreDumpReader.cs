@@ -89,6 +89,7 @@ public sealed class StoreDumpReader(INetworkStorageStore store, MediaImport? med
             Str(row, "key_hash"), Str(row, "key_identifier"), Str(row, "label"), Bool(row, "enabled"),
             Json(row, "permissions_json"), Long(row, "version"), ct),
         "project-secrets" => row => RestoreSecretAsync(p, row, ct),
+        "auth-session-revocations" => row => RestoreRevocationAsync(p, row, ct),
         "media-objects" => row => RestoreMediaObjectAsync(p, row, ct),
         "pages" => row => store.UpsertPageAsync(p, Str(row, "page_slug"), Str(row, "title"), Str(row, "content_json"),
             Long(row, "created_at_unix_ms"), Long(row, "updated_at_unix_ms"), ct),
@@ -126,6 +127,15 @@ public sealed class StoreDumpReader(INetworkStorageStore store, MediaImport? med
             throw new ExportArchiveException("Invalid sealed project secret.");
         if (await secrets.SetProjectSecretAsync(projectId, name, sealedValue, Long(row, "updated_at_unix_ms"), 64, ct) == ProjectSecretWriteResult.LimitReached)
             throw new ExportArchiveException("The project secret limit would be exceeded.");
+    }
+
+    private async Task RestoreRevocationAsync(string projectId, JsonElement row, CancellationToken ct)
+    {
+        if (store is not IAuthSessionRevocationStore revocations)
+            throw new ExportArchiveException("This store cannot restore auth session revocations.");
+        // Import only adds markers and extends retention, so it can never revive a revoked session.
+        await revocations.RevokeAsync(projectId, Str(row, "session_id"), Long(row, "revoked_at_unix_ms"),
+            Long(row, "purge_after_unix_ms"), ct);
     }
 
     /// <summary>

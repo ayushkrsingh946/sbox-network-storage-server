@@ -1,6 +1,7 @@
 using System.Text.Json;
 using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Server.Endpoints;
+using SboxNetworkStorage.Server.Tests.Support;
 
 namespace SboxNetworkStorage.Server.Tests;
 
@@ -36,13 +37,13 @@ public sealed class EncryptedRequestGoldenVectorTests
     }
 
     [Fact]
-    public void ReferenceSessionToken_ValidatesAndBindsSessionEnvelope()
+    public async Task ReferenceSessionToken_ValidatesAndBindsSessionEnvelope()
     {
         var session = Vectors.GetProperty("session");
         var secrets = new FixedSecret(Text(Vectors, "authSessionSecret"));
-        var service = new NetworkStorageAuthSessionService(secrets);
+        var service = new NetworkStorageAuthSessionService(secrets, new InMemoryAuthSessionRevocationStore(), TimeProvider.System);
 
-        var validated = service.Validate(Text(Vectors, "projectId"), Text(session, "token"));
+        var validated = await service.ValidateAsync(Text(Vectors, "projectId"), Text(session, "token"));
 
         Assert.True(validated.Ok, validated.Message);
         Assert.Equal(Text(session, "sessionId"), validated.Session!.Id);

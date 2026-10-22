@@ -227,6 +227,51 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
         Assert.Equal(JsonValueKind.String, body.GetProperty("session").GetProperty("revokedAt").ValueKind);
     }
 
+    [SkippableFact]
+    public async Task Revoke_ThenRefreshAndReauth_ReturnRevokedError()
+    {
+        using var client = CreateClient();
+        var token = await MintTokenAsync(client);
+
+        using var revoke = await client.SendAsync(CreateRequest($"/v3/auth-sessions/{ProjectId}/revoke", steamId: null, token: token));
+        Assert.True((await BodyAsync(revoke)).GetProperty("ok").GetBoolean());
+
+        Assert.Equal("AUTH_SESSION_REVOKED", await ErrorCodeAsync(client, "refresh", token));
+        Assert.Equal("AUTH_SESSION_REVOKED", await ErrorCodeAsync(client, "reauth", token));
+    }
+
+    [SkippableFact]
+    public async Task Refresh_RacingRevoke_LeavesNoUsableToken()
+    {
+        using var client = CreateClient();
+        var token = await MintTokenAsync(client);
+
+        var refresh = client.SendAsync(CreateRequest($"/v3/auth-sessions/{ProjectId}/refresh", steamId: null, token: token));
+        var revoke = client.SendAsync(CreateRequest($"/v3/auth-sessions/{ProjectId}/revoke", steamId: null, token: token));
+        using var refreshResponse = await refresh;
+        using var revokeResponse = await revoke;
+        Assert.True((await BodyAsync(revokeResponse)).GetProperty("ok").GetBoolean());
+
+        var refreshed = await BodyAsync(refreshResponse);
+        if (refreshed.GetProperty("ok").GetBoolean())
+        {
+            // The refresh won the race: its token belongs to the revoked family and must not validate.
+            Assert.Equal("AUTH_SESSION_REVOKED", await ErrorCodeAsync(client, "refresh", refreshed.GetProperty("sessionToken").GetString()!));
+        }
+        else
+        {
+            Assert.Equal("AUTH_SESSION_REVOKED", refreshed.GetProperty("error").GetProperty("code").GetString());
+        }
+
+        Assert.Equal("AUTH_SESSION_REVOKED", await ErrorCodeAsync(client, "refresh", token));
+    }
+
+    private static async Task<string?> ErrorCodeAsync(HttpClient client, string action, string token)
+    {
+        using var response = await client.SendAsync(CreateRequest($"/v3/auth-sessions/{ProjectId}/{action}", steamId: null, token: token));
+        return (await BodyAsync(response)).GetProperty("error").GetProperty("code").GetString();
+    }
+
     private sealed class FakeSboxAuthVerifier(SboxAuthResult result) : ISboxAuthVerifier
     {
         public Task<SboxAuthResult> CheckAsync(SboxAuthCheck check, CancellationToken cancellationToken)

@@ -232,6 +232,7 @@ With **Enable auth sessions**, the game can trade its s&box token for a signed
 session token (`/api/auth-sessions/{projectId}/create`, also `/v3/...`). Later calls send the
 session token and skip the s&box check until it expires after **Session TTL**
 seconds. Off by default.
+Revoking a session (`/v3/auth-sessions/{projectId}/revoke`) takes effect at once: the revoked session and every token refreshed from it are rejected with `AUTH_SESSION_REVOKED`, including after a server restart. Revocation markers are deleted by later revocation requests once every covered token has expired (at most one day plus one hour after revocation).
 
 **Require an auth session for every endpoint call** refuses an endpoint call
 that has no valid session token with `SECURITY_SESSION_REQUIRED`. Calls that

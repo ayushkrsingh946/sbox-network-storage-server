@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Application.NetworkStorage.Media;
 using SboxNetworkStorage.Infrastructure.NetworkStorage.Media;
 using SboxNetworkStorage.Server.Configuration;
@@ -59,7 +60,7 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
 
         var result = await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
 
-        Assert.Equal(ExportFormat.VersionFor(includesMedia: false), result.Manifest.FormatVersion);
+        Assert.Equal(2, result.Manifest.FormatVersion);
         Assert.Contains(result.Manifest.Projects, p => p.Id == projectId && p.Counts["records"] == 2);
         Assert.Equal(result.Manifest.TotalRows, result.RowsApplied);
         await AssertSameDataAsync(Source, target, projectId);
@@ -271,6 +272,80 @@ public abstract class ServerExportImportTests<TFactory> : IDisposable
         await Assert.ThrowsAsync<ExportArchiveException>(() => ProjectArchive.ImportAsync(archive, target, Blobs, factory.Config, Ct));
         Assert.Null(await target.ReadProjectAsync(id, Ct));
         Assert.Empty(await target.ListWorkspaceObjectsAsync("", Ct));
+    }
+
+    [SkippableFact]
+    public async Task WholeServerRoundTripKeepsRevokedSessionsRevokedWithoutSecrets()
+    {
+        var projectId = await SeedAsync();
+        var sessions = factory.Services.GetRequiredService<INetworkStorageAuthSessionService>();
+        var minted = sessions.Create(1, projectId, PlayerA, 3600);
+        Assert.True((await sessions.RevokeAsync(projectId, minted.Token!, Ct)).Ok);
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        Assert.Contains(ExportFormat.ProjectEntry(projectId, "auth-session-revocations"), ReadArchive(archive).Keys);
+        var target = await factory.NewStoreAsync();
+
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+
+        var targetRevocations = (IAuthSessionRevocationStore)target;
+        Assert.True(await targetRevocations.IsRevokedAsync(projectId, minted.Session!.Id, Ct));
+        var restored = new NetworkStorageAuthSessionService(factory.Services.GetRequiredService<IAuthSessionSecretProvider>(), targetRevocations, TimeProvider.System);
+        Assert.Equal("AUTH_SESSION_REVOKED", (await restored.ValidateAsync(projectId, minted.Token!, PlayerA, Ct)).Code);
+    }
+
+    [SkippableFact]
+    public async Task PortableImportKeepsRevocationsButNeverRevivesTokensUnderAnotherSecret()
+    {
+        var projectId = await SeedAsync();
+        var sessions = factory.Services.GetRequiredService<INetworkStorageAuthSessionService>();
+        var minted = sessions.Create(1, projectId, PlayerA, 3600);
+        Assert.True((await sessions.RevokeAsync(projectId, minted.Token!, Ct)).Ok);
+        var archive = await ProjectExportAsync(projectId);
+        Assert.Contains(ExportFormat.ProjectEntry(projectId, "auth-session-revocations"), ReadArchive(archive).Keys);
+        var target = await factory.NewStoreAsync();
+        using var stream = new MemoryStream(archive);
+
+        await ProjectArchive.ImportAsync(stream, target, Blobs, factory.Config, Ct);
+
+        var targetRevocations = (IAuthSessionRevocationStore)target;
+        Assert.True(await targetRevocations.IsRevokedAsync(projectId, minted.Session!.Id, Ct));
+        var otherSecret = new NetworkStorageAuthSessionService(new FixedSecret("unrelated-target-signing-secret"), targetRevocations, TimeProvider.System);
+        Assert.False((await otherSecret.ValidateAsync(projectId, minted.Token!, PlayerA, Ct)).Ok);
+    }
+
+    [SkippableFact]
+    public async Task WholeServerImportNeverClearsARevocationAlreadyHeldByTheTarget()
+    {
+        var projectId = await SeedAsync();
+        var archive = await ExportAsync(Source, factory.Config, includeSecrets: false);
+        var target = await factory.NewStoreAsync();
+        var targetRevocations = (IAuthSessionRevocationStore)target;
+        await targetRevocations.RevokeAsync(projectId, "held-by-target", 1_000, long.MaxValue, Ct);
+
+        await ImportAsync(archive, target, factory.Config, new ImportOptions(Force: false, RestoreConfig: false));
+
+        Assert.True(await targetRevocations.IsRevokedAsync(projectId, "held-by-target", Ct));
+    }
+
+    [SkippableFact]
+    public async Task ImportRejectsRevocationRowsInAnArchiveOlderThanFormatFour()
+    {
+        var projectId = await SeedAsync();
+        await ((IAuthSessionRevocationStore)Source).RevokeAsync(projectId, "revoked-session", 1_000, long.MaxValue, Ct);
+        var entries = ReadArchive(await ExportAsync(Source, factory.Config, includeSecrets: false));
+        var manifest = JsonNode.Parse(Encoding.UTF8.GetString(entries[ExportFormat.ManifestEntry]))!.AsObject();
+        manifest["formatVersion"] = 3;
+        entries[ExportFormat.ManifestEntry] = Encoding.UTF8.GetBytes(manifest.ToJsonString());
+        using var archive = new MemoryStream(BuildArchive(entries.Select(entry => (entry.Key, entry.Value)).ToArray()));
+        var target = await factory.NewStoreAsync();
+
+        await Assert.ThrowsAsync<ExportArchiveException>(() => ServerArchive.ImportAsync(archive, target, Blobs, factory.Config, new ImportOptions(Force: false, RestoreConfig: false), Ct));
+        Assert.False(await ((IAuthSessionRevocationStore)target).IsRevokedAsync(projectId, "revoked-session", Ct));
+    }
+
+    private sealed class FixedSecret(string secret) : IAuthSessionSecretProvider
+    {
+        public string GetSecret() => secret;
     }
 
     [SkippableTheory]
