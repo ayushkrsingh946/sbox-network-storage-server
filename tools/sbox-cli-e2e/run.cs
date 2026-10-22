@@ -575,13 +575,11 @@ static class E2E
 		// #151: the owner switches encrypted requests on and off while the game runs, and the library follows each switch.
 		// On: a plain call is refused with SECURITY_ENCRYPTION_REQUIRED and the library retries encrypted.
 		// Off: an encrypted call is refused with SECURITY_ENCRYPTION_DISABLED and the library retries plain.
-		// Every phase must still end in a 200 (required for the main library). Attached servers are only observed.
-		if (dedicated && server.Cli is null)
-			ev.Observe($"{target}.encryption-switch", "skipped: sbox-ns was not started by this run");
-		else if (dedicated)
+		// Every phase must still end in a 200 (required for the main library). Start mode drives the owner dashboard; an attached server is driven through its management API.
+		if (dedicated)
 		{
-			OwnerConsole owner;
-			try { owner = await OwnerConsole.SignInAsync(server); }
+			IEncryptionOwner owner;
+			try { owner = server.Cli is null ? new ApiEncryptionOwner(server) : (IEncryptionOwner)await OwnerConsole.SignInAsync(server); }
 			catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
 			{
 				ev.Check($"{target}.encryption-switch", "C", false, $"owner sign-in through admin login-link failed: {ex.Message}", required: libraryMain);
@@ -589,10 +587,10 @@ static class E2E
 			}
 			async Task<bool> Save(bool enable)
 			{
-				var status = await owner.SetEncryptedRequestsAsync(enable);
-				ev.Check($"{target}.encryption-{(enable ? "on" : "off")}-saved", "C", status == 302,
-					$"owner saves the security tab with encrypted requests {(enable ? "on" : "off")} (HTTP {status})", required: libraryMain);
-				return status == 302;
+				var outcome = await owner.SetEncryptedModeAsync(enable ? "v1" : "off");
+				ev.Check($"{target}.encryption-{(enable ? "on" : "off")}-saved", "C", outcome.Saved,
+					$"owner saves the security tab with encrypted requests {(enable ? "on" : "off")} ({outcome.Detail})", required: libraryMain);
+				return outcome.Saved;
 			}
 			if (await Save(true))
 			{
@@ -616,9 +614,9 @@ static class E2E
             var v2Library = File.Exists(Path.Combine(fixture, "Libraries", "sboxcool.network-storage", "Code", "Endpoints", "NetworkStorageEncryptionV2.cs"));
             if (v2Library && await owner.SupportsV2Async())
             {
-                var status = await owner.SetEncryptedModeAsync("v2-required");
-                ev.Check($"{target}.v2-required-saved", "C", status == 302, $"owner selects v2-required (HTTP {status})", required: true);
-                if (status != 302) throw new InvalidOperationException("Could not enable v2-required for the real-library probe.");
+                var selected = await owner.SetEncryptedModeAsync("v2-required");
+                ev.Check($"{target}.v2-required-saved", "C", selected.Saved, $"owner selects v2-required ({selected.Detail})", required: true);
+                if (!selected.Saved) throw new InvalidOperationException("Could not enable v2-required for the real-library probe.");
                 using var configRequest = new HttpRequestMessage(HttpMethod.Get, server.Url + "/v3/security-config/" + Uri.EscapeDataString(server.ProjectId));
                 configRequest.Headers.Add("x-api-key", server.PublicKey);
                 using var configResponse = await Http.Client.SendAsync(configRequest);
@@ -655,31 +653,44 @@ static class E2E
                 ev.Check($"{target}.v2-pin-recovery", "C", Ok(recovered) && Body(recovered).Contains("pong"),
                     "restoring the correct signing-key pin recovers encrypted calls", required: true);
                 var oldKeyId = J.Str(config["encryption"], "keyId");
-                var rotated = await server.Cli!.RunAsync(["security", "rotate-key", "--grace-seconds", "0"]);
-                ev.Check($"{target}.v2-key-rotated", "C", rotated.Code == 0, "rotate the request key with zero grace", required: true);
-                var afterRotation = await Call("echo", new JsonObject { ["hello"] = "after-key-rotation" });
-                ev.Check($"{target}.v2-rotation", "C", Ok(afterRotation) && J.Str(Evidence.TryParse(Body(afterRotation)), "probe") == "after-key-rotation",
-                    "a cached expired request key triggers signed-config refresh and a successful v2 retry", required: true);
+                if (server.Cli is null)
+                {
+                    ev.Observe($"{target}.v2-key-rotated", "not exercised: rotation is a sbox-ns CLI command; an attached server has no CLI");
+                    ev.Observe($"{target}.v2-rotation", "not exercised: rotation is a sbox-ns CLI command; an attached server has no CLI");
+                }
+                else
+                {
+                    var rotated = await server.Cli.RunAsync(["security", "rotate-key", "--grace-seconds", "0"]);
+                    ev.Check($"{target}.v2-key-rotated", "C", rotated.Code == 0, "rotate the request key with zero grace", required: true);
+                    var afterRotation = await Call("echo", new JsonObject { ["hello"] = "after-key-rotation" });
+                    ev.Check($"{target}.v2-rotation", "C", Ok(afterRotation) && J.Str(Evidence.TryParse(Body(afterRotation)), "probe") == "after-key-rotation",
+                        "a cached expired request key triggers signed-config refresh and a successful v2 retry", required: true);
+                }
                 ev.Observe($"{target}.v2-previous-key-id", oldKeyId ?? "missing");
-                var v1Status = await owner.SetEncryptedModeAsync("v1");
-                ev.Check($"{target}.v2-to-v1-saved", "C", v1Status == 302, $"owner switches the cached v2 caller to v1 (HTTP {v1Status})", required: true);
-                if (v1Status != 302) throw new InvalidOperationException("Could not switch v2-required to v1.");
+                var v1Saved = await owner.SetEncryptedModeAsync("v1");
+                ev.Check($"{target}.v2-to-v1-saved", "C", v1Saved.Saved, $"owner switches the cached v2 caller to v1 ({v1Saved.Detail})", required: true);
+                if (!v1Saved.Saved) throw new InvalidOperationException("Could not switch v2-required to v1.");
                 var v1Retry = await Call("echo", new JsonObject { ["hello"] = "v2-to-v1" });
                 ev.Check($"{target}.v2-to-v1", "C", Ok(v1Retry) && J.Str(Evidence.TryParse(Body(v1Retry)), "probe") == "v2-to-v1",
                     "without Configure, the cached v2 caller adapts to SECURITY_* and retries with v1", required: true);
-                var v2Status = await owner.SetEncryptedModeAsync("v2-required");
-                ev.Check($"{target}.v1-to-v2-saved", "C", v2Status == 302, $"owner switches the cached v1 caller to v2-required (HTTP {v2Status})", required: true);
-                if (v2Status != 302) throw new InvalidOperationException("Could not switch v1 back to v2-required.");
+                var v2Saved = await owner.SetEncryptedModeAsync("v2-required");
+                ev.Check($"{target}.v1-to-v2-saved", "C", v2Saved.Saved, $"owner switches the cached v1 caller to v2-required ({v2Saved.Detail})", required: true);
+                if (!v2Saved.Saved) throw new InvalidOperationException("Could not switch v1 back to v2-required.");
                 var v2Retry = await Call("echo", new JsonObject { ["hello"] = "v1-to-v2" });
                 ev.Check($"{target}.v1-to-v2", "C", Ok(v2Retry) && J.Str(Evidence.TryParse(Body(v2Retry)), "probe") == "v1-to-v2",
                     "without Configure, the cached v1 caller adapts to SECURITY_* and retries with v2", required: true);
             }
             else
-                ev.Observe($"{target}.v2", v2Library ? "not exercised: reference server does not offer v2" : "not exercised: library predates v2");
+                ev.Observe($"{target}.v2", v2Library ? (server.Cli is null ? "not exercised: server does not accept v2 modes" : "not exercised: reference server does not offer v2") : "not exercised: library predates v2");
             // The limiter probe that follows must not inherit an encryption requirement or a mismatched pin.
             await Save(false);
-			var refused = await server.Cli!.RunAsync(["dev", "logs_requests"], stdin: new JsonObject { ["projectId"] = server.ProjectId, ["limit"] = 200 }.ToJsonString());
-			ev.Observe($"{target}.encryption-409-rows", Regex.Matches(refused.Stdout, "\"status\":\\s*409").Count.ToString());
+			if (server.Cli is null)
+				ev.Observe($"{target}.encryption-409-rows", "not exercised: an attached server's request log is not reachable from here");
+			else
+			{
+				var refused = await server.Cli!.RunAsync(["dev", "logs_requests"], stdin: new JsonObject { ["projectId"] = server.ProjectId, ["limit"] = 200 }.ToJsonString());
+				ev.Observe($"{target}.encryption-409-rows", Regex.Matches(refused.Stdout, "\"status\":\\s*409").Count.ToString());
+			}
 		}
 	}
 
@@ -966,8 +977,42 @@ sealed class NsCli(string[] command, string config, string data)
 		Proc.RunAsync(command[0], [.. command[1..], .. args, .. DirArgs], Environment.CurrentDirectory, TimeSpan.FromMinutes(2), stdin);
 }
 
+/// <summary>Whether the server stored a requested encrypted-request mode, and how it answered.</summary>
+record SaveResult(bool Saved, string Detail);
+
+/// <summary>Saves the encrypted-request mode. Start mode uses the owner's dashboard form; an attached server uses its management API.</summary>
+interface IEncryptionOwner
+{
+	Task<SaveResult> SetEncryptedModeAsync(string mode);
+	Task<bool> SupportsV2Async();
+}
+
+/// <summary>Saves the mode through PUT /v3/manage/{project}/settings with the secret key, as the management API documents it.</summary>
+sealed class ApiEncryptionOwner : IEncryptionOwner
+{
+	readonly Server server;
+
+	public ApiEncryptionOwner(Server server) => this.server = server;
+
+	public async Task<SaveResult> SetEncryptedModeAsync(string mode)
+	{
+		using var request = new HttpRequestMessage(HttpMethod.Put, server.Url + "/v3/manage/" + Uri.EscapeDataString(server.ProjectId) + "/settings")
+		{
+			Content = new StringContent(new JsonObject { ["encryptedRequestMode"] = mode }.ToJsonString(), Encoding.UTF8, "application/json"),
+		};
+		request.Headers.Add("x-api-key", server.SecretKey);
+		using var response = await Http.Client.SendAsync(request);
+		var body = await response.Content.ReadAsStringAsync();
+		var detail = $"HTTP {(int)response.StatusCode}";
+		return new SaveResult(response.IsSuccessStatusCode, response.IsSuccessStatusCode ? detail : $"{detail}: {body}");
+	}
+
+	// v2 is offered when the server accepts v2-preferred; the caller then sets the mode it needs.
+	public async Task<bool> SupportsV2Async() => (await SetEncryptedModeAsync("v2-preferred")).Saved;
+}
+
 /// <summary>Signs in as the server's owner with `sbox-ns admin login-link` and saves the dashboard's security tab, as a browser would.</summary>
-sealed class OwnerConsole
+sealed class OwnerConsole : IEncryptionOwner
 {
 	readonly HttpClient http;
 	readonly string projectPath;
@@ -1008,13 +1053,11 @@ sealed class OwnerConsole
 		return new OwnerConsole(http, server.ProjectId);
 	}
 
-    public Task<int> SetEncryptedRequestsAsync(bool enable) => SetEncryptedModeAsync(enable ? "v1" : "off");
-
     public async Task<bool> SupportsV2Async() =>
         (await http.GetStringAsync(projectPath)).Contains("value=\"v2-required\"", StringComparison.Ordinal);
 
     /// <summary>Saves the security mode, preserving the other settings and the old checkbox form on older servers.</summary>
-    public async Task<int> SetEncryptedModeAsync(string mode)
+	public async Task<SaveResult> SetEncryptedModeAsync(string mode)
     {
         var html = await (await http.GetAsync(projectPath)).Content.ReadAsStringAsync();
 		var form = new Dictionary<string, string>
@@ -1033,7 +1076,7 @@ sealed class OwnerConsole
         else if (mode != "off")
             throw new InvalidOperationException("This server's owner form does not support v2 encryption.");
 		var saved = await http.PostAsync(projectPath + "/settings", new FormUrlEncodedContent(form));
-		return (int)saved.StatusCode;
+		return new SaveResult((int)saved.StatusCode == 302, $"HTTP {(int)saved.StatusCode}");
 	}
 
 	static string? Antiforgery(string html) => Input(html, "__RequestVerificationToken");
