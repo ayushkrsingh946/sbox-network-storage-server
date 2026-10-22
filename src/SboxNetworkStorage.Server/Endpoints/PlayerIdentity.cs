@@ -106,7 +106,7 @@ internal static class PlayerIdentity
             if (!sessionsEnabled)
                 return PlayerIdentityResult.Reject("AUTH_SESSION_DISABLED", "Auth sessions are not enabled for this project.", StatusCodes.Status403Forbidden);
             var sessions = context.RequestServices.GetRequiredService<INetworkStorageAuthSessionService>();
-            var valid = sessions.Validate(projectId, sessionToken);
+            var valid = await sessions.ValidateAsync(projectId, sessionToken, ct: context.RequestAborted);
             if (!valid.Ok)
                 return PlayerIdentityResult.Reject(valid.Code!, valid.Message!);
             if (valid.Session!.UserId != ownerUserId || string.IsNullOrEmpty(valid.Session.SteamId))

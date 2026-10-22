@@ -27,6 +27,7 @@ public static class PostgresMigrations
         new(9, "Media objects and single-use upload grant records for the media store", SchemaChange.Additive, V9),
         new(10, "Structured game logs: per-project entries with GIN-indexed tokens and jsonb attrs (off by default)", SchemaChange.Additive, V10),
         new(11, "Project secrets: per-project named values sealed with the storage encryption key (ns.secrets.get)", SchemaChange.Additive, V11),
+        new(12, "Auth session revocation markers: revoked session families, kept until every covered token has expired", SchemaChange.Additive, V12),
     ];
 
     // Additive: two new tables with indexes. Nothing existing is touched; older binaries never read them.
@@ -69,6 +70,15 @@ public static class PostgresMigrations
             project_id {Key}, secret_name {Key}, value_enc text NOT NULL, updated_at_unix_ms bigint NOT NULL,
             PRIMARY KEY (project_id, secret_name),
             FOREIGN KEY (project_id) REFERENCES {p}projects(project_id) ON DELETE CASCADE);
+        """;
+
+    // Additive: one new table and one index. Older binaries never read or write it. Stores session ids only, never tokens.
+    private static string V12(string p) => $"""
+        CREATE TABLE {p}auth_session_revocations (
+            project_id {Key}, session_id {Key},
+            revoked_at_unix_ms bigint NOT NULL, purge_after_unix_ms bigint NOT NULL,
+            PRIMARY KEY (project_id, session_id));
+        CREATE INDEX ix_auth_session_revocations_purge ON {p}auth_session_revocations (purge_after_unix_ms);
         """;
 
     // Additive: three new tables plus two indexes. No existing table is touched, so the

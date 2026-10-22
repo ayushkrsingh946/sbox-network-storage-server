@@ -11,7 +11,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 /// query results follow the data. Every other operation passes straight through. Identifiers the store would
 /// reject are passed through too, so callers see the store's own validation errors.
 /// </summary>
-public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore, ISerializableStoreTransactions, IProjectSecretStore, IMediaStore
+public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore, ISerializableStoreTransactions, IProjectSecretStore, IMediaStore, IAuthSessionRevocationStore
 {
     private readonly INetworkStorageStore _inner;
     private readonly ProjectMetadataCache _cache;
@@ -72,6 +72,21 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
 
     public Task<bool> DeleteProjectSecretAsync(string projectId, string name, CancellationToken ct) =>
         Secrets.DeleteProjectSecretAsync(projectId, name, ct);
+
+    private IAuthSessionRevocationStore Revocations => _inner as IAuthSessionRevocationStore
+        ?? throw new NotSupportedException("The underlying store does not support auth session revocations.");
+
+    public Task RevokeAsync(string projectId, string sessionId, long revokedAtUnixMs, long purgeAfterUnixMs, CancellationToken ct) =>
+        Revocations.RevokeAsync(projectId, sessionId, revokedAtUnixMs, purgeAfterUnixMs, ct);
+
+    public Task<bool> IsRevokedAsync(string projectId, string sessionId, CancellationToken ct) =>
+        Revocations.IsRevokedAsync(projectId, sessionId, ct);
+
+    public Task<int> PurgeExpiredAsync(long nowUnixMs, CancellationToken ct) =>
+        Revocations.PurgeExpiredAsync(nowUnixMs, ct);
+
+    public Task<IReadOnlyList<AuthSessionRevocation>> ListAsync(string projectId, CancellationToken ct) =>
+        Revocations.ListAsync(projectId, ct);
 
     private bool Cacheable(string projectId, string? id = null)
         => _pending is null

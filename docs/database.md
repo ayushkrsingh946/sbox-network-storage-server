@@ -205,6 +205,10 @@ Until the record API accepts an expected version, run one server process per dat
 
 Schema version 11 adds `{prefix}project_secrets` (`project_id`, `secret_name`, `value_enc`, `updated_at_unix_ms`; primary key `(project_id, secret_name)`). The migration is tagged additive (see [Rollback-safe migrations](#rollback-safe-migrations)): existing tables and statements are unchanged. `value_enc` holds version-prefixed, base64 AES-GCM ciphertext; the table never holds plaintext. A foreign key to `projects` with `ON DELETE CASCADE` prevents orphan writes and preserves cleanup when an older binary deletes a project. The owner-deletion operation removes the authoritative project and membership in one transaction. PostgreSQL secret writes take a transaction advisory lock, so the 64-secret cap holds across server instances.
 
+## Auth session revocations table
+
+Schema version 12 adds `{prefix}auth_session_revocations` (`project_id`, `session_id`, `revoked_at_unix_ms`, `purge_after_unix_ms`; primary key `(project_id, session_id)`). It stores one marker per revoked auth-session family and never a token. Expired markers are deleted during later revocation requests. The migration is tagged additive: existing tables are unchanged, but an older binary ignores this table, so a revocation made on this release does not apply after a rollback to an older binary. Back up the database before upgrading and keep that backup until the upgrade is confirmed. A restore from a backup or whole-server export taken before this release has no markers, so revocations made after that point are not restored. Whole-server exports from this release are format v4 and carry the markers; older servers refuse them.
+
 ## Backups and restores
 
 ```sh

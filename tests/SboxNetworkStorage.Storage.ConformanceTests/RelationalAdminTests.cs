@@ -250,7 +250,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3, 4, 5, 6, 7, 8, 9, 10, 11], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], migration.AppliedVersions);
         var old = (await Store.ReadProjectAsync("old1", Ct))!.Value;
         Assert.True(old.GetProperty("legacyPlayerProjections").GetBoolean());
         Assert.Equal("Old", old.GetProperty("name").GetString());
@@ -289,6 +289,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
             DROP TABLE media_grants;
             DROP TABLE media_objects;
             DROP TABLE project_secrets;
+            DROP TABLE auth_session_revocations;
             DROP TRIGGER game_log_entries_fts_ai;
             DROP TRIGGER game_log_entries_fts_ad;
             DROP TABLE game_log_fts;
@@ -309,7 +310,7 @@ public sealed class SqliteAdminTests : RelationalAdminTests
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([2, 3, 4, 5, 6, 7, 8, 9, 10, 11], migration.AppliedVersions);
+        Assert.Equal([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], migration.AppliedVersions);
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Assert.Equal(new[] { "/b", "/a" }, log.Select(r => Json.Str(r, "path")));
         Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/a","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
@@ -358,14 +359,15 @@ public sealed class SqliteAdminTests : RelationalAdminTests
                 DROP TABLE game_log_fts;
                 DROP TABLE game_log_entries;
                 DROP TABLE project_secrets;
-                DELETE FROM schema_version WHERE version IN (4, 5, 6, 7, 8, 9, 10, 11);
+                DROP TABLE auth_session_revocations;
+                DELETE FROM schema_version WHERE version IN (4, 5, 6, 7, 8, 9, 10, 11, 12);
                 """;
             await command.ExecuteNonQueryAsync();
         }
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([4, 5, 6, 7, 8, 9, 10, 11], migration.AppliedVersions);
+        Assert.Equal([4, 5, 6, 7, 8, 9, 10, 11, 12], migration.AppliedVersions);
         await Store.InsertStorageRequestLogAsync("p1", 200, "GET", "/new", 200, 1, null, Ct, new RequestClientInfo("1.1.0", "game", "26.10.02"));
         var log = await Store.ListStorageRequestLogAsync("p1", 10, Ct);
         Json.Equal("""{"created_at_unix_ms":100,"method":"GET","path":"/old","status_code":200,"duration_ms":3,"api_key_identifier":"pk","library_version":null,"client_type":null,"engine_version":null}""", log[1]);
@@ -405,14 +407,15 @@ public sealed class SqliteAdminTests : RelationalAdminTests
                 DROP TABLE game_log_fts;
                 DROP TABLE game_log_entries;
                 DROP TABLE project_secrets;
-                DELETE FROM schema_version WHERE version IN (5, 6, 7, 8, 9, 10, 11);
+                DROP TABLE auth_session_revocations;
+                DELETE FROM schema_version WHERE version IN (5, 6, 7, 8, 9, 10, 11, 12);
                 """;
             await command.ExecuteNonQueryAsync();
         }
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([5, 6, 7, 8, 9, 10, 11], migration.AppliedVersions);
+        Assert.Equal([5, 6, 7, 8, 9, 10, 11, 12], migration.AppliedVersions);
         Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
         var versions = (IClientVersionStore)Store;
         var key = new ClientVersionKey("p1", 1000, "1.1.0", 42, "game", 11);
@@ -493,7 +496,7 @@ public sealed class PostgresAdminTests : RelationalAdminTests
         await connection.OpenAsync();
         await using var command = new Npgsql.NpgsqlCommand("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = @s", connection);
         command.Parameters.AddWithValue("s", _schema);
-        Assert.Equal(41L, (long)(await command.ExecuteScalarAsync())!); // 40 data tables + schema_version
+        Assert.Equal(42L, (long)(await command.ExecuteScalarAsync())!); // 41 data tables + schema_version
     }
 
     [SkippableFact]
@@ -522,12 +525,13 @@ public sealed class PostgresAdminTests : RelationalAdminTests
             DROP TABLE "{_schema}".webhook_targets;
             DROP TABLE "{_schema}".game_log_entries;
             DROP TABLE "{_schema}".project_secrets;
-            DELETE FROM "{_schema}".schema_version WHERE version IN (5, 6, 7, 8, 9, 10, 11);
+            DROP TABLE "{_schema}".auth_session_revocations;
+            DELETE FROM "{_schema}".schema_version WHERE version IN (5, 6, 7, 8, 9, 10, 11, 12);
             """);
 
         var migration = await Store.MigrateAsync(Ct);
 
-        Assert.Equal([5, 6, 7, 8, 9, 10, 11], migration.AppliedVersions);
+        Assert.Equal([5, 6, 7, 8, 9, 10, 11, 12], migration.AppliedVersions);
         Json.Equal("""{"created_at_unix_ms":100,"error_id":"e1","message":"boom","stack_trace":"trace","source":"worker","request_path":"/a","severity":"error","library_version":null,"client_type":null,"engine_version":null,"library_revision":null,"game_revision":null}""", (await Store.ListStorageErrorsAsync("p1", 10, Ct)).Single());
         var versions = (IClientVersionStore)Store;
         var key = new ClientVersionKey("p1", 1000, "1.1.0", 42, "game", 11);

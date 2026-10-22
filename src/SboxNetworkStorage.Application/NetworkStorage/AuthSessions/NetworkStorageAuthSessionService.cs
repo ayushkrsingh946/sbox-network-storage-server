@@ -2,17 +2,22 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using SboxNetworkStorage.Storage;
 
 namespace SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 
 /// <summary>
-/// Stateless HMAC auth-session token service. Byte-for-byte token-compatible with
+/// HMAC auth-session token service. Byte-for-byte token-compatible with
 /// the legacy server <c>services/network-storage-auth-sessions.js</c> implementation:
 /// <list type="bullet">
 /// <item>token = <c>sbox_sess_</c> + <c>base64url(JSON payload)</c> + <c>"."</c> + <c>base64url(HMAC-SHA256(payload))</c>,</item>
 /// <item>validation re-signs the <i>raw payload substring</i> (never re-serializes),
 ///   so a token minted by either runtime validates under the other given the same secret.</item>
 /// </list>
+/// Tokens are stateless, but revocation is not: a session family (the payload <c>id</c>, shared by a session and every
+/// token refreshed from it) is revoked by a durable marker in <see cref="IAuthSessionRevocationStore"/>. Every check
+/// that accepts a token consults the marker, so a revoked family stops validating immediately and stays revoked across
+/// restarts. Store failures propagate, so an operation that cannot read or write the marker fails closed.
 /// </summary>
 public sealed class NetworkStorageAuthSessionService : INetworkStorageAuthSessionService
 {
@@ -21,19 +26,22 @@ public sealed class NetworkStorageAuthSessionService : INetworkStorageAuthSessio
     public const int MinTtlSeconds = 60;
     public const int MaxTtlSeconds = 24 * 60 * 60;
 
+    /// <summary>
+    /// Extra retention beyond the maximum token lifetime to tolerate clock skew. Tokens minted before a revoke
+    /// commits expire within MaxTtlSeconds of that revocation; the post-mint check rejects an overlapping refresh.
+    /// </summary>
+    public const int RevocationGraceSeconds = 60 * 60;
+
     private static readonly JsonSerializerOptions PayloadJson = new();
 
     private readonly IAuthSessionSecretProvider _secretProvider;
+    private readonly IAuthSessionRevocationStore _revocations;
     private readonly TimeProvider _time;
 
-    public NetworkStorageAuthSessionService(IAuthSessionSecretProvider secretProvider)
-        : this(secretProvider, TimeProvider.System)
-    {
-    }
-
-    public NetworkStorageAuthSessionService(IAuthSessionSecretProvider secretProvider, TimeProvider time)
+    public NetworkStorageAuthSessionService(IAuthSessionSecretProvider secretProvider, IAuthSessionRevocationStore revocations, TimeProvider time)
     {
         _secretProvider = secretProvider ?? throw new ArgumentNullException(nameof(secretProvider));
+        _revocations = revocations ?? throw new ArgumentNullException(nameof(revocations));
         _time = time ?? TimeProvider.System;
     }
 
@@ -41,11 +49,52 @@ public sealed class NetworkStorageAuthSessionService : INetworkStorageAuthSessio
     public static int NormalizeTtl(int value) => Math.Clamp(value, MinTtlSeconds, MaxTtlSeconds);
 
     public AuthSessionOutcome Create(long userId, string projectId, string steamId, int ttlSeconds, IReadOnlyDictionary<string, object?>? metadata = null)
+        => Mint(userId, projectId, steamId, ttlSeconds, metadata, familyId: null);
+
+    public async Task<AuthSessionOutcome> ValidateAsync(string projectId, string token, string steamId = "", CancellationToken ct = default)
+    {
+        var verified = Verify(projectId, token, steamId);
+        if (!verified.Ok) return verified;
+        if (await _revocations.IsRevokedAsync(projectId, verified.Session!.Id, ct)) return RevokedFailure();
+        return verified;
+    }
+
+    public async Task<AuthSessionOutcome> RefreshAsync(string projectId, string token, int ttlSeconds, CancellationToken ct = default)
+    {
+        var valid = await ValidateAsync(projectId, token, ct: ct);
+        if (!valid.Ok) return valid;
+
+        var session = valid.Session!;
+        var minted = Mint(session.UserId, session.ProjectId, session.SteamId, ttlSeconds,
+            new Dictionary<string, object?> { ["refreshedFrom"] = session.Id }, familyId: session.Id);
+        // Checked again after minting: a revoke that completed while the token was being minted must still win.
+        if (await _revocations.IsRevokedAsync(projectId, session.Id, ct)) return RevokedFailure();
+        return minted;
+    }
+
+    public async Task<AuthSessionOutcome> RevokeAsync(string projectId, string token, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(token))
+            return AuthSessionOutcome.Failure("AUTH_SESSION_INVALID", "Auth session token is required.");
+
+        // Signature, project and expiry are checked; the revocation marker is not, so revoking is idempotent.
+        var verified = Verify(projectId, token, steamId: "");
+        if (!verified.Ok) return verified;
+
+        var now = _time.GetUtcNow().ToUnixTimeMilliseconds();
+        var purgeAfter = now + (MaxTtlSeconds + RevocationGraceSeconds) * 1000L;
+        await _revocations.PurgeExpiredAsync(now, ct);
+        await _revocations.RevokeAsync(projectId, verified.Session!.Id, now, purgeAfter, ct);
+
+        return new AuthSessionOutcome(true, null, null, null, 0, verified.Session! with { RevokedAt = IsoFromMs(now) });
+    }
+
+    private AuthSessionOutcome Mint(long userId, string projectId, string steamId, int ttlSeconds, IReadOnlyDictionary<string, object?>? metadata, string? familyId)
     {
         var ttl = NormalizeTtl(ttlSeconds);
         var now = _time.GetUtcNow().ToUnixTimeMilliseconds();
         var expiresAt = now + (long)ttl * 1000L;
-        var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+        var id = familyId ?? Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 
         var payloadObject = new Dictionary<string, object?>
         {
@@ -65,7 +114,8 @@ public sealed class NetworkStorageAuthSessionService : INetworkStorageAuthSessio
         return new AuthSessionOutcome(true, null, null, token, ttl, session);
     }
 
-    public AuthSessionOutcome Validate(string projectId, string token, string steamId = "")
+    /// <summary>Checks the token's prefix, signature, payload, project, expiry and Steam ID. Does not consult revocation.</summary>
+    private AuthSessionOutcome Verify(string projectId, string token, string steamId)
     {
         if (string.IsNullOrEmpty(token) || !token.StartsWith(TokenPrefix, StringComparison.Ordinal))
             return AuthSessionOutcome.Failure("AUTH_SESSION_INVALID", "Auth session token is missing or invalid.");
@@ -105,31 +155,8 @@ public sealed class NetworkStorageAuthSessionService : INetworkStorageAuthSessio
         return new AuthSessionOutcome(true, null, null, null, 0, SessionFromDecoded(decoded));
     }
 
-    public AuthSessionOutcome Refresh(string projectId, string token, int ttlSeconds)
-    {
-        var valid = Validate(projectId, token);
-        if (!valid.Ok) return valid;
-
-        var ttl = NormalizeTtl(ttlSeconds);
-        var session = valid.Session!;
-        var created = Create(session.UserId, session.ProjectId, session.SteamId, ttl, new Dictionary<string, object?>
-        {
-            ["refreshedFrom"] = session.Id,
-        });
-        return new AuthSessionOutcome(true, null, null, created.Token, ttl, created.Session);
-    }
-
-    public AuthSessionOutcome Revoke(string projectId, string token)
-    {
-        if (string.IsNullOrEmpty(token))
-            return AuthSessionOutcome.Failure("AUTH_SESSION_INVALID", "Auth session token is required.");
-
-        var valid = Validate(projectId, token);
-        if (!valid.Ok) return valid;
-
-        var revoked = valid.Session! with { RevokedAt = IsoFromMs(_time.GetUtcNow().ToUnixTimeMilliseconds()) };
-        return new AuthSessionOutcome(true, null, null, null, 0, revoked);
-    }
+    private static AuthSessionOutcome RevokedFailure()
+        => AuthSessionOutcome.Failure("AUTH_SESSION_REVOKED", "Auth session has been revoked. Create a new session.");
 
     private string Sign(string payload)
     {

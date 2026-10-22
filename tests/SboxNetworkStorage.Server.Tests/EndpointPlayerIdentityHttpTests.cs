@@ -10,6 +10,7 @@ using SboxNetworkStorage.Application.NetworkStorage.AuthSessions;
 using SboxNetworkStorage.Infrastructure.NetworkStorage;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Server.Tests.Hosting;
+using SboxNetworkStorage.Server.Tests.Support;
 
 namespace SboxNetworkStorage.Server.Tests;
 
@@ -98,7 +99,7 @@ public abstract class EndpointPlayerIdentityHttpTests<TFactory> : IClassFixture<
         var token = kind switch
         {
             "invalid-session" => "sbox_sess_invalid.signature",
-            "expired-session" => new NetworkStorageAuthSessionService(setup.Secrets, new PastTimeProvider())
+            "expired-session" => new NetworkStorageAuthSessionService(setup.Secrets, new InMemoryAuthSessionRevocationStore(), new PastTimeProvider())
                 .Create(NetworkStorageServices.LocalOwnerUserId, setup.Project.ProjectId, Player, 60).Token!,
             "other-project-session" => setup.Sessions.Create(NetworkStorageServices.LocalOwnerUserId, "another-project", Victim, 3600).Token!,
             "other-owner-session" => setup.Sessions.Create(987654, setup.Project.ProjectId, Victim, 3600).Token!,

@@ -187,7 +187,7 @@ out of migration archives).
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `format` | string | Always `"sbox-ns-export"` |
-| `formatVersion` | integer | `1` and `2` remain readable. This server writes `2`, or `3` when the archive contains media objects (see below). Older servers refuse a version above their own before importing |
+| `formatVersion` | integer | Versions `1`–`4` remain readable. Exports use `2` without media or revocations, `3` with media only, and `4` whenever auth-session revocation markers are present. Older servers refuse a version above their own before importing |
 | `sboxNsVersion` | string | Producer and its version, informational (e.g. `"sboxcool-hosted 2026.10"`) |
 | `schemaVersion` | integer | Producer schema version, informational (`1`) |
 | `provider` | string | Source store, informational (e.g. `"scylladb"`) |
@@ -222,6 +222,7 @@ false); `*_json` columns marked *JSON* take any JSON value and may be omitted
 | `.../queries.jsonl` | `query_id`, `name`, `requires_secret_key`, `version`; `definition_json` (JSON) |
 | `.../api-keys.jsonl` | `api_key`, `user_id` = `"1"`, `key_type` (`public`/`secret`), `key_hash`, `key_identifier`, `label`, `enabled`, `version`; `permissions_json` (JSON). Public: `api_key` starts with `sbox_ns_`. Secret: `api_key` is the masked `sbox_sk_xxxx...xxxx` form and `key_hash` is the 64-character hex SHA-256 of the full key |
 | `.../project-secrets.jsonl` | Format v2 whole-server archives with `includesConfig` and `includesSecrets` only: `secret_name`, `value_enc` (versioned base64 ciphertext), `updated_at_unix_ms`. Excluded from portable project archives and `--no-secrets` exports |
+| `.../auth-session-revocations.jsonl` | Format v4 and later: `session_id`, `revoked_at_unix_ms`, `purge_after_unix_ms`. Ids only, never tokens. Written in whole-server and portable project archives, including `--no-secrets` exports, because a revoked session must stay revoked after a move. Import keeps the earliest revocation and latest purge time per session; it can add a marker or extend retention, never remove or shorten one |
 | `.../pages.jsonl` | `page_slug`, `title`, `content_json` (string), `created_at_unix_ms`, `updated_at_unix_ms` |
 | `.../game-values.jsonl` | `version_hash` (nullable), `version`; `payload_json` (JSON) |
 | `.../rate-limits.jsonl` | `version`; `rules_json` (JSON) |
