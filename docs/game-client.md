@@ -176,6 +176,10 @@ Management requests use the project's secret key in `x-api-key` and, where the
 operation needs the public/secret pair, its public key in `x-public-key`. Never
 put the secret key in game code.
 
+JSON mutation bodies may use a known `Content-Length` or streamed/chunked transfer.
+Both forms are read only after key authentication and enforce the same
+`server.limits.management` cap; an oversized body returns `413 PAYLOAD_TOO_LARGE`.
+
 - `DELETE /v3/manage/{projectId}/keys` revokes both supplied keys and reports
   success only after neither resolves. A rejected request leaves the pair intact.
 - `PUT .../settings` persists supported fields and returns the same settings

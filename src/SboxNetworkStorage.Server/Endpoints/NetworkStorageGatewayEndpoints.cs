@@ -815,12 +815,10 @@ public static class NetworkStorageGatewayEndpoints
             return;
         }
 
-        string? body = null;
-        if (context.Request.ContentLength > 0 || context.Request.Headers.ContentLength == 0)
-        {
-            using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
-            body = await reader.ReadToEndAsync(context.RequestAborted);
-        }
+        // A missing Content-Length is normal for streamed/chunked requests. The request-limit middleware
+        // already bounds this stream; authentication above must still run before the first read.
+        using var reader = new StreamReader(context.Request.Body, leaveOpen: true);
+        var body = await reader.ReadToEndAsync(context.RequestAborted);
 
         request = request with { Body = body };
 
