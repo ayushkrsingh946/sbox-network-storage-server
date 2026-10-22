@@ -27,6 +27,16 @@ public static class ConfigArchive
         "database.postgres.password_file", "alerts.discord.webhook_url_file", "alerts.smtp.password_file",
     ];
 
+    /// <summary>
+    /// Where media bytes live. The import already wrote the archived bytes through this server's media store,
+    /// so a restored config must not move the store; like database.toml these stay as this server had them.
+    /// </summary>
+    private static readonly string[] MediaLocationSettings =
+    [
+        "media.backend", "media.local_dir", "media.s3.endpoint", "media.s3.region", "media.s3.bucket",
+        "media.s3.force_path_style", "media.s3.access_key_id", "media.s3.secret_access_key",
+    ];
+
     private const UnixFileMode OwnerOnlyFile = UnixFileMode.UserRead | UnixFileMode.UserWrite;
     private const UnixFileMode OwnerOnlyDirectory = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
@@ -197,10 +207,12 @@ public static class ConfigArchive
     /// written atomically with owner-only permissions. Changed files are kept as
     /// <c>*.before-import</c>. database.toml is never replaced: the import already
     /// targeted the configured database, so the archived copy is saved as
-    /// <see cref="ImportedDatabaseFile"/> for reference.
+    /// <see cref="ImportedDatabaseFile"/> for reference. For the same reason the media
+    /// storage settings (<see cref="MediaLocationSettings"/>) keep this server's values.
     /// </summary>
     public static IReadOnlyList<string> Restore(EffectiveConfig config, IReadOnlyDictionary<string, byte[]> files)
     {
+        var mediaBefore = ConfigLoader.Load(config.ConfigDirectory, config.DataDirectory).Values;
         var targets = new List<(string Relative, byte[] Content, string Target, bool Runtime)>();
         foreach (var (relative, content) in files.OrderBy(f => f.Key, StringComparer.Ordinal))
         {
@@ -251,7 +263,40 @@ public static class ConfigArchive
             written.Add(target);
         }
 
+        KeepMediaLocation(config, mediaBefore, written);
         return written;
+    }
+
+    /// <summary>Sets every media storage setting the restored files changed back to its value before the import.</summary>
+    private static void KeepMediaLocation(EffectiveConfig config, IReadOnlyDictionary<string, ConfigValue> before, List<string> written)
+    {
+        var after = ConfigLoader.Load(config.ConfigDirectory, config.DataDirectory).Values;
+        foreach (var key in MediaLocationSettings)
+        {
+            if (Equals(before[key].Value, after[key].Value))
+            {
+                continue;
+            }
+
+            // The file that now decides the value (origin is "file:line"); a key the restored files dropped goes back into its own file.
+            var restored = after[key];
+            var file = restored.Source is SettingSource.File or SettingSource.ConfD && restored.Origin is { } origin
+                ? origin[..origin.LastIndexOf(':')]
+                : restored.Definition.File;
+            var path = Path.GetFullPath(ConfigFiles.SetValue(config.ConfigDirectory, restored.Definition with { File = file }, before[key].Value));
+            if (!written.Contains(path))
+            {
+                written.Add(path);
+            }
+        }
+
+        var kept = ConfigLoader.Load(config.ConfigDirectory, config.DataDirectory).Values;
+        if (MediaLocationSettings.FirstOrDefault(key => !Equals(before[key].Value, kept[key].Value)) is { } changed)
+        {
+            throw new ExportArchiveException(
+                $"The data and media were imported, but the restored config still changes {changed} (set in {kept[changed].Origin}). " +
+                $"Set it back to this server's value before starting, or media will not be found.");
+        }
     }
 
     private static void RejectReparsePoints(string root, string target)

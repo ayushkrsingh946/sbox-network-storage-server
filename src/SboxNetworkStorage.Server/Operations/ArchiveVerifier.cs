@@ -33,7 +33,7 @@ public static class ArchiveVerifier
             await using var store = new SqliteNetworkStorageStore(new SqliteStoreOptions { DatabasePath = Path.Combine(scratch, "data", "verify.db") });
             await store.MigrateAsync(ct);
             await using var archive = OpenRead(archivePath);
-            return await ServerArchive.ImportAsync(archive, store, config, new ImportOptions(Force: false, RestoreConfig: false), ct);
+            return await ServerArchive.ImportAsync(archive, store, blobs: null, config, new ImportOptions(Force: false, RestoreConfig: false), ct);
         }
         finally
         {

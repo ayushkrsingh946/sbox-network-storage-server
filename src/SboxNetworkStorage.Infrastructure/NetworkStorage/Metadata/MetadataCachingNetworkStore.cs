@@ -11,7 +11,7 @@ namespace SboxNetworkStorage.Infrastructure.NetworkStorage.Metadata;
 /// query results follow the data. Every other operation passes straight through. Identifiers the store would
 /// reject are passed through too, so callers see the store's own validation errors.
 /// </summary>
-public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore, ISerializableStoreTransactions, IProjectSecretStore
+public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProjectImportStore, IAuthoritativeProjectStore, ISerializableStoreTransactions, IProjectSecretStore, IMediaStore
 {
     private readonly INetworkStorageStore _inner;
     private readonly ProjectMetadataCache _cache;
@@ -41,6 +41,31 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
 
     public Task<string?> GetProjectSecretSealedAsync(string projectId, string name, CancellationToken ct) =>
         Secrets.GetProjectSecretSealedAsync(projectId, name, ct);
+
+    private IMediaStore MediaStore => _inner as IMediaStore
+        ?? throw new NotSupportedException("The underlying store does not support media objects.");
+
+    // Media rows are not part of the metadata snapshot, so these pass straight through.
+    public Task<bool> TryInsertMediaGrantAsync(MediaGrantRecord grant, long windowStartUnixMs, int perOwnerLimit, CancellationToken ct) =>
+        MediaStore.TryInsertMediaGrantAsync(grant, windowStartUnixMs, perOwnerLimit, ct);
+
+    public Task<bool> TryConsumeGrantAsync(string projectId, string grantId, long nowUnixMs, CancellationToken ct) =>
+        MediaStore.TryConsumeGrantAsync(projectId, grantId, nowUnixMs, ct);
+
+    public Task InsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct) =>
+        MediaStore.InsertMediaObjectAsync(record, ct);
+
+    public Task<IReadOnlyList<MediaObjectRecord>> ListMediaObjectsAsync(string projectId, CancellationToken ct) =>
+        MediaStore.ListMediaObjectsAsync(projectId, ct);
+
+    public Task UpsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct) =>
+        MediaStore.UpsertMediaObjectAsync(record, ct);
+
+    public Task<MediaObjectRecord?> GetMediaObjectAsync(string projectId, string mediaId, CancellationToken ct) =>
+        MediaStore.GetMediaObjectAsync(projectId, mediaId, ct);
+
+    public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct) =>
+        MediaStore.SumMediaObjectBytesAsync(projectId, purpose, nowUnixMs, ct);
 
     public Task<ProjectSecretWriteResult> SetProjectSecretAsync(string projectId, string name, string sealedValue, long updatedAtUnixMs, int maxSecrets, CancellationToken ct) =>
         Secrets.SetProjectSecretAsync(projectId, name, sealedValue, updatedAtUnixMs, maxSecrets, ct);

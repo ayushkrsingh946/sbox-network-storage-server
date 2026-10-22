@@ -19,6 +19,18 @@ public interface IMediaStore
 
     Task InsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct);
 
+    /// <summary>
+    /// Every object row in the project, including expired rows, so a portable export keeps objects whose retention has
+    /// lapsed exactly as they were. Upload grants are not listed: they are single-use operational state.
+    /// </summary>
+    Task<IReadOnlyList<MediaObjectRecord>> ListMediaObjectsAsync(string projectId, CancellationToken ct);
+
+    /// <summary>
+    /// Inserts the object row, or replaces every column of the existing row with the same project and media id. Used by
+    /// archive import, so importing the same archive twice converges to the same rows.
+    /// </summary>
+    Task UpsertMediaObjectAsync(MediaObjectRecord record, CancellationToken ct);
+
     /// <summary>Returns the object row, or null when the id is unknown in this project.</summary>
     Task<MediaObjectRecord?> GetMediaObjectAsync(string projectId, string mediaId, CancellationToken ct);
 

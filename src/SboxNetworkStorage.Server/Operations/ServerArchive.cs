@@ -4,6 +4,7 @@ using System.Text.Json;
 using SboxNetworkStorage.Server.Configuration;
 using SboxNetworkStorage.Server.Hosting;
 using SboxNetworkStorage.Storage.Relational;
+using SboxNetworkStorage.Application.NetworkStorage.Media;
 
 namespace SboxNetworkStorage.Server.Operations;
 
@@ -25,16 +26,17 @@ public static class ServerArchive
     /// so callers can fail cleanly before committing to an output.
     /// </summary>
     public static async Task<StagedExport> PrepareExportAsync(INetworkStorageStore store, INetworkStorageStoreAdmin admin,
-        EffectiveConfig config, bool includeSecrets, CancellationToken ct)
+        IMediaBlobStore blobs, EffectiveConfig config, bool includeSecrets, CancellationToken ct)
     {
         var staging = CreateStagingDirectory(config);
         try
         {
             var createdAt = DateTimeOffset.UtcNow;
-            var dump = new StoreDumpWriter(store, staging, includeSecrets ? admin as IProjectSecretStore : null);
+            var dump = new StoreDumpWriter(store, staging, includeSecrets ? admin as IProjectSecretStore : null,
+                new MediaExport(RequireMediaStore(admin), blobs, staging));
             var (workspaceObjects, memberships, projects) = await dump.WriteAsync(ct);
             var stagedConfig = ConfigArchive.Stage(config, includeSecrets, staging);
-            var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.CurrentVersion, BuildInfo.Version,
+            var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.VersionFor(IncludesMedia(projects)), BuildInfo.Version,
                 await admin.GetSchemaVersionAsync(ct), admin.ProviderName, createdAt, IncludesConfig: true, includeSecrets,
                 workspaceObjects, memberships, projects);
             await File.WriteAllBytesAsync(Path.Combine(staging, ExportFormat.ManifestEntry),
@@ -52,14 +54,14 @@ public static class ServerArchive
 
     /// <summary>Produces a portable project archive, excluding server configuration and other projects.</summary>
     public static async Task<StagedExport> PrepareProjectExportAsync(INetworkStorageStore store, INetworkStorageStoreAdmin admin,
-        EffectiveConfig config, string projectId, CancellationToken ct)
+        IMediaBlobStore blobs, EffectiveConfig config, string projectId, CancellationToken ct)
     {
         var staging = CreateStagingDirectory(config);
         try
         {
-            var dump = new StoreDumpWriter(store, staging);
+            var dump = new StoreDumpWriter(store, staging, media: new MediaExport(RequireMediaStore(admin), blobs, staging));
             var (objects, memberships, projects) = await dump.WriteProjectAsync(projectId, ct);
-            var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.CurrentVersion, BuildInfo.Version,
+            var manifest = new ExportManifest(ExportFormat.FormatName, ExportFormat.VersionFor(IncludesMedia(projects)), BuildInfo.Version,
                 await admin.GetSchemaVersionAsync(ct), admin.ProviderName, DateTimeOffset.UtcNow,
                 IncludesConfig: false, IncludesSecrets: false, objects, memberships, projects);
             await File.WriteAllBytesAsync(Path.Combine(staging, ExportFormat.ManifestEntry),
@@ -78,19 +80,21 @@ public static class ServerArchive
     /// database). Refuses a newer archive format, and a target that already holds
     /// projects unless <see cref="ImportOptions.Force"/>. Rows are upserted, so a
     /// repeated import converges to the same state.
+    /// A null <paramref name="blobs"/> validates media bytes without storing them (verification only).
     /// </summary>
-    public static Task<ImportResult> ImportAsync(Stream archive, INetworkStorageStore store, EffectiveConfig config,
-        ImportOptions options, CancellationToken ct)
-        => ImportCoreAsync(archive, store, config, options, projectId: null, ct);
+    public static Task<ImportResult> ImportAsync(Stream archive, INetworkStorageStore store, IMediaBlobStore? blobs,
+        EffectiveConfig config, ImportOptions options, CancellationToken ct)
+        => ImportCoreAsync(archive, store, blobs, config, options, projectId: null, ct);
 
-    internal static Task<ImportResult> ImportProjectAsync(Stream archive, INetworkStorageStore store,
+    internal static Task<ImportResult> ImportProjectAsync(Stream archive, INetworkStorageStore store, IMediaBlobStore blobs,
         EffectiveConfig config, string projectId, CancellationToken ct)
-        => ImportCoreAsync(archive, store, config, new ImportOptions(Force: true, RestoreConfig: false), projectId, ct);
+        => ImportCoreAsync(archive, store, blobs, config, new ImportOptions(Force: true, RestoreConfig: false), projectId, ct);
 
-    private static async Task<ImportResult> ImportCoreAsync(Stream archive, INetworkStorageStore store,
+    private static async Task<ImportResult> ImportCoreAsync(Stream archive, INetworkStorageStore store, IMediaBlobStore? blobs,
         EffectiveConfig config, ImportOptions options, string? projectId, CancellationToken ct)
     {
         var staging = CreateStagingDirectory(config);
+        var media = new MediaImport(staging, blobs);
         try
         {
             await using var gzip = new GZipStream(archive, CompressionMode.Decompress, leaveOpen: true);
@@ -155,6 +159,14 @@ public static class ServerArchive
 
                         dataEntries.Add((name, path));
                     }
+                    else if (ExportFormat.TryParseMediaBlobEntry(name, out var blobProjectId, out var blobSha))
+                    {
+                        if (manifest.FormatVersion < ExportFormat.MediaVersion)
+                            throw new ExportArchiveException("Media blobs require a format v3 archive.");
+                        if (!manifest.Projects.Any(project => project.Id == blobProjectId))
+                            throw new ExportArchiveException($"Archive entry '{name}' belongs to a project the manifest does not declare.");
+                        await media.StageAsync(blobProjectId, blobSha, entry.DataStream ?? Stream.Null, ct);
+                    }
                     else if (name.StartsWith(ExportFormat.ConfigPrefix, StringComparison.Ordinal) && name.Length > ExportFormat.ConfigPrefix.Length)
                     {
                         configFiles[name[ExportFormat.ConfigPrefix.Length..]] = await ReadConfigFileAsync(name, entry, ct);
@@ -187,13 +199,14 @@ public static class ServerArchive
             long rows = 0;
             async Task ReplayAsync(INetworkStorageStore target, CancellationToken replayCt)
             {
-                var reader = new StoreDumpReader(target);
+                var reader = new StoreDumpReader(target, media);
                 foreach (var (name, path) in dataEntries)
                 {
                     await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
                         64 * 1024, useAsync: true);
                     await reader.ApplyEntryAsync(name, file, replayCt);
                 }
+                media.EnsureAllReferenced();
                 rows = reader.Rows;
             }
 
@@ -302,6 +315,8 @@ public static class ServerArchive
                 if (resource == "project-secrets" && count > 0
                     && (!manifest.IncludesSecrets || !manifest.IncludesConfig || manifest.FormatVersion < 2))
                     throw new ExportArchiveException("Project secrets require a whole-server format v2 archive that includes secrets.");
+                if (resource == "media-objects" && count > 0 && manifest.FormatVersion < ExportFormat.MediaVersion)
+                    throw new ExportArchiveException("Media objects require a format v3 archive.");
 
                 var name = ExportFormat.ProjectEntry(project.Id, resource);
                 counts[name] = count;
@@ -311,6 +326,12 @@ public static class ServerArchive
 
         return counts;
     }
+
+    private static IMediaStore RequireMediaStore(INetworkStorageStoreAdmin admin)
+        => admin as IMediaStore ?? throw new ExportArchiveException("This store cannot export media objects.");
+
+    private static bool IncludesMedia(IEnumerable<ExportedProject> projects)
+        => projects.Any(project => project.Counts.TryGetValue("media-objects", out var rows) && rows > 0);
 
     private static async Task<long> CountDataRowsAsync(string name, Stream content, CancellationToken ct)
     {
