@@ -61,10 +61,16 @@ internal static class PlayerIdentity
 
     /// <summary>
     /// True when every Steam ID the caller names as the requested player equals <paramref name="verifiedSteamId"/>.
-    /// Used by the auth-session routes: the proxy host's identity is verified by its own host token, so it is not compared here.
+    /// Used by the auth-session routes after the s&amp;box check succeeded. In a delegated request that check proved the
+    /// host token against <see cref="ClaimedSteamId"/>, so that value is the host's verified identity, not a player
+    /// claim: legacy hosts send it as x-steam-id, newer ones as x-sbox-steam-id.
     /// </summary>
     internal static bool RequestedClaimsMatch(HttpRequest request, JsonElement body, string verifiedSteamId)
-        => ClaimValues(request, body, includeHostHeader: false).All(claim => string.Equals(claim, verifiedSteamId, StringComparison.Ordinal));
+    {
+        var hostSteamId = string.IsNullOrEmpty(request.Headers["x-on-behalf-of"].FirstOrDefault()) ? null : ClaimedSteamId(request, body);
+        return ClaimValues(request, body, includeHostHeader: false).All(claim =>
+            string.Equals(claim, verifiedSteamId, StringComparison.Ordinal) || string.Equals(claim, hostSteamId, StringComparison.Ordinal));
+    }
 
     /// <summary>
     /// Resolves the player for a public-key request. When <paramref name="required"/>
