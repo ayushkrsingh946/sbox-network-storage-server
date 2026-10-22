@@ -116,6 +116,17 @@ A call returns `null` until its request has finished. On the first run the handl
 - Writes and the response come from the final run only.
 - Each round that waits on `ns.fetch` counts toward the re-run limit that store reads share (see [Limits](#limits)). The network wait is not script time.
 
+The server may also rerun a writing handler after taking record locks, using fresh
+record values. Once a fetch ordinal has executed, its URL, method, headers, body and
+timeout must stay identical on every rerun. Changed arguments raise
+`FETCH_REPLAY_CONFLICT` instead of sending a second request. Separate calls within
+one run have separate ordinals and still execute independently.
+
+An external side effect can already have completed even when the endpoint later
+fails and its record writes are discarded. Fetches and database writes are not one
+transaction. Do not blindly retry a failed mutation: use a stable external
+idempotency key and reconcile the external result before retrying.
+
 ### Request and response
 
 | Part | Rule |
@@ -177,6 +188,7 @@ A failed call throws a JavaScript `Error`. Its `message` starts with `ns.fetch:`
 | `FETCH_INVALID_REQUEST` | The URL, an option, a header or the body breaks a rule above. Nothing is sent and the call does not count. |
 | `FETCH_BLOCKED` | The allow-list or an address rule refuses the host. The message gives the reason. |
 | `FETCH_LIMIT_EXCEEDED` | A call beyond the fifth queued call. |
+| `FETCH_REPLAY_CONFLICT` | An already-executed fetch ordinal has different arguments on a rerun. No second request is sent; an earlier external effect may already have completed. |
 | `FETCH_TIMEOUT` | No complete response within `timeoutMs`. |
 | `FETCH_RESPONSE_TOO_LARGE` | The response is larger than 256 KiB, by `Content-Length` or as it streams. |
 | `FETCH_FAILED` | A network error, or more than 5 redirects. |
