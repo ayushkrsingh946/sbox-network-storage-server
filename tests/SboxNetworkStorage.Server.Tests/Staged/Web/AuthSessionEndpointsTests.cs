@@ -1,3 +1,5 @@
+using SboxNetworkStorage.Infrastructure.NetworkStorage;
+using SboxNetworkStorage.Server.Tests.Support;
 using SboxNetworkStorage.Server.Tests.Hosting;
 using System.Net;
 using System.Net.Http;
@@ -282,6 +284,179 @@ public abstract class AuthSessionEndpointsTests<TFactory> : IClassFixture<TFacto
             => throw new NotImplementedException();
         public Task<ProjectAuditLogResult> BrowseProjectLogsAsync(long storageOwnerUserId, string projectId, string? search, string? action, string? date, string sort, int page, int pageSize, CancellationToken cancellationToken)
             => throw new NotImplementedException();
+    }
+
+    private const string HostToken = "host-token";
+    private const string HostSteamId = "76561198000000002";
+    private const string PlayerToken = "player-token";
+    private const string OtherPlayerToken = "other-player-token";
+    private const string OtherSteamId = "76561198000000003";
+
+    [SkippableFact]
+    public async Task Create_DirectWithVerifiedPlayerToken_IssuesSessionForPlayer()
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string> { [PlayerToken] = SteamId }));
+        using var response = await client.SendAsync(CreateDirectRequest($"/v3/auth-sessions/{ProjectId}/create", SteamId, PlayerToken));
+
+        var body = await BodyAsync(response);
+        Assert.True(body.GetProperty("ok").GetBoolean());
+        Assert.Equal(SteamId, body.GetProperty("session").GetProperty("steamId").GetString());
+    }
+
+    [SkippableFact]
+    public async Task Create_DelegatedWithVerifiedPlayerToken_IssuesSessionForPlayerNotHost()
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            [HostToken] = HostSteamId,
+            [PlayerToken] = SteamId,
+        }));
+        using var response = await client.SendAsync(CreateProxyRequest($"/v3/auth-sessions/{ProjectId}/create", "__auth_session_create", SteamId, PlayerToken));
+
+        var body = await BodyAsync(response);
+        Assert.True(body.GetProperty("ok").GetBoolean());
+        Assert.Equal(SteamId, body.GetProperty("session").GetProperty("steamId").GetString());
+    }
+
+    [SkippableTheory]
+    [InlineData("forged-token")]
+    [InlineData(OtherPlayerToken)]
+    public async Task Create_DelegatedClientTokenNotOwnedByClaimedPlayer_IsRejectedWithoutSession(string clientToken)
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            [HostToken] = HostSteamId,
+            [OtherPlayerToken] = OtherSteamId,
+        }));
+        using var response = await client.SendAsync(CreateProxyRequest($"/v3/auth-sessions/{ProjectId}/create", "__auth_session_create", SteamId, clientToken));
+
+        var body = await BodyAsync(response);
+        Assert.False(body.GetProperty("ok").GetBoolean());
+        Assert.Equal(401, body.GetProperty("status").GetInt32());
+        Assert.Equal("SBOX_AUTH_FAILED", body.GetProperty("error").GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("sessionToken", out _));
+    }
+
+    [SkippableFact]
+    public async Task Create_DelegatedRequestedPlayerDiffersFromVerifiedClient_IsRejectedWithoutSession()
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            [HostToken] = HostSteamId,
+            [OtherPlayerToken] = OtherSteamId,
+        }));
+        using var response = await client.SendAsync(CreateProxyRequest($"/v3/auth-sessions/{ProjectId}/create", "__auth_session_create", OtherSteamId, OtherPlayerToken, requestedSteamId: SteamId));
+
+        var body = await BodyAsync(response);
+        Assert.False(body.GetProperty("ok").GetBoolean());
+        Assert.Equal("AUTH_SESSION_STEAMID_MISMATCH", body.GetProperty("error").GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("sessionToken", out _));
+    }
+
+    [SkippableFact]
+    public async Task Reauth_DelegatedWithForgedClientToken_DoesNotRenewVictimSession()
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            [HostToken] = HostSteamId,
+            [PlayerToken] = SteamId,
+        }));
+        var token = await MintDirectTokenAsync(client);
+
+        using var request = CreateProxyRequest($"/v3/auth-sessions/{ProjectId}/reauth", "__auth_session_reauth", SteamId, "forged-token");
+        request.Headers.Add("x-auth-session", token);
+        using var response = await client.SendAsync(request);
+
+        var body = await BodyAsync(response);
+        Assert.False(body.GetProperty("ok").GetBoolean());
+        Assert.Equal("SBOX_AUTH_FAILED", body.GetProperty("error").GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("sessionToken", out _));
+    }
+
+    [SkippableFact]
+    public async Task Reauth_DelegatedWithVerifiedPlayerToken_RenewsSession()
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            [HostToken] = HostSteamId,
+            [PlayerToken] = SteamId,
+        }));
+        var token = await MintDirectTokenAsync(client);
+
+        using var request = CreateProxyRequest($"/v3/auth-sessions/{ProjectId}/reauth", "__auth_session_reauth", SteamId, PlayerToken);
+        request.Headers.Add("x-auth-session", token);
+        using var response = await client.SendAsync(request);
+
+        var body = await BodyAsync(response);
+        Assert.True(body.GetProperty("ok").GetBoolean());
+        Assert.StartsWith("sbox_sess_", body.GetProperty("sessionToken").GetString());
+    }
+
+    [SkippableFact]
+    public async Task Reauth_DelegatedWithLegacyHostSteamIdHeader_RenewsPlayerSession()
+    {
+        using var client = CreateVerifiedClient(new FacepunchTokenTransport(new Dictionary<string, string>
+        {
+            [HostToken] = HostSteamId,
+            [PlayerToken] = SteamId,
+        }));
+        var token = await MintDirectTokenAsync(client);
+
+        using var request = CreateProxyRequest($"/v3/auth-sessions/{ProjectId}/reauth", "__auth_session_reauth", SteamId, PlayerToken, hostSteamIdHeader: "x-steam-id", bodySteamId: false);
+        request.Headers.Add("x-auth-session", token);
+        using var response = await client.SendAsync(request);
+
+        var body = await BodyAsync(response);
+        Assert.True(body.GetProperty("ok").GetBoolean());
+        Assert.Equal(SteamId, body.GetProperty("session").GetProperty("steamId").GetString());
+    }
+
+    private HttpClient CreateVerifiedClient(FacepunchTokenTransport facepunch)
+        => _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("NETWORK_STORAGE_AUTH_SESSION_SECRET", "integration-test-secret");
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IStorageApiKeyResolver>();
+                services.AddScoped<IStorageApiKeyResolver>(_ => new FakeKeyResolver(ApiKey, ProjectId));
+                services.RemoveAll<INetworkStorageProjectService>();
+                services.AddScoped<INetworkStorageProjectService>(_ => new FakeProjectService(true, true));
+                services.RemoveAll<ISboxAuthVerifier>();
+                services.AddHttpClient<ISboxAuthVerifier, FacepunchSboxAuthVerifier>()
+                    .ConfigurePrimaryHttpMessageHandler(() => facepunch);
+            });
+        }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+    private static HttpRequestMessage CreateDirectRequest(string path, string steamId, string sboxToken)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path);
+        request.Headers.Add("x-api-key", ApiKey);
+        request.Headers.Add("x-steam-id", steamId);
+        request.Headers.Add("x-sbox-token", sboxToken);
+        request.Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+        return request;
+    }
+
+    private static HttpRequestMessage CreateProxyRequest(string path, string endpointSlug, string clientSteamId, string clientToken, string? requestedSteamId = null, string hostSteamIdHeader = "x-sbox-steam-id", bool bodySteamId = true)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, path);
+        request.Headers.Add("x-api-key", ApiKey);
+        request.Headers.Add(hostSteamIdHeader, HostSteamId);
+        request.Headers.Add("x-sbox-token", HostToken);
+        request.Headers.Add("x-on-behalf-of", clientSteamId);
+        request.Headers.Add("x-on-behalf-of-token", clientToken);
+        request.Headers.Add("x-proxy-signature",
+            FacepunchSboxAuthVerifier.ComputeProxySignature(ApiKey, ProjectId, endpointSlug, clientSteamId, clientToken));
+        var body = bodySteamId ? $"{{\"steamId\":\"{requestedSteamId ?? clientSteamId}\"}}" : "{}";
+        request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        return request;
+    }
+
+    private async Task<string> MintDirectTokenAsync(HttpClient client)
+    {
+        using var response = await client.SendAsync(CreateDirectRequest($"/v3/auth-sessions/{ProjectId}/create", SteamId, PlayerToken));
+        var body = await BodyAsync(response);
+        return body.GetProperty("sessionToken").GetString()!;
     }
 }
 

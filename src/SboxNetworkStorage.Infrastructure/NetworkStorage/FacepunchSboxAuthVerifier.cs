@@ -136,7 +136,13 @@ public sealed partial class FacepunchSboxAuthVerifier : ISboxAuthVerifier
         if (!host.Ok)
             return new SboxAuthResult(false, null, $"Proxy auth: host verification failed - {host.Error}");
 
-        return new SboxAuthResult(true, check.ClientSteamId, null);
+        // The signature only proves the host forwarded this client token; the token itself must still
+        // be verified against Facepunch, or any holder of the public API key could mint a delegated identity.
+        var client = await VerifyDirectAsync(check with { HostToken = check.ClientToken!, HostSteamId = check.ClientSteamId! }, cancellationToken);
+        if (!client.Ok)
+            return new SboxAuthResult(false, null, $"Proxy auth: client verification failed - {client.Error}");
+
+        return new SboxAuthResult(true, client.SteamId, null);
     }
 
     /// <summary>HMAC-SHA256(apiKey, "projectId:endpointSlug:clientSteamId:clientToken") as lowercase hex.</summary>
