@@ -244,11 +244,20 @@ same bytes share one blob file; each upload still gets its own object row.
 
 ## Retention and deletion
 
-**Not implemented yet.** `retentionDays` is recorded on each object as
-`expiresAtUnixMs`. Expiry is enforced at read time: after that time `GET` and `HEAD`
-return `404 MEDIA_NOT_FOUND`, and expired objects no longer count toward the project
-quota. Neither the object row nor the blob is deleted yet. The M5 sweeper will purge
-them; until it ships, stored bytes grow for as long as the blob backend has room.
+**Implemented.** `retentionDays` is recorded on each object as `expiresAtUnixMs`.
+Expiry is enforced at read time: after that time `GET` and `HEAD` return
+`404 MEDIA_NOT_FOUND`, and expired objects no longer count toward the project quota.
+
+A background sweeper purges expired media. It starts one minute after the server
+starts and then runs once a day. For each expired object row it deletes the row, and it
+deletes the blob when no other row in the same project still points at those bytes. A
+blob that an unexpired object shares is kept. The sweeper deletes the blob before the
+rows, so a crash between the two leaves an expired row with no bytes. Reads already
+return 404 for that row, and the next sweep removes it. If a blob delete fails, its
+rows stay and the next sweep retries. Failed deletes are logged as warnings.
+
+An export that runs while a sweep is removing a row can refuse with "has no stored
+bytes". Run the export again once the sweep has finished.
 
 ## Backups and export
 

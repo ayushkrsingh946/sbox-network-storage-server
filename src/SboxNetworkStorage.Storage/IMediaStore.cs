@@ -36,10 +36,26 @@ public interface IMediaStore
 
     /// <summary>
     /// Sum of stored object sizes for one purpose in one project, counting only rows still unexpired at
-    /// <paramref name="nowUnixMs"/>. Expired rows stop counting toward the quota at read time; the sweeper that
-    /// deletes them has not shipped yet.
+    /// <paramref name="nowUnixMs"/>. Expired rows stop counting toward the quota at read time, before the retention
+    /// sweeper deletes them.
     /// </summary>
     Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct);
+
+    /// <summary>
+    /// Up to <paramref name="limit"/> object rows whose expiry is at or before <paramref name="nowUnixMs"/>, across every
+    /// project, in (project, media id) order after <paramref name="after"/> (null starts at the beginning). Rows are read
+    /// in pages so the retention sweeper stays bounded; pass the last row's key as the next cursor.
+    /// </summary>
+    Task<IReadOnlyList<MediaObjectRecord>> ListExpiredMediaObjectsAsync(long nowUnixMs, (string ProjectId, string MediaId)? after, int limit, CancellationToken ct);
+
+    /// <summary>Media ids of every object row in the project that stores these bytes, expired rows included.</summary>
+    Task<IReadOnlyList<string>> ListMediaIdsBySha256Async(string projectId, string sha256, CancellationToken ct);
+
+    /// <summary>
+    /// Deletes the object row only while it is still expired at <paramref name="nowUnixMs"/>. Returns false when the row is
+    /// missing or unexpired, so the sweeper can never remove a live object.
+    /// </summary>
+    Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct);
 }
 
 public sealed record MediaGrantRecord(

@@ -9,6 +9,12 @@ public sealed record MediaGrantRequest(string? Purpose, string? ContentType, lon
 public sealed record IssuedMediaGrant(string GrantToken, string MediaId, string ContentType, long MaxBytes, long ExpiresAtUnixMs);
 
 /// <summary>
+/// What one retention sweep removed. <c>BlobFailures</c> lists blob deletes that failed; their expired rows stay,
+/// so the next sweep retries them.
+/// </summary>
+public sealed record MediaSweepResult(int ObjectsDeleted, int BlobsDeleted, IReadOnlyList<Exception> BlobFailures);
+
+/// <summary>
 /// Media grant and upload rules, free of HTTP. The endpoint layer resolves identity and maps
 /// <see cref="MediaFailure"/> to status codes; every check that matters lives here.
 /// </summary>
@@ -24,6 +30,8 @@ public sealed class NetworkStorageMediaService
     private readonly IMediaStore _store;
     private readonly IMediaBlobStore _blobs;
     private readonly MediaGrantTokens _tokens;
+    private const int BlobLockStripes = 64;
+    private readonly SemaphoreSlim[] _blobLocks = Enumerable.Range(0, BlobLockStripes).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
 
     public NetworkStorageMediaService(IMediaStore store, IMediaBlobStore blobs, MediaGrantTokens tokens)
     {
@@ -136,16 +144,99 @@ public sealed class NetworkStorageMediaService
         if (!await _store.TryConsumeGrantAsync(claims.ProjectId, claims.GrantId, nowUnixMs, ct))
             return MediaResult<MediaObjectRecord>.Fail(409, "GRANT_USED", "Upload grant has already been used.");
 
-        if (!await _blobs.ExistsAsync(claims.ProjectId, digest, ct))
-            await _blobs.WriteAsync(claims.ProjectId, digest, body, ct);
-
         var record = new MediaObjectRecord(
             ProjectId: claims.ProjectId, MediaId: claims.MediaId, Purpose: claims.Purpose, Sha256: digest,
             ContentType: claims.ContentType, SizeBytes: body.LongLength, Width: detected.Width, Height: detected.Height,
             OwnerSteamId: claims.OwnerSteamId, Visibility: purpose.Visibility, CreatedAtUnixMs: nowUnixMs,
             ExpiresAtUnixMs: nowUnixMs + purpose.RetentionDays * MillisPerDay);
-        await _store.InsertMediaObjectAsync(record, ct);
+
+        // The sweeper takes the same lock, so a blob cannot be deleted between this existence check and the row insert that relies on it.
+        using (await LockBlobAsync(claims.ProjectId, digest, ct))
+        {
+            if (!await _blobs.ExistsAsync(claims.ProjectId, digest, ct))
+                await _blobs.WriteAsync(claims.ProjectId, digest, body, ct);
+            await _store.InsertMediaObjectAsync(record, ct);
+        }
         return MediaResult<MediaObjectRecord>.Success(record);
+    }
+
+    /// <summary>
+    /// Deletes expired object rows, and each blob that no row (expired or not) still points at. Pages through expired
+    /// rows <paramref name="batchSize"/> at a time in key order, so a blob that fails to delete keeps its expired rows
+    /// and the next sweep retries it. Per (project, sha256) the blob goes first and the rows second: a crash between
+    /// the two leaves an expired row with no bytes, which readers already treat as missing and the next sweep removes.
+    /// The reverse order would strand a blob with no record that could ever find it.
+    /// </summary>
+    public async Task<MediaSweepResult> SweepExpiredAsync(long nowUnixMs, int batchSize, CancellationToken ct)
+    {
+        var tally = new SweepTally();
+        (string ProjectId, string MediaId)? cursor = null;
+        while (true)
+        {
+            var batch = await _store.ListExpiredMediaObjectsAsync(nowUnixMs, cursor, batchSize, ct);
+            if (batch.Count == 0) break;
+
+            foreach (var group in batch.GroupBy(r => (r.ProjectId, r.Sha256)))
+                await SweepBlobAsync(group.Key.ProjectId, group.Key.Sha256, group.ToList(), nowUnixMs, tally, ct);
+
+            var last = batch[^1];
+            cursor = (last.ProjectId, last.MediaId);
+            if (batch.Count < batchSize) break;
+        }
+        return new MediaSweepResult(tally.ObjectsDeleted, tally.BlobsDeleted, tally.BlobFailures);
+    }
+
+    private async Task SweepBlobAsync(string projectId, string sha256, List<MediaObjectRecord> expired, long nowUnixMs,
+        SweepTally tally, CancellationToken ct)
+    {
+        using var _ = await LockBlobAsync(projectId, sha256, ct);
+
+        // A row outside this batch can still share the bytes, so the blob stays while any row other than these expired ones points at it.
+        var expiredIds = expired.Select(r => r.MediaId).ToHashSet(StringComparer.Ordinal);
+        var referenced = await _store.ListMediaIdsBySha256Async(projectId, sha256, ct);
+        if (referenced.All(expiredIds.Contains))
+        {
+            try
+            {
+                await _blobs.DeleteAsync(projectId, sha256, ct);
+                tally.BlobsDeleted++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Rows stay expired, so the next sweep finds and retries this blob.
+                tally.BlobFailures.Add(ex);
+                return;
+            }
+        }
+
+        foreach (var row in expired)
+        {
+            if (await _store.DeleteExpiredMediaObjectAsync(projectId, row.MediaId, nowUnixMs, ct))
+                tally.ObjectsDeleted++;
+        }
+    }
+
+    /// <summary>
+    /// Serializes blob writes, deletes, and the row inserts that depend on them, per (project, sha256). Stripes bound
+    /// the lock table; two keys that share a stripe only wait on each other. No code path holds two stripes at once.
+    /// </summary>
+    private async Task<IDisposable> LockBlobAsync(string projectId, string sha256, CancellationToken ct)
+    {
+        var stripe = _blobLocks[(int)((uint)HashCode.Combine(projectId, sha256) % BlobLockStripes)];
+        await stripe.WaitAsync(ct);
+        return new StripeRelease(stripe);
+    }
+
+    private sealed class StripeRelease(SemaphoreSlim stripe) : IDisposable
+    {
+        public void Dispose() => stripe.Release();
+    }
+
+    private sealed class SweepTally
+    {
+        public int ObjectsDeleted { get; set; }
+        public int BlobsDeleted { get; set; }
+        public List<Exception> BlobFailures { get; } = [];
     }
 
     /// <summary>

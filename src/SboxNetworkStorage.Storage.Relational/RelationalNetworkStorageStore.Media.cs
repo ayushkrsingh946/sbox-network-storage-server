@@ -159,10 +159,64 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
     public Task<long> SumMediaObjectBytesAsync(string projectId, string purpose, long nowUnixMs, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
-        // Expired rows stop counting here, at read time; the sweeper that deletes them has not shipped yet.
+        // Expired rows stop counting here, at read time; the retention sweeper deletes them later.
         return QueryInt64ScalarAsync($"""
             SELECT COALESCE(SUM(size_bytes), 0) FROM {TablePrefix}media_objects
             WHERE project_id = @project AND purpose = @purpose AND expires_at_unix_ms > @now
             """, ct, Text("project", projectId), Text("purpose", purpose), Int64("now", nowUnixMs));
+    }
+
+    /// <summary>
+    /// Expired rows in (project, media id) order. The cursor is a row-value comparison, which SQLite and PostgreSQL both
+    /// order the same way as the ORDER BY.
+    /// </summary>
+    public async Task<IReadOnlyList<MediaObjectRecord>> ListExpiredMediaObjectsAsync(
+        long nowUnixMs, (string ProjectId, string MediaId)? after, int limit, CancellationToken ct)
+    {
+        var args = new List<Arg> { Int64("now", nowUnixMs), Int32("limit", limit) };
+        var cursor = string.Empty;
+        if (after is { } key)
+        {
+            cursor = "AND (project_id, media_id) > (@afterProject, @afterMedia)";
+            args.Add(Text("afterProject", key.ProjectId));
+            args.Add(Text("afterMedia", key.MediaId));
+        }
+
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease, $"""
+            SELECT project_id, media_id, purpose, sha256, content_type, size_bytes, width, height, owner_steam_id, visibility,
+                   created_at_unix_ms, expires_at_unix_ms
+            FROM {TablePrefix}media_objects
+            WHERE expires_at_unix_ms <= @now {cursor}
+            ORDER BY project_id, media_id
+            LIMIT @limit
+            """, args.ToArray());
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var rows = new List<MediaObjectRecord>();
+        while (await reader.ReadAsync(ct)) rows.Add(ReadMediaObject(reader));
+        return rows;
+    }
+
+    public async Task<IReadOnlyList<string>> ListMediaIdsBySha256Async(string projectId, string sha256, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease,
+            $"SELECT media_id FROM {TablePrefix}media_objects WHERE project_id = @project AND sha256 = @sha",
+            [Text("project", projectId), Text("sha", sha256)]);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var ids = new List<string>();
+        while (await reader.ReadAsync(ct)) ids.Add(reader.GetString(0));
+        return ids;
+    }
+
+    public async Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        await using var lease = await LeaseAsync(ct);
+        await using var command = Command(lease,
+            $"DELETE FROM {TablePrefix}media_objects WHERE project_id = @project AND media_id = @media AND expires_at_unix_ms <= @now",
+            [Text("project", projectId), Text("media", mediaId), Int64("now", nowUnixMs)]);
+        return await command.ExecuteNonQueryAsync(ct) == 1;
     }
 }

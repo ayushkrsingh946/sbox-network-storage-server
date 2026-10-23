@@ -40,6 +40,12 @@ public sealed class LocalDiskMediaBlobStore : IMediaBlobStore
         }
     }
 
+    public Task DeleteAsync(string projectId, string sha256, CancellationToken ct)
+    {
+        File.Delete(PathFor(projectId, sha256));
+        return Task.CompletedTask;
+    }
+
     public Task<MediaBlob?> OpenReadAsync(string projectId, string sha256, CancellationToken ct)
     {
         var path = PathFor(projectId, sha256);
