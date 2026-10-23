@@ -48,14 +48,28 @@ public interface IMediaStore
     /// </summary>
     Task<IReadOnlyList<MediaObjectRecord>> ListExpiredMediaObjectsAsync(long nowUnixMs, (string ProjectId, string MediaId)? after, int limit, CancellationToken ct);
 
-    /// <summary>Media ids of every object row in the project that stores these bytes, expired rows included.</summary>
-    Task<IReadOnlyList<string>> ListMediaIdsBySha256Async(string projectId, string sha256, CancellationToken ct);
+    /// <summary>Every object row in the project that stores these bytes, expired rows included, with each row's expiry.</summary>
+    Task<IReadOnlyList<MediaReference>> ListMediaReferencesBySha256Async(string projectId, string sha256, CancellationToken ct);
 
     /// <summary>
     /// Deletes the object row only while it is still expired at <paramref name="nowUnixMs"/>. Returns false when the row is
     /// missing or unexpired, so the sweeper can never remove a live object.
     /// </summary>
     Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct);
+
+    /// <summary>
+    /// Runs <paramref name="work"/> while holding the blob lock for (project, sha256). A blob write (upload or archive
+    /// import) takes this lock. On PostgreSQL it is a transaction advisory lock that holds across server instances, and
+    /// <paramref name="work"/> runs on that transaction, so the rows it writes commit with the lock release. Inside a
+    /// project import the lock lasts until the import transaction ends.
+    /// </summary>
+    Task RunMediaBlobWriteAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct);
+
+    /// <summary>
+    /// The same lock as <see cref="RunMediaBlobWriteAsync"/>, for a sweep that may delete the blob. It also waits for any
+    /// project import running in this process, so a sweep never deletes bytes whose rows have not committed yet.
+    /// </summary>
+    Task RunMediaBlobSweepAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct);
 }
 
 public sealed record MediaGrantRecord(
@@ -79,3 +93,5 @@ public sealed record MediaObjectRecord(
     string Visibility,
     long CreatedAtUnixMs,
     long ExpiresAtUnixMs);
+
+public sealed record MediaReference(string MediaId, long ExpiresAtUnixMs);

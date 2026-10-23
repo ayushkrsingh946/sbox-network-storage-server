@@ -238,7 +238,34 @@ public sealed class MediaRetentionSweeperTests
     }
 
     [Fact]
-    public async Task Sweeper_waits_a_minute_after_start_then_sweeps_once_a_day()
+    public async Task Blob_survives_when_a_row_is_renewed_after_the_sweep_read_its_batch()
+    {
+        var (service, store, blobs) = Build();
+        var bytes = Png(64, 32);
+        var sha = Hex(Sha(bytes));
+        blobs.Items[(ProjectId, sha)] = bytes;
+        store.Objects.Add(Row("med_old", bytes, Expired));
+        // Another writer re-points the row at live bytes after the sweep read the batch and before it decides.
+        store.BeforeSweepDecision = () =>
+        {
+            store.Objects.RemoveAll(o => o.MediaId == "med_old");
+            store.Objects.Add(Row("med_old", bytes, Live));
+            return Task.CompletedTask;
+        };
+
+        var result = await service.SweepExpiredAsync(Now + 2_000, 200, default);
+
+        Assert.Equal(0, result.ObjectsDeleted);
+        Assert.Equal(0, result.BlobsDeleted);
+        Assert.Empty(result.BlobFailures);
+        Assert.Equal(0, blobs.Deletes);
+        Assert.True(blobs.Items.ContainsKey((ProjectId, sha)));
+        Assert.Equal(Live, Assert.Single(store.Objects).ExpiresAtUnixMs);
+        Assert.True((await service.ReadObjectAsync(ProjectId, "med_old", false, true, Now + 2_000, default)).Ok);
+    }
+
+    [Fact]
+    public async Task Sweeper_first_sweep_runs_one_minute_after_start_then_sweeps_once_a_day()
     {
         var (service, store, blobs) = Build();
         var clock = new ManualClock(DateTimeOffset.FromUnixTimeMilliseconds(Now));
@@ -247,10 +274,11 @@ public sealed class MediaRetentionSweeperTests
         blobs.Items[(ProjectId, Hex(Sha(bytes)))] = bytes;
         store.Objects.Add(Row("med_first", bytes, Expired));
 
+        clock.Now = clock.Now.AddSeconds(59);
         await sweeper.SweepIfDueAsync(default);
         Assert.Single(store.Objects);
 
-        clock.Now = clock.Now.AddMinutes(1);
+        clock.Now = clock.Now.AddSeconds(1);
         await sweeper.SweepIfDueAsync(default);
         Assert.Empty(store.Objects);
 

@@ -67,6 +67,17 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
     protected virtual Task LockMediaGrantOwnerAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct) =>
         Task.CompletedTask;
 
+    /// <summary>
+    /// Provider hook: a lock on one (project, sha256) blob key, taken on <paramref name="transaction"/> and released when
+    /// it ends. The base takes none. A provider whose lock excludes other server processes overrides this and returns
+    /// true from <see cref="MediaBlobLocksSpanProcesses"/>.
+    /// </summary>
+    protected virtual Task LockMediaBlobKeyAsync(DbConnection connection, DbTransaction transaction, string key, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    /// <summary>True when <see cref="LockMediaBlobKeyAsync"/> excludes other server processes.</summary>
+    protected virtual bool MediaBlobLocksSpanProcesses => false;
+
     public async Task<bool> TryConsumeGrantAsync(string projectId, string grantId, long nowUnixMs, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
@@ -197,17 +208,61 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
         return rows;
     }
 
-    public async Task<IReadOnlyList<string>> ListMediaIdsBySha256Async(string projectId, string sha256, CancellationToken ct)
+    /// <summary>Every object row in the project that stores these bytes, expired rows included, with each row's expiry.</summary>
+    public async Task<IReadOnlyList<MediaReference>> ListMediaReferencesBySha256Async(string projectId, string sha256, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
         await using var lease = await LeaseAsync(ct);
         await using var command = Command(lease,
-            $"SELECT media_id FROM {TablePrefix}media_objects WHERE project_id = @project AND sha256 = @sha",
+            $"SELECT media_id, expires_at_unix_ms FROM {TablePrefix}media_objects WHERE project_id = @project AND sha256 = @sha",
             [Text("project", projectId), Text("sha", sha256)]);
         await using var reader = await command.ExecuteReaderAsync(ct);
-        var ids = new List<string>();
-        while (await reader.ReadAsync(ct)) ids.Add(reader.GetString(0));
-        return ids;
+        var references = new List<MediaReference>();
+        while (await reader.ReadAsync(ct)) references.Add(new MediaReference(reader.GetString(0), reader.GetInt64(1)));
+        return references;
+    }
+
+    public Task RunMediaBlobWriteAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
+        RunMediaBlobCriticalAsync(projectId, sha256, work, ct);
+
+    public async Task RunMediaBlobSweepAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
+    {
+        await _projectImportGate.WaitAsync(ct);
+        try
+        {
+            await RunMediaBlobCriticalAsync(projectId, sha256, work, ct);
+        }
+        finally
+        {
+            _projectImportGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> under the blob lock for (project, sha256). Inside a project import the lock joins the
+    /// import transaction. Outside one, a provider with cross-process locks gets its own transaction, which holds the
+    /// lock and the rows <paramref name="work"/> writes until it commits. Other providers run the work directly.
+    /// </summary>
+    private async Task RunMediaBlobCriticalAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
+    {
+        StoreValidation.Id(projectId);
+        var key = $"{projectId}:{sha256}";
+        if (_transaction is { } bound)
+        {
+            await LockMediaBlobKeyAsync(bound.Connection!, bound, key, ct);
+            await work(this);
+            return;
+        }
+        if (!MediaBlobLocksSpanProcesses)
+        {
+            await work(this);
+            return;
+        }
+        await using var connection = await OpenConnectionAsync(ct);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await LockMediaBlobKeyAsync(connection, transaction, key, ct);
+        await work(Bind(transaction));
+        await transaction.CommitAsync(ct);
     }
 
     public async Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct)

@@ -157,8 +157,9 @@ public abstract class MediaStoreTests : IAsyncLifetime
         await Media.InsertMediaObjectAsync(Record("med_3", projectId: "proj_other") with { Sha256 = shared }, CancellationToken.None);
         await Media.InsertMediaObjectAsync(Record("med_4") with { Sha256 = new string('c', 64) }, CancellationToken.None);
 
-        var ids = await Media.ListMediaIdsBySha256Async("proj_example", shared, CancellationToken.None);
-        Assert.Equal(new[] { "med_1", "med_2" }, ids.OrderBy(id => id, StringComparer.Ordinal));
+        var references = await Media.ListMediaReferencesBySha256Async("proj_example", shared, CancellationToken.None);
+        Assert.Equal(new[] { ("med_1", 2_000L), ("med_2", 1_500L) },
+            references.OrderBy(r => r.MediaId, StringComparer.Ordinal).Select(r => (r.MediaId, r.ExpiresAtUnixMs)));
     }
 
     [SkippableFact]

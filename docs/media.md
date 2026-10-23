@@ -249,12 +249,22 @@ Expiry is enforced at read time: after that time `GET` and `HEAD` return
 `404 MEDIA_NOT_FOUND`, and expired objects no longer count toward the project quota.
 
 A background sweeper purges expired media. It starts one minute after the server
-starts and then runs once a day. For each expired object row it deletes the row, and it
-deletes the blob when no other row in the same project still points at those bytes. A
-blob that an unexpired object shares is kept. The sweeper deletes the blob before the
-rows, so a crash between the two leaves an expired row with no bytes. Reads already
-return 404 for that row, and the next sweep removes it. If a blob delete fails, its
-rows stay and the next sweep retries. Failed deletes are logged as warnings.
+starts and then runs once a day. It reads expired object rows in batches and
+groups each batch by project and SHA-256. It deletes a blob only when every
+object row that points at those bytes is expired and in the batch, and it checks
+that again under the blob lock. An unexpired row that shares the bytes keeps the
+blob, and so does a row renewed after the batch was read. The sweeper deletes the
+blob before the rows, so a crash between the two leaves an expired row with no
+bytes. Reads already return 404 for that row, and the next sweep removes it. If a
+blob delete fails, its rows stay and the next sweep retries. Failed deletes are
+logged as warnings.
+
+Uploads, imports and sweeps for the same project and bytes take one lock. On
+PostgreSQL the lock is a transaction advisory lock, so it also holds across server
+instances that share the database and the media bucket. On SQLite the lock covers
+only the one process. With a versioned S3 bucket, a delete adds a delete marker;
+the earlier versions keep their bytes, and their storage cost, until a lifecycle
+rule removes them.
 
 An export that runs while a sweep is removing a row can refuse with "has no stored
 bytes". Run the export again once the sweep has finished.

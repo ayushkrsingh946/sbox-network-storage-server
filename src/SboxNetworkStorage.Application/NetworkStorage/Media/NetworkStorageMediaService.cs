@@ -151,12 +151,12 @@ public sealed class NetworkStorageMediaService
             ExpiresAtUnixMs: nowUnixMs + purpose.RetentionDays * MillisPerDay);
 
         // The sweeper takes the same lock, so a blob cannot be deleted between this existence check and the row insert that relies on it.
-        using (await LockBlobAsync(claims.ProjectId, digest, ct))
+        await WriteBlobAsync(claims.ProjectId, digest, async store =>
         {
             if (!await _blobs.ExistsAsync(claims.ProjectId, digest, ct))
                 await _blobs.WriteAsync(claims.ProjectId, digest, body, ct);
-            await _store.InsertMediaObjectAsync(record, ct);
-        }
+            await store.InsertMediaObjectAsync(record, ct);
+        }, ct);
         return MediaResult<MediaObjectRecord>.Success(record);
     }
 
@@ -190,30 +190,33 @@ public sealed class NetworkStorageMediaService
         SweepTally tally, CancellationToken ct)
     {
         using var _ = await LockBlobAsync(projectId, sha256, ct);
-
-        // A row outside this batch can still share the bytes, so the blob stays while any row other than these expired ones points at it.
-        var expiredIds = expired.Select(r => r.MediaId).ToHashSet(StringComparer.Ordinal);
-        var referenced = await _store.ListMediaIdsBySha256Async(projectId, sha256, ct);
-        if (referenced.All(expiredIds.Contains))
+        await _store.RunMediaBlobSweepAsync(projectId, sha256, async store =>
         {
-            try
+            // Read under the lock, after the batch was read: an upload or import that re-pointed one of these rows at
+            // live bytes is seen here. The blob goes only when every row that points at it is expired and in this batch.
+            var expiredIds = expired.Select(r => r.MediaId).ToHashSet(StringComparer.Ordinal);
+            var references = await store.ListMediaReferencesBySha256Async(projectId, sha256, ct);
+            if (references.All(r => r.ExpiresAtUnixMs <= nowUnixMs && expiredIds.Contains(r.MediaId)))
             {
-                await _blobs.DeleteAsync(projectId, sha256, ct);
-                tally.BlobsDeleted++;
+                try
+                {
+                    await _blobs.DeleteAsync(projectId, sha256, ct);
+                    tally.BlobsDeleted++;
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    // Rows stay expired, so the next sweep finds and retries this blob.
+                    tally.BlobFailures.Add(ex);
+                    return;
+                }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // Rows stay expired, so the next sweep finds and retries this blob.
-                tally.BlobFailures.Add(ex);
-                return;
-            }
-        }
 
-        foreach (var row in expired)
-        {
-            if (await _store.DeleteExpiredMediaObjectAsync(projectId, row.MediaId, nowUnixMs, ct))
-                tally.ObjectsDeleted++;
-        }
+            foreach (var row in expired)
+            {
+                if (await store.DeleteExpiredMediaObjectAsync(projectId, row.MediaId, nowUnixMs, ct))
+                    tally.ObjectsDeleted++;
+            }
+        }, ct);
     }
 
     /// <summary>
@@ -225,6 +228,13 @@ public sealed class NetworkStorageMediaService
         var stripe = _blobLocks[(int)((uint)HashCode.Combine(projectId, sha256) % BlobLockStripes)];
         await stripe.WaitAsync(ct);
         return new StripeRelease(stripe);
+    }
+
+    /// <summary>A blob write (upload) under the stripe lock and the store's blob lock.</summary>
+    private async Task WriteBlobAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
+    {
+        using var _ = await LockBlobAsync(projectId, sha256, ct);
+        await _store.RunMediaBlobWriteAsync(projectId, sha256, work, ct);
     }
 
     private sealed class StripeRelease(SemaphoreSlim stripe) : IDisposable

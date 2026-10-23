@@ -8,6 +8,8 @@ internal sealed class FakeMediaStore : IMediaStore
     public HashSet<string> Used { get; } = [];
     public List<MediaObjectRecord> Objects { get; } = [];
     public List<MediaGrantRecord> Grants { get; } = [];
+    /// <summary>Runs once before the next sweep decision, to stand in for another writer committing after the batch was read.</summary>
+    public Func<Task>? BeforeSweepDecision { get; set; }
 
     public Task<bool> TryInsertMediaGrantAsync(MediaGrantRecord grant, long windowStartUnixMs, int perOwnerLimit, CancellationToken ct)
     {
@@ -57,8 +59,23 @@ internal sealed class FakeMediaStore : IMediaStore
         return Task.FromResult<IReadOnlyList<MediaObjectRecord>>(rows.Take(limit).ToList());
     }
 
-    public Task<IReadOnlyList<string>> ListMediaIdsBySha256Async(string projectId, string sha256, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<string>>(Objects.Where(o => o.ProjectId == projectId && o.Sha256 == sha256).Select(o => o.MediaId).ToList());
+    public Task<IReadOnlyList<MediaReference>> ListMediaReferencesBySha256Async(string projectId, string sha256, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<MediaReference>>(Objects
+            .Where(o => o.ProjectId == projectId && o.Sha256 == sha256)
+            .Select(o => new MediaReference(o.MediaId, o.ExpiresAtUnixMs))
+            .ToList());
+
+    // The fake has no cross-process lock; the service's in-process stripes are what the sweep and upload tests exercise.
+    public Task RunMediaBlobWriteAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
+        work(this);
+
+    public async Task RunMediaBlobSweepAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
+    {
+        var hook = BeforeSweepDecision;
+        BeforeSweepDecision = null;
+        if (hook is not null) await hook();
+        await work(this);
+    }
 
     public Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct)
     {

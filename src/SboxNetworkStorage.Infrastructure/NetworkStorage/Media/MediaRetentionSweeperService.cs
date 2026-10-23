@@ -24,7 +24,8 @@ public sealed class MediaRetentionSweeperService(
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<MediaRetentionSweeperService>();
 
-    private DateTimeOffset? _nextSweep;
+    // Set once at construction, so the first sweep runs FirstSweepDelay after server start, not after the first timer tick.
+    private DateTimeOffset _nextSweep = time.GetUtcNow() + FirstSweepDelay;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -43,7 +44,6 @@ public sealed class MediaRetentionSweeperService(
     internal async Task SweepIfDueAsync(CancellationToken ct)
     {
         var now = time.GetUtcNow();
-        _nextSweep ??= now + FirstSweepDelay;
         if (now < _nextSweep) return;
 
         _nextSweep = now + SweepInterval;
@@ -57,7 +57,7 @@ public sealed class MediaRetentionSweeperService(
                 _logger.LogWarning(result.BlobFailures[0], "Media retention sweep could not delete {Count} blobs; their expired rows remain and the next sweep retries them",
                     result.BlobFailures.Count);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "Media retention sweep failed; it will run again in {Interval}", SweepInterval);
         }
