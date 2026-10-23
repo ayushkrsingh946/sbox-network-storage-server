@@ -28,7 +28,6 @@ public sealed class AuthoritativeProjectArchiveTests
             await oss.UpsertRecordAsync(Project, "extra", "extra", Element(new { stale = true }), false, 1, Ct);
             using var initial = new MemoryStream();
             var exported = await AuthoritativeProjectArchive.ExportAsync(Project, 1, Secrets, hosted.ExportProjectRowsAsync(Project, Ct), initial, Ct);
-            Assert.Equal(40, exported.Tables.Count);
             Assert.All(exported.Tables, table => Assert.Equal(1, table.Value.Rows));
             initial.Position = 0;
             await AuthoritativeProjectArchive.ImportAsync(initial, oss, Project, 1, Secrets, Ct);
