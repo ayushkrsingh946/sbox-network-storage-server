@@ -8,8 +8,8 @@ internal sealed class FakeMediaStore : IMediaStore
     public HashSet<string> Used { get; } = [];
     public List<MediaObjectRecord> Objects { get; } = [];
     public List<MediaGrantRecord> Grants { get; } = [];
-    /// <summary>Runs once before the next sweep decision, to stand in for another writer committing after the batch was read.</summary>
-    public Func<Task>? BeforeSweepDecision { get; set; }
+    /// <summary>Runs once before the next blob-locked section, to stand in for another writer committing after the batch was read.</summary>
+    public Func<Task>? BeforeNextBlobLock { get; set; }
 
     public Task<bool> TryInsertMediaGrantAsync(MediaGrantRecord grant, long windowStartUnixMs, int perOwnerLimit, CancellationToken ct)
     {
@@ -66,15 +66,19 @@ internal sealed class FakeMediaStore : IMediaStore
             .ToList());
 
     // The fake has no cross-process lock; the service's in-process stripes are what the sweep and upload tests exercise.
-    public Task RunMediaBlobWriteAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
-        work(this);
-
-    public async Task RunMediaBlobSweepAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
+    public async Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
     {
-        var hook = BeforeSweepDecision;
-        BeforeSweepDecision = null;
+        var hook = BeforeNextBlobLock;
+        BeforeNextBlobLock = null;
         if (hook is not null) await hook();
         await work(this);
+    }
+
+    public Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct) => Task.FromResult<IDisposable>(new NoGate());
+
+    private sealed class NoGate : IDisposable
+    {
+        public void Dispose() { }
     }
 
     public Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct)

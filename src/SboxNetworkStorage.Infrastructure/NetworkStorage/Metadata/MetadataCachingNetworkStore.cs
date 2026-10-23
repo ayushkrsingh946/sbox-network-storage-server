@@ -73,11 +73,11 @@ public sealed class MetadataCachingNetworkStore : INetworkStorageStore, IProject
     public Task<IReadOnlyList<MediaReference>> ListMediaReferencesBySha256Async(string projectId, string sha256, CancellationToken ct) =>
         MediaStore.ListMediaReferencesBySha256Async(projectId, sha256, ct);
 
-    public Task RunMediaBlobWriteAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
-        MediaStore.RunMediaBlobWriteAsync(projectId, sha256, work, ct);
+    public Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
+        MediaStore.RunUnderMediaBlobLockAsync(projectId, sha256, work, ct);
 
-    public Task RunMediaBlobSweepAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
-        MediaStore.RunMediaBlobSweepAsync(projectId, sha256, work, ct);
+    public Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct) =>
+        MediaStore.EnterMediaSweepGateAsync(ct);
 
     public Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct) =>
         MediaStore.DeleteExpiredMediaObjectAsync(projectId, mediaId, nowUnixMs, ct);

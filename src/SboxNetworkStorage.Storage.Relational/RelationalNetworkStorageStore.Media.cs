@@ -222,28 +222,12 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
         return references;
     }
 
-    public Task RunMediaBlobWriteAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct) =>
-        RunMediaBlobCriticalAsync(projectId, sha256, work, ct);
-
-    public async Task RunMediaBlobSweepAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
-    {
-        await _projectImportGate.WaitAsync(ct);
-        try
-        {
-            await RunMediaBlobCriticalAsync(projectId, sha256, work, ct);
-        }
-        finally
-        {
-            _projectImportGate.Release();
-        }
-    }
-
     /// <summary>
     /// Runs <paramref name="work"/> under the blob lock for (project, sha256). Inside a project import the lock joins the
     /// import transaction. Outside one, a provider with cross-process locks gets its own transaction, which holds the
     /// lock and the rows <paramref name="work"/> writes until it commits. Other providers run the work directly.
     /// </summary>
-    private async Task RunMediaBlobCriticalAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
+    public async Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
     {
         StoreValidation.Id(projectId);
         var key = $"{projectId}:{sha256}";
@@ -263,6 +247,21 @@ public abstract partial class RelationalNetworkStorageStore : IMediaStore
         await LockMediaBlobKeyAsync(connection, transaction, key, ct);
         await work(Bind(transaction));
         await transaction.CommitAsync(ct);
+    }
+
+    /// <summary>
+    /// Waits until no project import runs in this process, and holds that place until the handle is disposed. The
+    /// caller takes it before any blob lock, so a sweep waiting out an import never holds a blob lock.
+    /// </summary>
+    public async Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct)
+    {
+        await _projectImportGate.WaitAsync(ct);
+        return new GateRelease(_projectImportGate);
+    }
+
+    private sealed class GateRelease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
     }
 
     public async Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct)

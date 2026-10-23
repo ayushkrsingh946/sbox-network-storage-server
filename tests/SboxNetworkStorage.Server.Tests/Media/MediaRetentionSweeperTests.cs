@@ -246,7 +246,7 @@ public sealed class MediaRetentionSweeperTests
         blobs.Items[(ProjectId, sha)] = bytes;
         store.Objects.Add(Row("med_old", bytes, Expired));
         // Another writer re-points the row at live bytes after the sweep read the batch and before it decides.
-        store.BeforeSweepDecision = () =>
+        store.BeforeNextBlobLock = () =>
         {
             store.Objects.RemoveAll(o => o.MediaId == "med_old");
             store.Objects.Add(Row("med_old", bytes, Live));

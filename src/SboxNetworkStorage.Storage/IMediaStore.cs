@@ -58,18 +58,19 @@ public interface IMediaStore
     Task<bool> DeleteExpiredMediaObjectAsync(string projectId, string mediaId, long nowUnixMs, CancellationToken ct);
 
     /// <summary>
-    /// Runs <paramref name="work"/> while holding the blob lock for (project, sha256). A blob write (upload or archive
-    /// import) takes this lock. On PostgreSQL it is a transaction advisory lock that holds across server instances, and
+    /// Runs <paramref name="work"/> while holding the blob lock for (project, sha256). Uploads, archive imports and
+    /// sweeps all take this lock. On PostgreSQL it is a transaction advisory lock that holds across server instances, and
     /// <paramref name="work"/> runs on that transaction, so the rows it writes commit with the lock release. Inside a
     /// project import the lock lasts until the import transaction ends.
     /// </summary>
-    Task RunMediaBlobWriteAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct);
+    Task RunUnderMediaBlobLockAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct);
 
     /// <summary>
-    /// The same lock as <see cref="RunMediaBlobWriteAsync"/>, for a sweep that may delete the blob. It also waits for any
-    /// project import running in this process, so a sweep never deletes bytes whose rows have not committed yet.
+    /// Waits until no project import is running in this process, and holds that position until the returned handle is
+    /// disposed. A sweep takes it before any blob lock, so it never deletes bytes whose rows have not committed yet, and
+    /// a sweep waiting out an import holds no blob lock that uploads need.
     /// </summary>
-    Task RunMediaBlobSweepAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct);
+    Task<IDisposable> EnterMediaSweepGateAsync(CancellationToken ct);
 }
 
 public sealed record MediaGrantRecord(

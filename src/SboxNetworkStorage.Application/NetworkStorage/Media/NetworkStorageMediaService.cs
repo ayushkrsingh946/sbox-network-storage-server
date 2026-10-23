@@ -150,8 +150,13 @@ public sealed class NetworkStorageMediaService
             OwnerSteamId: claims.OwnerSteamId, Visibility: purpose.Visibility, CreatedAtUnixMs: nowUnixMs,
             ExpiresAtUnixMs: nowUnixMs + purpose.RetentionDays * MillisPerDay);
 
-        // The sweeper takes the same lock, so a blob cannot be deleted between this existence check and the row insert that relies on it.
-        await WriteBlobAsync(claims.ProjectId, digest, async store =>
+        // Content-addressed and idempotent, so the bytes are written before the blob lock: no pooled connection is held
+        // across blob I/O. The sweeper deletes bytes only under the lock, so the locked step re-checks and rewrites.
+        if (!await _blobs.ExistsAsync(claims.ProjectId, digest, ct))
+            await _blobs.WriteAsync(claims.ProjectId, digest, body, ct);
+
+        using var _ = await LockBlobAsync(claims.ProjectId, digest, ct);
+        await _store.RunUnderMediaBlobLockAsync(claims.ProjectId, digest, async store =>
         {
             if (!await _blobs.ExistsAsync(claims.ProjectId, digest, ct))
                 await _blobs.WriteAsync(claims.ProjectId, digest, body, ct);
@@ -189,8 +194,10 @@ public sealed class NetworkStorageMediaService
     private async Task SweepBlobAsync(string projectId, string sha256, List<MediaObjectRecord> expired, long nowUnixMs,
         SweepTally tally, CancellationToken ct)
     {
+        // Gate before stripe: a sweep waiting out a project import must not hold a stripe that uploads need.
+        using var _gate = await _store.EnterMediaSweepGateAsync(ct);
         using var _ = await LockBlobAsync(projectId, sha256, ct);
-        await _store.RunMediaBlobSweepAsync(projectId, sha256, async store =>
+        await _store.RunUnderMediaBlobLockAsync(projectId, sha256, async store =>
         {
             // Read under the lock, after the batch was read: an upload or import that re-pointed one of these rows at
             // live bytes is seen here. The blob goes only when every row that points at it is expired and in this batch.
@@ -228,13 +235,6 @@ public sealed class NetworkStorageMediaService
         var stripe = _blobLocks[(int)((uint)HashCode.Combine(projectId, sha256) % BlobLockStripes)];
         await stripe.WaitAsync(ct);
         return new StripeRelease(stripe);
-    }
-
-    /// <summary>A blob write (upload) under the stripe lock and the store's blob lock.</summary>
-    private async Task WriteBlobAsync(string projectId, string sha256, Func<IMediaStore, Task> work, CancellationToken ct)
-    {
-        using var _ = await LockBlobAsync(projectId, sha256, ct);
-        await _store.RunMediaBlobWriteAsync(projectId, sha256, work, ct);
     }
 
     private sealed class StripeRelease(SemaphoreSlim stripe) : IDisposable

@@ -259,10 +259,13 @@ bytes. Reads already return 404 for that row, and the next sweep removes it. If 
 blob delete fails, its rows stay and the next sweep retries. Failed deletes are
 logged as warnings.
 
-Uploads, imports and sweeps for the same project and bytes take one lock. On
-PostgreSQL the lock is a transaction advisory lock, so it also holds across server
-instances that share the database and the media bucket. On SQLite the lock covers
-only the one process. With a versioned S3 bucket, a delete adds a delete marker;
+Uploads, imports and sweeps for the same project and bytes take one lock. An upload
+writes its bytes before it takes the lock and re-checks them under the lock, so no
+database connection is held across blob I/O. A sweep waits for any project import
+running in the same process before it takes the lock. On PostgreSQL the lock is a
+transaction advisory lock, so it also holds across server instances that share the
+database and the media bucket. On SQLite the lock covers only the one process. With
+a versioned S3 bucket, a delete adds a delete marker;
 the earlier versions keep their bytes, and their storage cost, until a lifecycle
 rule removes them.
 
